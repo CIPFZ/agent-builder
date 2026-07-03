@@ -247,8 +247,6 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			}
 		case runtimeapi.EventTaskResultUpdated:
 			summary.AgentTaskResults = append(summary.AgentTaskResults, runtimeReplayTaskResultFromEvent(event))
-		case runtimeapi.EventBudgetUpdated:
-			summary.Budget = runtimeBudgetReportFromPayload(event.Payload)
 		case runtimeapi.EventWorktreeCreated, runtimeapi.EventWorktreeEntered, runtimeapi.EventWorktreeExited, runtimeapi.EventWorktreeCleaned, runtimeapi.EventWorktreeCleanupFailed, runtimeapi.EventWorktreePolicyDenied, runtimeapi.EventWorktreeRecovered, runtimeapi.EventWorktreeMissingPath, runtimeapi.EventWorktreePreserved:
 			if wt := runtimeWorktreeFromPayload(event.Payload); wt.ID != "" {
 				summary.Worktrees = appendRuntimeReplayWorktree(summary.Worktrees, wt)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"charm.land/fantasy"
+	"github.com/CIPFZ/agent-builder/internal/message"
 )
 
 func usageIsZero(usage fantasy.Usage) bool {
@@ -13,6 +14,16 @@ func usageIsZero(usage fantasy.Usage) bool {
 		usage.ReasoningTokens == 0 &&
 		usage.CacheCreationTokens == 0 &&
 		usage.CacheReadTokens == 0
+}
+
+func messageUsageFromFantasy(usage fantasy.Usage) message.Usage {
+	return message.Usage{
+		InputTokens:         usage.InputTokens,
+		OutputTokens:        usage.OutputTokens,
+		CacheReadTokens:     usage.CacheReadTokens,
+		CacheCreationTokens: usage.CacheCreationTokens,
+		ReasoningTokens:     usage.ReasoningTokens,
+	}
 }
 
 func fallbackStepUsage(messages []fantasy.Message, step fantasy.StepResult) (fantasy.Usage, bool) {

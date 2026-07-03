@@ -122,10 +122,35 @@ export interface ComposerViewModel {
   permissionOptions: PermissionModeOptionViewModel[];
   modelLabel: string;
   capabilityLabel: string;
+  contextUsage?: ContextUsageViewModel;
   selectedModel?: RuntimeModelOptionViewModel;
   modelOptions: RuntimeModelOptionViewModel[];
   busy?: boolean;
   activeTurnId?: string;
+}
+
+export interface ContextUsageViewModel {
+  sessionId: string;
+  model: string;
+  contextWindow: number;
+  usedTokens: number;
+  percentUsed: number;
+  autoCompactAt: number;
+  percentLeft: number;
+  level: 'ok' | 'warning' | 'error' | string;
+  estimated: boolean;
+  outputReserve: number;
+  autoCompactBuffer: number;
+  breakdown: ContextUsageCategoryViewModel[];
+  compactCount: number;
+  updatedAt: number;
+}
+
+export interface ContextUsageCategoryViewModel {
+  key: string;
+  label: string;
+  tokens: number;
+  estimated: boolean;
 }
 
 export interface RuntimeUserInputRequestViewModel {

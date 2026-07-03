@@ -4523,8 +4523,8 @@ func TestRecordRuntimeEventConvertsSessionAndPermissionPayloads(t *testing.T) {
 func TestTurnRuntimeEventsCarryUsageAndStatus(t *testing.T) {
 	t.Parallel()
 
-	usage := RuntimeUsage{PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7, Cost: 0.01}
-	delta := RuntimeUsage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3, Cost: 0.001}
+	usage := RuntimeUsage{InputTokens: 3, OutputTokens: 4, CacheReadTokens: 1, CacheCreationTokens: 2, TotalTokens: 10, Cost: 0.01}
+	delta := RuntimeUsage{InputTokens: 1, OutputTokens: 2, CacheReadTokens: 1, CacheCreationTokens: 0, TotalTokens: 4, Cost: 0.001}
 	usageEvent := newUsageRuntimeEvent(time.Now(), "turn-1", "session-1", usage, delta)
 	if usageEvent.Type != runtimeapi.EventUsageUpdated || usageEvent.TurnID != "turn-1" {
 		t.Fatalf("usage event = %#v", usageEvent)
@@ -4634,6 +4634,8 @@ type recordingRuntimeService struct {
 	renamedSession             RuntimeSessionUpdateRequest
 	deletedSession             string
 	messageSession             string
+	contextUsage               RuntimeContextUsage
+	contextUsageSession        string
 	outputSession              string
 	outputRequest              RuntimeOutputRequest
 	output                     RuntimeOutputSnapshot
@@ -5221,6 +5223,14 @@ func (s *recordingRuntimeService) DeleteSession(_ context.Context, sessionID str
 func (s *recordingRuntimeService) SessionMessages(_ context.Context, sessionID string) (RuntimeMessagesResponse, error) {
 	s.messageSession = sessionID
 	return RuntimeMessagesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SessionContextUsage(_ context.Context, sessionID string) (RuntimeContextUsage, error) {
+	s.contextUsageSession = sessionID
+	if s.contextUsage.SessionID == "" {
+		s.contextUsage.SessionID = sessionID
+	}
+	return s.contextUsage, nil
 }
 
 func (s *recordingRuntimeService) SessionOutput(_ context.Context, sessionID string, req RuntimeOutputRequest) (RuntimeOutputSnapshot, error) {

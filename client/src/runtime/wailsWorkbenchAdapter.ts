@@ -6,6 +6,7 @@ import type {
   ConfiguredProviderViewModel,
   CompactBoundaryViewModel,
   ContextDiagnosticsViewModel,
+  ContextUsageViewModel,
   ConversationMessageViewModel,
   ConversationTimelineItemViewModel,
   CreateProjectRequestViewModel,
@@ -1139,6 +1140,30 @@ interface RuntimeBudgetBucketDTO {
   estimatedTokens?: number;
 }
 
+interface RuntimeContextUsageDTO {
+  sessionId?: string;
+  model?: string;
+  contextWindow?: number;
+  usedTokens?: number;
+  percentUsed?: number;
+  autoCompactAt?: number;
+  percentLeft?: number;
+  level?: string;
+  estimated?: boolean;
+  outputReserve?: number;
+  autoCompactBuffer?: number;
+  breakdown?: RuntimeContextCategoryDTO[];
+  compactCount?: number;
+  updatedAt?: number;
+}
+
+interface RuntimeContextCategoryDTO {
+  key?: string;
+  label?: string;
+  tokens?: number;
+  estimated?: boolean;
+}
+
 interface RuntimeRunProjectionRequestDTO {
   sessionId: string;
   cursor?: string;
@@ -1623,6 +1648,7 @@ interface RuntimeBridgeModule {
   MarkInterruptedDone?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
   Messages?: () => Promise<RuntimeMessagesResponseDTO>;
   SessionMessages?: (sessionID: string) => Promise<RuntimeMessagesResponseDTO>;
+  SessionContextUsage?: (sessionID: string) => Promise<RuntimeContextUsageDTO>;
   SessionOutput?: (sessionID: string, req: { snapshot?: boolean; cursor?: string; limit?: number }) => Promise<RuntimeOutputSnapshot>;
   SessionOutputEvents?: (sessionID: string, after: string) => Promise<RuntimeOutputEventsResponse>;
   StartSessionOutputStream?: (req: { sessionId: string; streamId?: string; after?: string }) => Promise<{ streamId: string; eventName: string }>;
@@ -3151,6 +3177,35 @@ function mapBudgetBucket(bucket?: RuntimeBudgetBucketDTO) {
   };
 }
 
+function mapContextUsage(usage?: RuntimeContextUsageDTO): ContextUsageViewModel | undefined {
+  if (!usage) {
+    return undefined;
+  }
+  return {
+    sessionId: usage.sessionId ?? '',
+    model: usage.model ?? '',
+    contextWindow: usage.contextWindow ?? 0,
+    usedTokens: usage.usedTokens ?? 0,
+    percentUsed: usage.percentUsed ?? 0,
+    autoCompactAt: usage.autoCompactAt ?? 0,
+    percentLeft: usage.percentLeft ?? 0,
+    level: usage.level ?? 'ok',
+    estimated: Boolean(usage.estimated),
+    outputReserve: usage.outputReserve ?? 0,
+    autoCompactBuffer: usage.autoCompactBuffer ?? 0,
+    compactCount: usage.compactCount ?? 0,
+    updatedAt: usage.updatedAt ?? 0,
+    breakdown: Array.isArray(usage.breakdown)
+      ? usage.breakdown.map((category) => ({
+          key: category.key ?? '',
+          label: category.label ?? category.key ?? '',
+          tokens: category.tokens ?? 0,
+          estimated: Boolean(category.estimated),
+        }))
+      : [],
+  };
+}
+
 export function attachContextGovernanceToTimeline(
   items: ConversationTimelineItemViewModel[],
   diagnostics?: ContextDiagnosticsViewModel,
@@ -3687,6 +3742,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     agentTasks,
     todos,
     agentRoles,
+    contextUsage,
   ] = await Promise.all([
     fullHydration ? hydrateHooks(bridge) : Promise.resolve(undefined),
     activeSessionID ? hydrateHookExecutions(bridge, activeSessionID) : Promise.resolve(summarizeHookExecutions([])),
@@ -3707,6 +3763,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     activeSessionID ? hydrateAgentTasks(bridge, activeSessionID) : Promise.resolve(undefined),
     activeSessionID ? hydrateTodos(bridge, activeSessionID) : Promise.resolve(undefined),
     fullHydration ? hydrateAgentRoles(bridge) : Promise.resolve(undefined),
+    activeSessionID ? optionalRuntimeRequest(() => bridge.SessionContextUsage?.(activeSessionID) ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ])
   const outputStore = outputSnapshot ? hydrateOutputStore(outputSnapshot, current.outputStore) : current.outputStore;
   const modelOptionList = modelsResponse ? modelOptions(modelsResponse) : current.composer.modelOptions;
@@ -3788,6 +3845,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       permissionOptions: permissionModeOptions,
       modelLabel: modelLabel(status, modelsResponse),
       capabilityLabel: capabilityLabel(skills, mcpServers),
+      contextUsage: mapContextUsage(contextUsage) ?? (current.composer.contextUsage?.sessionId === activeSessionID ? current.composer.contextUsage : undefined),
       selectedModel,
       modelOptions: modelOptionList,
       busy,

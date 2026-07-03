@@ -44,6 +44,7 @@ var Endpoints = []Endpoint{
 	{Method: MethodPost, Path: "/v1/sessions"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/messages"},
+	{Method: MethodGet, Path: "/v1/sessions/{session_id}/context-usage"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/activity-window"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/run-projection"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/todos"},
@@ -219,7 +220,7 @@ const (
 	EventReadFileRecorded              = "read_file.recorded"
 	EventReadFileStale                 = "read_file.stale"
 	EventReadFileMissing               = "read_file.missing"
-	EventBudgetUpdated                 = "budget.updated"
+	EventContextUsageUpdated           = "context.usage.updated"
 	EventCompactBoundaryRecorded       = "compact.boundary.recorded"
 	EventCompactMicroCompleted         = "compact.micro.completed"
 	EventCompactFullCompleted          = "compact.full.completed"
@@ -394,7 +395,7 @@ var EventTypes = []string{
 	EventReadFileRecorded,
 	EventReadFileStale,
 	EventReadFileMissing,
-	EventBudgetUpdated,
+	EventContextUsageUpdated,
 	EventCompactBoundaryRecorded,
 	EventCompactMicroCompleted,
 	EventCompactFullCompleted,

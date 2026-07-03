@@ -48,6 +48,7 @@ type Message struct {
 	Provider         sql.NullString `json:"provider"`
 	IsSummaryMessage int64          `json:"is_summary_message"`
 	MetadataJson     sql.NullString `json:"metadata_json"`
+	UsageJson        sql.NullString `json:"usage_json"`
 }
 
 type MessageSearchFt struct {

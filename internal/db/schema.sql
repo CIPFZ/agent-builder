@@ -49,7 +49,7 @@ CREATE TABLE messages (
     model TEXT,
     created_at INTEGER NOT NULL,  -- Unix timestamp in milliseconds
     updated_at INTEGER NOT NULL,  -- Unix timestamp in milliseconds
-    finished_at INTEGER, provider TEXT, is_summary_message INTEGER DEFAULT 0 NOT NULL, metadata_json TEXT,  -- Unix timestamp in milliseconds
+    finished_at INTEGER, provider TEXT, is_summary_message INTEGER DEFAULT 0 NOT NULL, metadata_json TEXT, usage_json TEXT,  -- Unix timestamp in milliseconds
     FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
 );
 

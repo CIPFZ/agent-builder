@@ -2089,10 +2089,36 @@ type RuntimeRequests struct {
 }
 
 type RuntimeUsage struct {
-	PromptTokens     int64   `json:"promptTokens"`
-	CompletionTokens int64   `json:"completionTokens"`
-	TotalTokens      int64   `json:"totalTokens"`
-	Cost             float64 `json:"cost"`
+	InputTokens         int64   `json:"input"`
+	OutputTokens        int64   `json:"output"`
+	CacheReadTokens     int64   `json:"cacheRead"`
+	CacheCreationTokens int64   `json:"cacheCreation"`
+	TotalTokens         int64   `json:"total"`
+	Cost                float64 `json:"cost"`
+}
+
+type RuntimeContextUsage struct {
+	SessionID         string                   `json:"sessionId"`
+	Model             string                   `json:"model"`
+	ContextWindow     int                      `json:"contextWindow"`
+	UsedTokens        int                      `json:"usedTokens"`
+	PercentUsed       int                      `json:"percentUsed"`
+	AutoCompactAt     int                      `json:"autoCompactAt"`
+	PercentLeft       int                      `json:"percentLeft"`
+	Level             string                   `json:"level"`
+	Estimated         bool                     `json:"estimated"`
+	OutputReserve     int                      `json:"outputReserve"`
+	AutoCompactBuffer int                      `json:"autoCompactBuffer"`
+	Breakdown         []RuntimeContextCategory `json:"breakdown"`
+	CompactCount      int                      `json:"compactCount"`
+	UpdatedAt         int64                    `json:"updatedAt"`
+}
+
+type RuntimeContextCategory struct {
+	Key       string `json:"key"`
+	Label     string `json:"label"`
+	Tokens    int    `json:"tokens"`
+	Estimated bool   `json:"estimated"`
 }
 
 type RuntimeEventStats struct {

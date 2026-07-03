@@ -240,7 +240,7 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 	}
 	contextSummary := r.recordTurnContextSources(sessionID, requestID, contextResp.Sources)
 	budget := r.computeRuntimeBudget(ctx, sessionID, requestID, status.Model, len(prompt), &contextSummary)
-	r.publishBudgetUpdated(sessionID, requestID, budget)
+	r.publishContextUsageUpdated(ctx, sessionID, requestID, status.Model, len(prompt), &contextSummary)
 
 	slog.Info("Desktop chat queued", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "prompt_len", len(prompt))
 	r.writeAudit(auditEntry{
@@ -774,7 +774,7 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 		entry.ToolCalls = toolCalls
 	}
 	budgetAfterTurn := r.computeRuntimeBudget(context.Background(), sessionID, requestID, model, len(prompt), nil)
-	r.publishBudgetUpdated(sessionID, requestID, budgetAfterTurn)
+	r.publishContextUsageUpdated(context.Background(), sessionID, requestID, model, len(prompt), nil)
 	entry.Budget = &budgetAfterTurn
 	if err != nil && !stateCancelled(r, requestID) {
 		entry.Event = "failed"
@@ -891,10 +891,12 @@ func (r *runtimeService) auditToolCalls(ctx context.Context, workspaceID, sessio
 
 func (u RuntimeUsage) Sub(before RuntimeUsage) RuntimeUsage {
 	return RuntimeUsage{
-		PromptTokens:     u.PromptTokens - before.PromptTokens,
-		CompletionTokens: u.CompletionTokens - before.CompletionTokens,
-		TotalTokens:      u.TotalTokens - before.TotalTokens,
-		Cost:             u.Cost - before.Cost,
+		InputTokens:         u.InputTokens - before.InputTokens,
+		OutputTokens:        u.OutputTokens - before.OutputTokens,
+		CacheReadTokens:     u.CacheReadTokens - before.CacheReadTokens,
+		CacheCreationTokens: u.CacheCreationTokens - before.CacheCreationTokens,
+		TotalTokens:         u.TotalTokens - before.TotalTokens,
+		Cost:                u.Cost - before.Cost,
 	}
 }
 

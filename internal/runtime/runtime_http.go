@@ -362,6 +362,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && sessionMessagesPathID(r.URL.Path) != "":
 		value, err := s.service.SessionMessages(r.Context(), sessionMessagesPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionContextUsagePathID(r.URL.Path) != "":
+		value, err := s.service.SessionContextUsage(r.Context(), sessionContextUsagePathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionOutputStreamPathID(r.URL.Path) != "":
 		s.handleSessionOutputStream(w, r, sessionOutputStreamPathID(r.URL.Path))
 	case r.Method == http.MethodGet && sessionOutputEventsPathID(r.URL.Path) != "":
@@ -1028,6 +1031,9 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 		return value, err, true
 	case method == http.MethodGet && sessionMessagesPathID(path) != "":
 		value, err := s.service.SessionMessages(r.Context(), sessionMessagesPathID(path))
+		return value, err, true
+	case method == http.MethodGet && sessionContextUsagePathID(path) != "":
+		value, err := s.service.SessionContextUsage(r.Context(), sessionContextUsagePathID(path))
 		return value, err, true
 	case method == http.MethodGet && sessionOutputEventsPathID(path) != "":
 		value, err := s.service.SessionOutputEvents(r.Context(), sessionOutputEventsPathID(path), runtimeDevModuleCursor(r, pathQuery))
@@ -1714,6 +1720,10 @@ func mcpRequestPathID(path string) string {
 
 func sessionMessagesPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/messages")
+}
+
+func sessionContextUsagePathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/context-usage")
 }
 
 func sessionOutputPathID(path string) string {

@@ -17,6 +17,7 @@ type CreateMessageParams struct {
 	Parts            []ContentPart
 	Model            string
 	Provider         string
+	Usage            Usage
 	Metadata         map[string]string
 	IsSummaryMessage bool
 }
@@ -74,6 +75,10 @@ func (s *service) Create(ctx context.Context, sessionID string, params CreateMes
 	if err != nil {
 		return Message{}, err
 	}
+	usageJSON, err := marshalUsage(params.Usage)
+	if err != nil {
+		return Message{}, err
+	}
 	isSummary := int64(0)
 	if params.IsSummaryMessage {
 		isSummary = 1
@@ -87,6 +92,7 @@ func (s *service) Create(ctx context.Context, sessionID string, params CreateMes
 		Provider:         sql.NullString{String: params.Provider, Valid: params.Provider != ""},
 		IsSummaryMessage: isSummary,
 		MetadataJson:     sql.NullString{String: metadataJSON, Valid: metadataJSON != ""},
+		UsageJson:        sql.NullString{String: usageJSON, Valid: usageJSON != ""},
 	})
 	if err != nil {
 		return Message{}, err
@@ -122,6 +128,10 @@ func (s *service) Update(ctx context.Context, message Message) error {
 	if err != nil {
 		return err
 	}
+	usageJSON, err := marshalUsage(message.Usage)
+	if err != nil {
+		return err
+	}
 	finishedAt := sql.NullInt64{}
 	if f := message.FinishPart(); f != nil {
 		finishedAt.Int64 = f.Time
@@ -131,6 +141,7 @@ func (s *service) Update(ctx context.Context, message Message) error {
 		ID:         message.ID,
 		Parts:      string(parts),
 		FinishedAt: finishedAt,
+		UsageJson:  sql.NullString{String: usageJSON, Valid: usageJSON != ""},
 	})
 	if err != nil {
 		return err
@@ -207,11 +218,34 @@ func (s *service) fromDBItem(item db.Message) (Message, error) {
 		Parts:            parts,
 		Model:            item.Model.String,
 		Provider:         item.Provider.String,
+		Usage:            usageFromJSONString(item.UsageJson.String),
 		Metadata:         metadataFromJSONString(item.MetadataJson.String),
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,
 		IsSummaryMessage: item.IsSummaryMessage != 0,
 	}, nil
+}
+
+func marshalUsage(usage Usage) (string, error) {
+	if usage.IsZero() {
+		return "", nil
+	}
+	data, err := json.Marshal(usage)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode message usage: %w", err)
+	}
+	return string(data), nil
+}
+
+func usageFromJSONString(raw string) Usage {
+	if raw == "" {
+		return Usage{}
+	}
+	var usage Usage
+	if err := json.Unmarshal([]byte(raw), &usage); err != nil {
+		return Usage{}
+	}
+	return usage
 }
 
 func marshalMetadata(metadata map[string]string) (string, error) {

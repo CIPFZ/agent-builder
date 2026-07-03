@@ -505,6 +505,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 				return sessionErr
 			}
 			currentSession = updatedSession
+			currentAssistant.Usage = messageUsageFromFantasy(usage)
 			return a.messages.Update(genCtx, *currentAssistant)
 		},
 		StopWhen: []fantasy.StopCondition{

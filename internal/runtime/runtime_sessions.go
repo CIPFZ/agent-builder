@@ -857,10 +857,10 @@ func (r *runtimeService) sessionUsage(ctx context.Context, workspaceID, sessionI
 		return RuntimeUsage{}, fmt.Errorf("failed to read Agent Builder session usage: %w", err)
 	}
 	return RuntimeUsage{
-		PromptTokens:     sess.PromptTokens,
-		CompletionTokens: sess.CompletionTokens,
-		TotalTokens:      sess.PromptTokens + sess.CompletionTokens,
-		Cost:             sess.Cost,
+		InputTokens:  sess.PromptTokens,
+		OutputTokens: sess.CompletionTokens,
+		TotalTokens:  sess.PromptTokens + sess.CompletionTokens,
+		Cost:         sess.Cost,
 	}, nil
 }
 
@@ -874,10 +874,10 @@ func toRuntimeSessions(sessions []session.Session, activeID, workspaceID string)
 
 func toRuntimeSession(sess session.Session, activeID, workspaceID string) RuntimeSession {
 	usage := RuntimeUsage{
-		PromptTokens:     sess.PromptTokens,
-		CompletionTokens: sess.CompletionTokens,
-		TotalTokens:      sess.PromptTokens + sess.CompletionTokens,
-		Cost:             sess.Cost,
+		InputTokens:  sess.PromptTokens,
+		OutputTokens: sess.CompletionTokens,
+		TotalTokens:  sess.PromptTokens + sess.CompletionTokens,
+		Cost:         sess.Cost,
 	}
 	projectID, scope := normalizeRuntimeSessionOwnership(sess.ProjectID, sess.Scope)
 	return RuntimeSession{

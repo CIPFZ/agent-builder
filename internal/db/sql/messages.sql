@@ -19,10 +19,11 @@ INSERT INTO messages (
     provider,
     is_summary_message,
     metadata_json,
+    usage_json,
     created_at,
     updated_at
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'), strftime('%s', 'now')
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'), strftime('%s', 'now')
 )
 RETURNING *;
 
@@ -31,6 +32,7 @@ UPDATE messages
 SET
     parts = ?,
     finished_at = ?,
+    usage_json = ?,
     updated_at = strftime('%s', 'now')
 WHERE id = ?;
 

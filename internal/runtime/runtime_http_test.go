@@ -1146,6 +1146,32 @@ func TestRuntimeHTTPServerRoutesSessionOutputToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesSessionContextUsageToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		contextUsage: RuntimeContextUsage{SessionID: "session-1", UsedTokens: 456, PercentUsed: 23},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/sessions/session-1/context-usage", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	var usage RuntimeContextUsage
+	if err := json.Unmarshal(resp.body.Bytes(), &usage); err != nil {
+		t.Fatal(err)
+	}
+	if service.contextUsageSession != "session-1" || usage.UsedTokens != 456 {
+		t.Fatalf("usage=%#v session=%q", usage, service.contextUsageSession)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesRunTransitionHistoryToRuntimeService(t *testing.T) {
 	t.Parallel()
 

@@ -283,7 +283,7 @@ Breakdown 分类与来源(全部本地估算,不做 count-tokens API):`system_pr
 | PR | 内容 | 关键验证 |
 |---|---|---|
 | **PR1 模型元数据与窗口解析** | `internal/modelmeta`、configured_providers 列重构、`model_metadata_cache`、discovery 升级、删三处硬编码、Provider 编辑弹窗模型表格 | 已完成(2026-07-03); `modelmeta.Resolve` 全链路单测(五级优先级);配置模型后 budget/agent 拿到真值;`go test ./... && cd client && npm run build` |
-| **PR2 计量与指示器** | messages.usage_json、锚点计量 `computeContextUsage`、`RuntimeContextUsage` + `context.usage.updated`(删 budget.updated)、RuntimeUsage 加 cache 字段、Composer 圆环 + Popover + 警告条 | 锚点选取单测(boundary 之后、非 synthetic、并行 tool call 回溯);模拟 usage 事件的前端 smoke;手动长对话看百分比爬升 |
+| **PR2 计量与指示器** | messages.usage_json、锚点计量 `computeContextUsage`、`RuntimeContextUsage` + `context.usage.updated`(删 budget.updated)、RuntimeUsage 加 cache 字段、Composer 圆环 + Popover + 警告条 | 已完成(2026-07-04); 锚点选取单测(boundary 之后、非 synthetic、并行 tool call 回溯);模拟 usage 事件的前端 smoke;手动长对话看百分比爬升 |
 | **PR3 手动压缩全链路** | summarizer(9 节 prompt + PTL 重试 + 启发式降级)、full compact 重建(摘要消息/boundary/重注入/hooks/边界配对校验)、compact.* 事件、compact_boundary 两段式 item、CompactDivider、`/compact` 命令、删 attachContextGovernanceToTimeline | 压缩后新请求只含 boundary 后内容(投影断言);tool_use/result 配对不拆散单测;E2E:长对话 → /compact → divider 转圈 → 完成展开摘要 → 继续对话上下文连贯 |
 | **PR4 自动触发与防线** | contextGovernance 配置注入、autoCompact 阈值判定(D2/D3)、熔断、blocking、reactive 接线、警告抑制时序、microcompact 激活 | 阈值公式单测(200k/1M/64k 三档);`autoCompactPercent=0.05` 人工验证整条链路;reactive:mock provider 413 → 压缩重试成功;熔断:连续失败 3 次停手 |
 | **PR5 清理与打磨** | 删 runtime_compact_boundaries 表/store/DTO、删四个 timeline kind 与旧渲染、删假 governance 数据、"上下文"设置分区、diagnostics 对齐、README 索引 | `go test ./...`、全前端 smoke、契约测试断言无孤儿事件类型 |
