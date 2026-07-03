@@ -22,6 +22,7 @@ import type {
   PermissionRequestViewModel,
   ProviderDraftDiscoveryRequestViewModel,
   ProviderModelDiscoveryViewModel,
+  ProviderModelViewModel,
   ProviderTestViewModel,
   ProviderCatalogItemViewModel,
   ProjectActionRequestViewModel,
@@ -323,7 +324,8 @@ interface RuntimeConfiguredProviderDTO {
   hasApiKey?: boolean;
   proxy?: string;
   defaultModel?: string;
-  models?: string[];
+  models?: ProviderModelViewModel[];
+  defaultContextWindow?: number;
   enabled: boolean;
 }
 
@@ -337,7 +339,8 @@ interface RuntimeConfiguredProviderRequestDTO {
   apiKey?: string;
   proxy?: string;
   defaultModel?: string;
-  models?: string[];
+  models?: ProviderModelViewModel[];
+  defaultContextWindow?: number;
   enabled: boolean;
 }
 
@@ -1956,7 +1959,8 @@ function mapConfiguredProviders(response?: RuntimeConfiguredProvidersResponseDTO
     apiEndpoint: provider.apiEndpoint,
     protocol: provider.protocol,
     defaultModel: provider.defaultModel,
-    models: provider.models,
+    models: provider.models?.map(mapProviderModel),
+    defaultContextWindow: provider.defaultContextWindow,
     tokenConfigured: provider.hasApiKey,
     token: provider.apiKey,
     proxy: provider.proxy,
@@ -3297,7 +3301,13 @@ function toConfiguredProviderRequest(provider: ConfiguredProviderViewModel & { t
     apiKey: provider.token,
     proxy: provider.proxy,
     defaultModel: provider.defaultModel,
-    models: provider.models,
+    models: provider.models?.map((model) => ({
+      id: model.id,
+      displayName: model.displayName,
+      contextWindow: model.contextWindow,
+      maxOutputTokens: model.maxOutputTokens,
+    })),
+    defaultContextWindow: provider.defaultContextWindow,
     enabled: true,
   };
 }
@@ -3315,8 +3325,29 @@ function toRuntimeModelConfigRequest(request: ProviderDraftDiscoveryRequestViewM
 function mapDraftModelDiscovery(response: RuntimeModelDiscoveryResponseDTO): ProviderModelDiscoveryViewModel {
   return {
     providerId: 'draft',
-    models: Array.isArray(response.models) ? response.models : [],
+    models: providerModelsFromIDs(response.models),
     error: response.error,
+  };
+}
+
+function providerModelsFromIDs(models?: string[]): ProviderModelViewModel[] {
+  return Array.isArray(models)
+    ? models
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .map((id) => ({ id }))
+    : [];
+}
+
+function mapProviderModel(model: ProviderModelViewModel): ProviderModelViewModel {
+  return {
+    id: model.id,
+    displayName: model.displayName,
+    contextWindow: model.source === 'user_override' ? model.contextWindow : undefined,
+    maxOutputTokens: model.source === 'user_override' ? model.maxOutputTokens : undefined,
+    resolvedContextWindow: model.contextWindow,
+    resolvedMaxOutputTokens: model.maxOutputTokens,
+    source: model.source,
   };
 }
 
@@ -4670,7 +4701,11 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
   async discoverConfiguredProviderModels(providerID) {
     const bridge = await loadRuntimeBridge();
     if (bridge?.DiscoverConfiguredProviderModels) {
-      return bridge.DiscoverConfiguredProviderModels(providerID);
+      const response = await bridge.DiscoverConfiguredProviderModels(providerID);
+      return {
+        ...response,
+        models: response.models.map(mapProviderModel),
+      };
     }
     return staticWorkbenchAdapter.discoverConfiguredProviderModels(providerID);
   },

@@ -11,11 +11,22 @@ CREATE TABLE configured_providers (
     api_key_secret_ref TEXT,
     proxy TEXT,
     default_model TEXT,
-    model_ids_json TEXT NOT NULL DEFAULT '[]',
+    models_json TEXT NOT NULL DEFAULT '[]',
+    default_context_window INTEGER,
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (provider_id) REFERENCES provider_catalog(id)
+);
+
+CREATE TABLE model_metadata_cache (
+    provider_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    context_window INTEGER,
+    max_output_tokens INTEGER,
+    source TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL,
+    PRIMARY KEY (provider_id, model_id)
 );
 
 CREATE TABLE files (

@@ -7,17 +7,17 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/modelmeta"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
-
-const defaultRuntimeContextWindow = 200000
 
 func (r *runtimeService) computeRuntimeBudget(ctx context.Context, sessionID, turnID, model string, promptLength int, contextSummary *RuntimeTurnContextSummary) RuntimeBudgetReport {
 	report := RuntimeBudgetReport{
 		SessionID:     sessionID,
 		TurnID:        turnID,
 		Model:         model,
-		ContextWindow: defaultRuntimeContextWindow,
+		ContextWindow: modelmeta.FallbackContextWindow,
 		UpdatedAt:     time.Now().UTC().UnixMilli(),
 	}
 	if promptLength > 0 {
@@ -25,6 +25,7 @@ func (r *runtimeService) computeRuntimeBudget(ctx context.Context, sessionID, tu
 		report.InputBudget.EstimatedTokens = estimateRuntimeTokens(strings.Repeat("x", promptLength))
 	}
 	if r.runtime != nil && r.workspace != nil && sessionID != "" {
+		report.ContextWindow = r.currentRuntimeContextWindow(ctx, model)
 		if msgs, err := r.runtime.ListSessionMessages(ctx, r.workspace.ID, sessionID); err == nil {
 			report.Messages.Count = len(msgs)
 			for _, msg := range msgs {
@@ -79,6 +80,34 @@ func (r *runtimeService) computeRuntimeBudget(ctx context.Context, sessionID, tu
 		report.ToolOutputs.EstimatedTokens +
 		report.SelectedToolSchemas.EstimatedTokens
 	return report
+}
+
+func (r *runtimeService) currentRuntimeContextWindow(ctx context.Context, model string) int {
+	if r.runtime == nil || r.workspace == nil {
+		return modelmeta.FallbackContextWindow
+	}
+	r.mu.Lock()
+	ws := *r.workspace
+	r.mu.Unlock()
+	workspace, err := r.runtime.GetWorkspace(ws.ID)
+	if err != nil {
+		return modelmeta.FallbackContextWindow
+	}
+	selected := workspace.Cfg.Config().Models[config.SelectedModelTypeLarge]
+	provider, ok := workspace.Cfg.Config().Providers.Get(selected.Provider)
+	if !ok {
+		return modelmeta.FallbackContextWindow
+	}
+	target := strings.TrimSpace(model)
+	if target == "" {
+		target = selected.Model
+	}
+	for _, candidate := range provider.Models {
+		if candidate.ID == target && candidate.ContextWindow > 0 {
+			return int(candidate.ContextWindow)
+		}
+	}
+	return modelmeta.FallbackContextWindow
 }
 
 func (r *runtimeService) publishBudgetUpdated(sessionID, turnID string, budget RuntimeBudgetReport) {

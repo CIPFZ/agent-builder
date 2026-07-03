@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/CIPFZ/agent-builder/internal/modelmeta"
 )
 
 var errConfiguredProviderNotFound = errors.New("configured provider not found")
@@ -28,10 +30,27 @@ func (s runtimeProviderSettingsStore) ensureConfiguredProviderColumns(ctx contex
 	if s.db == nil {
 		return errors.New("provider settings database is not available")
 	}
-	if _, err := s.db.ExecContext(ctx, `ALTER TABLE configured_providers ADD COLUMN model_ids_json TEXT NOT NULL DEFAULT '[]'`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE configured_providers ADD COLUMN models_json TEXT NOT NULL DEFAULT '[]'`); err != nil {
 		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
-			return fmt.Errorf("failed to ensure configured provider model column: %w", err)
+			return fmt.Errorf("failed to ensure configured provider models column: %w", err)
 		}
+	}
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE configured_providers ADD COLUMN default_context_window INTEGER`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return fmt.Errorf("failed to ensure configured provider default context window column: %w", err)
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS model_metadata_cache (
+    provider_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    context_window INTEGER,
+    max_output_tokens INTEGER,
+    source TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL,
+    PRIMARY KEY (provider_id, model_id)
+)`); err != nil {
+		return fmt.Errorf("failed to ensure model metadata cache table: %w", err)
 	}
 	return nil
 }
@@ -158,6 +177,16 @@ func (s runtimeProviderSettingsStore) ListConfigured(ctx context.Context) ([]Run
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range providers {
+		provider, err := s.enrichConfiguredProviderModels(ctx, providers[i])
+		if err != nil {
+			return nil, err
+		}
+		providers[i] = provider
+	}
 	return providers, nil
 }
 
@@ -184,6 +213,16 @@ func (s runtimeProviderSettingsStore) ListConfiguredSecrets(ctx context.Context)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range providers {
+		provider, err := s.enrichConfiguredProviderModels(ctx, providers[i])
+		if err != nil {
+			return nil, err
+		}
+		providers[i] = provider
 	}
 	return providers, nil
 }
@@ -214,8 +253,8 @@ func (s runtimeProviderSettingsStore) UpsertConfigured(ctx context.Context, req 
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO configured_providers (
     id, provider_id, name, remark, protocol, api_endpoint, api_key, api_key_secret_ref,
-    proxy, default_model, model_ids_json, enabled, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    proxy, default_model, models_json, default_context_window, enabled, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     provider_id = excluded.provider_id,
     name = excluded.name,
@@ -226,7 +265,8 @@ ON CONFLICT(id) DO UPDATE SET
     api_key_secret_ref = COALESCE(excluded.api_key_secret_ref, configured_providers.api_key_secret_ref),
     proxy = excluded.proxy,
     default_model = excluded.default_model,
-    model_ids_json = excluded.model_ids_json,
+    models_json = excluded.models_json,
+    default_context_window = excluded.default_context_window,
     enabled = excluded.enabled,
     updated_at = excluded.updated_at`,
 		provider.ID,
@@ -239,7 +279,8 @@ ON CONFLICT(id) DO UPDATE SET
 		nullableString(secretRef),
 		nullableString(provider.Proxy),
 		nullableString(provider.DefaultModel),
-		mustMarshalStringSlice(provider.Models),
+		mustMarshalProviderModels(provider.Models),
+		nullableInt(provider.DefaultContextWindow),
 		boolInt(provider.Enabled),
 		provider.CreatedAt,
 		provider.UpdatedAt,
@@ -438,14 +479,14 @@ func (r *runtimeService) syncProviderCatalog(ctx context.Context, store runtimeP
 func configuredProviderSelectSQL() string {
 	return `
 SELECT id, provider_id, name, remark, protocol, api_endpoint, api_key_secret_ref,
-       proxy, default_model, model_ids_json, enabled, created_at, updated_at
+       proxy, default_model, models_json, default_context_window, enabled, created_at, updated_at
 FROM configured_providers`
 }
 
 func configuredProviderSecretSelectSQL() string {
 	return `
 SELECT id, provider_id, name, remark, protocol, api_endpoint, api_key_secret_ref,
-       proxy, default_model, model_ids_json, enabled, created_at, updated_at, api_key
+       proxy, default_model, models_json, default_context_window, enabled, created_at, updated_at, api_key
 FROM configured_providers`
 }
 
@@ -454,7 +495,8 @@ func scanConfiguredProvider(scanner interface {
 }) (RuntimeConfiguredProvider, error) {
 	var provider RuntimeConfiguredProvider
 	var remark, secretRef, proxy, defaultModel sql.NullString
-	var modelIDsJSON string
+	var modelsJSON string
+	var defaultContextWindow sql.NullInt64
 	var enabled int
 	if err := scanner.Scan(
 		&provider.ID,
@@ -466,7 +508,8 @@ func scanConfiguredProvider(scanner interface {
 		&secretRef,
 		&proxy,
 		&defaultModel,
-		&modelIDsJSON,
+		&modelsJSON,
+		&defaultContextWindow,
 		&enabled,
 		&provider.CreatedAt,
 		&provider.UpdatedAt,
@@ -478,24 +521,26 @@ func scanConfiguredProvider(scanner interface {
 	provider.HasAPIKey = secretRef.Valid && secretRef.String != ""
 	provider.Proxy = proxy.String
 	provider.DefaultModel = defaultModel.String
-	provider.Models = compactModelIDs(append(unmarshalStringSlice(modelIDsJSON), provider.DefaultModel))
+	provider.Models = compactProviderModels(append(unmarshalProviderModels(modelsJSON), RuntimeProviderModel{ID: provider.DefaultModel}))
+	provider.DefaultContextWindow = int(defaultContextWindow.Int64)
 	provider.Enabled = enabled != 0
 	return provider, nil
 }
 
 func normalizeConfiguredProviderRequest(req RuntimeConfiguredProviderRequest) (RuntimeConfiguredProvider, error) {
 	provider := RuntimeConfiguredProvider{
-		ID:              strings.TrimSpace(req.ID),
-		ProviderID:      strings.TrimSpace(req.ProviderID),
-		Name:            strings.TrimSpace(req.Name),
-		Remark:          strings.TrimSpace(req.Remark),
-		Protocol:        strings.TrimSpace(req.Protocol),
-		APIEndpoint:     strings.TrimSpace(req.APIEndpoint),
-		APIKeySecretRef: "",
-		Proxy:           strings.TrimSpace(req.Proxy),
-		DefaultModel:    strings.TrimSpace(req.DefaultModel),
-		Models:          compactModelIDs(append(req.Models, strings.TrimSpace(req.DefaultModel))),
-		Enabled:         true,
+		ID:                   strings.TrimSpace(req.ID),
+		ProviderID:           strings.TrimSpace(req.ProviderID),
+		Name:                 strings.TrimSpace(req.Name),
+		Remark:               strings.TrimSpace(req.Remark),
+		Protocol:             strings.TrimSpace(req.Protocol),
+		APIEndpoint:          strings.TrimSpace(req.APIEndpoint),
+		APIKeySecretRef:      "",
+		Proxy:                strings.TrimSpace(req.Proxy),
+		DefaultModel:         strings.TrimSpace(req.DefaultModel),
+		Models:               compactProviderModels(append(req.Models, RuntimeProviderModel{ID: strings.TrimSpace(req.DefaultModel)})),
+		DefaultContextWindow: req.DefaultContextWindow,
+		Enabled:              true,
 	}
 	if provider.ProviderID == "" {
 		return RuntimeConfiguredProvider{}, errors.New("providerId is required")
@@ -512,11 +557,124 @@ func normalizeConfiguredProviderRequest(req RuntimeConfiguredProviderRequest) (R
 	if provider.APIEndpoint == "" {
 		return RuntimeConfiguredProvider{}, errors.New("apiEndpoint is required")
 	}
+	if provider.DefaultContextWindow != 0 && (provider.DefaultContextWindow < modelmeta.MinContextWindow || provider.DefaultContextWindow > modelmeta.MaxContextWindow) {
+		return RuntimeConfiguredProvider{}, fmt.Errorf("defaultContextWindow must be between %d and %d", modelmeta.MinContextWindow, modelmeta.MaxContextWindow)
+	}
+	for _, model := range provider.Models {
+		if model.ContextWindow != 0 && (model.ContextWindow < modelmeta.MinContextWindow || model.ContextWindow > modelmeta.MaxContextWindow) {
+			return RuntimeConfiguredProvider{}, fmt.Errorf("contextWindow for %s must be between %d and %d", model.ID, modelmeta.MinContextWindow, modelmeta.MaxContextWindow)
+		}
+	}
 	return provider, nil
 }
 
 func configuredProviderNameKey(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func (s runtimeProviderSettingsStore) enrichConfiguredProviderModels(ctx context.Context, provider RuntimeConfiguredProvider) (RuntimeConfiguredProvider, error) {
+	metadata, err := s.ListModelMetadata(ctx, provider.ID)
+	if err != nil {
+		return RuntimeConfiguredProvider{}, err
+	}
+	metadataByID := make(map[string]RuntimeProviderModel, len(metadata))
+	for _, model := range metadata {
+		metadataByID[model.ID] = model
+	}
+	models := compactProviderModels(provider.Models)
+	for i := range models {
+		cached := metadataByID[models[i].ID]
+		userContextWindow := models[i].ContextWindow
+		userMaxOutputTokens := models[i].MaxOutputTokens
+		limits := modelmeta.Resolve(modelmeta.ResolveRequest{
+			ProviderID:                   provider.ProviderID,
+			ModelID:                      models[i].ID,
+			UserContextWindow:            userContextWindow,
+			UserMaxOutputTokens:          userMaxOutputTokens,
+			ProviderDefaultContextWindow: provider.DefaultContextWindow,
+			DiscoveredContextWindow:      cached.ContextWindow,
+			DiscoveredMaxOutputTokens:    cached.MaxOutputTokens,
+			Catalog:                      configuredProviderCatalogModels(provider.ProviderID),
+		})
+		if models[i].ContextWindow == 0 {
+			models[i].ContextWindow = limits.ContextWindow
+		}
+		if models[i].MaxOutputTokens == 0 {
+			models[i].MaxOutputTokens = limits.MaxOutputTokens
+		}
+		if userContextWindow > 0 || userMaxOutputTokens > 0 {
+			models[i].Source = modelmeta.SourceUserOverride
+		} else {
+			models[i].Source = limits.Source
+		}
+	}
+	provider.Models = models
+	return provider, nil
+}
+
+func (s runtimeProviderSettingsStore) UpsertModelMetadata(ctx context.Context, providerID string, models []RuntimeProviderModel) error {
+	if s.db == nil {
+		return errors.New("provider settings database is not available")
+	}
+	if err := s.ensureConfiguredProviderColumns(ctx); err != nil {
+		return err
+	}
+	now := time.Now().UTC().UnixMilli()
+	for _, model := range compactProviderModels(models) {
+		if strings.TrimSpace(model.ID) == "" {
+			continue
+		}
+		_, err := s.db.ExecContext(ctx, `
+INSERT INTO model_metadata_cache (
+    provider_id, model_id, context_window, max_output_tokens, source, fetched_at
+) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(provider_id, model_id) DO UPDATE SET
+    context_window = excluded.context_window,
+    max_output_tokens = excluded.max_output_tokens,
+    source = excluded.source,
+    fetched_at = excluded.fetched_at`,
+			strings.TrimSpace(providerID),
+			model.ID,
+			nullableInt(model.ContextWindow),
+			nullableInt(model.MaxOutputTokens),
+			modelmeta.SourceDiscovered,
+			now,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to cache model metadata for %s: %w", model.ID, err)
+		}
+	}
+	return nil
+}
+
+func (s runtimeProviderSettingsStore) ListModelMetadata(ctx context.Context, providerID string) ([]RuntimeProviderModel, error) {
+	if s.db == nil {
+		return nil, errors.New("provider settings database is not available")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT model_id, context_window, max_output_tokens, source
+FROM model_metadata_cache
+WHERE provider_id = ?`, strings.TrimSpace(providerID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list model metadata: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var models []RuntimeProviderModel
+	for rows.Next() {
+		var model RuntimeProviderModel
+		var contextWindow, maxOutputTokens sql.NullInt64
+		if err := rows.Scan(&model.ID, &contextWindow, &maxOutputTokens, &model.Source); err != nil {
+			return nil, fmt.Errorf("failed to scan model metadata: %w", err)
+		}
+		model.ContextWindow = int(contextWindow.Int64)
+		model.MaxOutputTokens = int(maxOutputTokens.Int64)
+		models = append(models, model)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return models, nil
 }
 
 func (s runtimeProviderSettingsStore) GetConfiguredSecret(ctx context.Context, id string) (RuntimeConfiguredProvider, string, error) {
@@ -531,6 +689,10 @@ func (s runtimeProviderSettingsStore) GetConfiguredSecret(ctx context.Context, i
 	if errors.Is(err, sql.ErrNoRows) {
 		return RuntimeConfiguredProvider{}, "", errConfiguredProviderNotFound
 	}
+	if err != nil {
+		return RuntimeConfiguredProvider{}, "", err
+	}
+	provider, err = s.enrichConfiguredProviderModels(ctx, provider)
 	return provider, apiKey, err
 }
 
@@ -539,7 +701,8 @@ func scanConfiguredProviderSecret(scanner interface {
 }) (RuntimeConfiguredProvider, string, error) {
 	var provider RuntimeConfiguredProvider
 	var remark, secretRef, proxy, defaultModel, apiKey sql.NullString
-	var modelIDsJSON string
+	var modelsJSON string
+	var defaultContextWindow sql.NullInt64
 	var enabled int
 	if err := scanner.Scan(
 		&provider.ID,
@@ -551,7 +714,8 @@ func scanConfiguredProviderSecret(scanner interface {
 		&secretRef,
 		&proxy,
 		&defaultModel,
-		&modelIDsJSON,
+		&modelsJSON,
+		&defaultContextWindow,
 		&enabled,
 		&provider.CreatedAt,
 		&provider.UpdatedAt,
@@ -565,7 +729,8 @@ func scanConfiguredProviderSecret(scanner interface {
 	provider.HasAPIKey = (secretRef.Valid && secretRef.String != "") || (apiKey.Valid && apiKey.String != "")
 	provider.Proxy = proxy.String
 	provider.DefaultModel = defaultModel.String
-	provider.Models = compactModelIDs(append(unmarshalStringSlice(modelIDsJSON), provider.DefaultModel))
+	provider.Models = compactProviderModels(append(unmarshalProviderModels(modelsJSON), RuntimeProviderModel{ID: provider.DefaultModel}))
+	provider.DefaultContextWindow = int(defaultContextWindow.Int64)
 	provider.Enabled = enabled != 0
 	return provider, apiKey.String, nil
 }
@@ -577,8 +742,11 @@ func (r *runtimeService) DiscoverConfiguredProviderModels(ctx context.Context, i
 	}
 	models, err := discoverProviderModelIDs(ctx, provider, apiKey)
 	if err != nil {
-		fallback := compactModelIDs([]string{provider.DefaultModel})
+		fallback := compactProviderModels([]RuntimeProviderModel{{ID: provider.DefaultModel}})
 		return RuntimeProviderModelDiscoveryResponse{ProviderID: provider.ID, Models: fallback, Error: err.Error()}, nil
+	}
+	if err := r.cacheDiscoveredProviderModels(ctx, provider.ID, models); err != nil {
+		return RuntimeProviderModelDiscoveryResponse{}, err
 	}
 	return RuntimeProviderModelDiscoveryResponse{ProviderID: provider.ID, Models: models}, nil
 }
@@ -624,12 +792,12 @@ func (r *runtimeService) testConfiguredProvider(ctx context.Context, id string) 
 	return RuntimeProviderTestResponse{OK: true, ProviderID: provider.ID, Model: model, DurationMS: durationMS}, nil
 }
 
-func discoverProviderModelIDs(ctx context.Context, provider RuntimeConfiguredProvider, apiKey string) ([]string, error) {
+func discoverProviderModelIDs(ctx context.Context, provider RuntimeConfiguredProvider, apiKey string) ([]RuntimeProviderModel, error) {
 	protocol, baseURL := normalizeConfiguredProviderProtocolURL(provider)
 	if protocol != "openai" && protocol != "anthropic" {
 		return nil, errors.New("protocol must be openai-compat or anthropic")
 	}
-	models, err := discoverModelIDs(ctx, RuntimeModelConfig{
+	models, err := discoverModels(ctx, RuntimeModelConfig{
 		Protocol: protocol,
 		URL:      baseURL,
 		APIKey:   apiKey,
@@ -640,6 +808,14 @@ func discoverProviderModelIDs(ctx context.Context, provider RuntimeConfiguredPro
 		return nil, err
 	}
 	return models, nil
+}
+
+func (r *runtimeService) cacheDiscoveredProviderModels(ctx context.Context, providerID string, models []RuntimeProviderModel) error {
+	store, err := r.providerSettingsStore(ctx)
+	if err != nil {
+		return err
+	}
+	return store.UpsertModelMetadata(ctx, providerID, models)
 }
 
 func testProviderConnection(ctx context.Context, provider RuntimeConfiguredProvider, apiKey string, model string) error {
@@ -706,6 +882,64 @@ func normalizeConfiguredProviderProtocolURL(provider RuntimeConfiguredProvider) 
 		baseURL += "/v1"
 	}
 	return protocol, baseURL
+}
+
+func nullableInt(value int) any {
+	if value == 0 {
+		return nil
+	}
+	return value
+}
+
+func mustMarshalProviderModels(values []RuntimeProviderModel) string {
+	data, err := json.Marshal(compactProviderModels(values))
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
+}
+
+func unmarshalProviderModels(raw string) []RuntimeProviderModel {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var models []RuntimeProviderModel
+	if err := json.Unmarshal([]byte(raw), &models); err == nil {
+		return models
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return nil
+	}
+	converted := make([]RuntimeProviderModel, 0, len(ids))
+	for _, id := range ids {
+		converted = append(converted, RuntimeProviderModel{ID: id})
+	}
+	return converted
+}
+
+func compactProviderModels(models []RuntimeProviderModel) []RuntimeProviderModel {
+	seen := map[string]bool{}
+	compact := make([]RuntimeProviderModel, 0, len(models))
+	for _, model := range models {
+		model.ID = strings.TrimSpace(model.ID)
+		model.DisplayName = strings.TrimSpace(model.DisplayName)
+		model.Source = strings.TrimSpace(model.Source)
+		if model.ID == "" || seen[model.ID] {
+			continue
+		}
+		seen[model.ID] = true
+		compact = append(compact, model)
+	}
+	return compact
+}
+
+func providerModelIDs(models []RuntimeProviderModel) []string {
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, model.ID)
+	}
+	return compactModelIDs(ids)
 }
 
 func mustMarshalStringSlice(values []string) string {

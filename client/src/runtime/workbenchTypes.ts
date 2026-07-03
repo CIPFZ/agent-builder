@@ -1024,7 +1024,8 @@ export interface ConfiguredProviderViewModel {
   authVariable?: string;
   protocol?: string;
   defaultModel?: string;
-  models?: string[];
+  models?: ProviderModelViewModel[];
+  defaultContextWindow?: number;
   tokenConfigured?: boolean;
   token?: string;
   proxy?: string;
@@ -1035,9 +1036,19 @@ export interface ConfiguredProviderViewModel {
   opusModel?: string;
 }
 
+export interface ProviderModelViewModel {
+  id: string;
+  displayName?: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  resolvedContextWindow?: number;
+  resolvedMaxOutputTokens?: number;
+  source?: string;
+}
+
 export interface ProviderModelDiscoveryViewModel {
   providerId: string;
-  models: string[];
+  models: ProviderModelViewModel[];
   error?: string;
 }
 

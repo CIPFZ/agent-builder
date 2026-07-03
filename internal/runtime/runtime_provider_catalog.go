@@ -68,6 +68,16 @@ func embeddedProviderCatalog() []RuntimeProviderCatalogItem {
 	return items
 }
 
+func configuredProviderCatalogModels(providerID string) []catwalk.Model {
+	providerID = strings.TrimSpace(providerID)
+	for _, provider := range append(embedded.GetAll(), hyper.Embedded()) {
+		if string(provider.ID) == providerID {
+			return provider.Models
+		}
+	}
+	return nil
+}
+
 func runtimeProviderTypes() []RuntimeProviderType {
 	return []RuntimeProviderType{
 		{ID: string(catwalk.TypeOpenAI), Name: "OpenAI", Description: "OpenAI Responses / Chat Completions 协议"},

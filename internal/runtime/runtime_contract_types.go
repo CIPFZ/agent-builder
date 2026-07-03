@@ -219,21 +219,22 @@ type RuntimeProviderCatalogResponse struct {
 }
 
 type RuntimeConfiguredProvider struct {
-	ID              string   `json:"id"`
-	ProviderID      string   `json:"providerId"`
-	Name            string   `json:"name"`
-	Remark          string   `json:"remark,omitempty"`
-	Protocol        string   `json:"protocol"`
-	APIEndpoint     string   `json:"apiEndpoint"`
-	APIKeySecretRef string   `json:"apiKeySecretRef,omitempty"`
-	APIKey          string   `json:"apiKey,omitempty"`
-	HasAPIKey       bool     `json:"hasApiKey"`
-	Proxy           string   `json:"proxy,omitempty"`
-	DefaultModel    string   `json:"defaultModel,omitempty"`
-	Models          []string `json:"models,omitempty"`
-	Enabled         bool     `json:"enabled"`
-	CreatedAt       int64    `json:"createdAt"`
-	UpdatedAt       int64    `json:"updatedAt"`
+	ID                   string                 `json:"id"`
+	ProviderID           string                 `json:"providerId"`
+	Name                 string                 `json:"name"`
+	Remark               string                 `json:"remark,omitempty"`
+	Protocol             string                 `json:"protocol"`
+	APIEndpoint          string                 `json:"apiEndpoint"`
+	APIKeySecretRef      string                 `json:"apiKeySecretRef,omitempty"`
+	APIKey               string                 `json:"apiKey,omitempty"`
+	HasAPIKey            bool                   `json:"hasApiKey"`
+	Proxy                string                 `json:"proxy,omitempty"`
+	DefaultModel         string                 `json:"defaultModel,omitempty"`
+	Models               []RuntimeProviderModel `json:"models,omitempty"`
+	DefaultContextWindow int                    `json:"defaultContextWindow,omitempty"`
+	Enabled              bool                   `json:"enabled"`
+	CreatedAt            int64                  `json:"createdAt"`
+	UpdatedAt            int64                  `json:"updatedAt"`
 }
 
 type RuntimeConfiguredProvidersResponse struct {
@@ -241,27 +242,36 @@ type RuntimeConfiguredProvidersResponse struct {
 }
 
 type RuntimeConfiguredProviderRequest struct {
-	ID           string   `json:"id,omitempty"`
-	ProviderID   string   `json:"providerId"`
-	Name         string   `json:"name"`
-	Remark       string   `json:"remark,omitempty"`
-	Protocol     string   `json:"protocol"`
-	APIEndpoint  string   `json:"apiEndpoint"`
-	APIKey       string   `json:"apiKey,omitempty"`
-	Proxy        string   `json:"proxy,omitempty"`
-	DefaultModel string   `json:"defaultModel,omitempty"`
-	Models       []string `json:"models,omitempty"`
-	Enabled      bool     `json:"enabled"`
+	ID                   string                 `json:"id,omitempty"`
+	ProviderID           string                 `json:"providerId"`
+	Name                 string                 `json:"name"`
+	Remark               string                 `json:"remark,omitempty"`
+	Protocol             string                 `json:"protocol"`
+	APIEndpoint          string                 `json:"apiEndpoint"`
+	APIKey               string                 `json:"apiKey,omitempty"`
+	Proxy                string                 `json:"proxy,omitempty"`
+	DefaultModel         string                 `json:"defaultModel,omitempty"`
+	Models               []RuntimeProviderModel `json:"models,omitempty"`
+	DefaultContextWindow int                    `json:"defaultContextWindow,omitempty"`
+	Enabled              bool                   `json:"enabled"`
 }
 
 type RuntimeConfiguredProviderResponse struct {
 	Provider RuntimeConfiguredProvider `json:"provider"`
 }
 
+type RuntimeProviderModel struct {
+	ID              string `json:"id"`
+	DisplayName     string `json:"displayName,omitempty"`
+	ContextWindow   int    `json:"contextWindow,omitempty"`
+	MaxOutputTokens int    `json:"maxOutputTokens,omitempty"`
+	Source          string `json:"source,omitempty"`
+}
+
 type RuntimeProviderModelDiscoveryResponse struct {
-	ProviderID string   `json:"providerId"`
-	Models     []string `json:"models"`
-	Error      string   `json:"error,omitempty"`
+	ProviderID string                 `json:"providerId"`
+	Models     []RuntimeProviderModel `json:"models"`
+	Error      string                 `json:"error,omitempty"`
 }
 
 type RuntimeProviderTestResponse struct {
@@ -1711,18 +1721,18 @@ type RuntimeToolResult struct {
 }
 
 type RuntimeConversationDisplay struct {
-	Kind            string                     `json:"kind,omitempty"`
-	Title           string                     `json:"title,omitempty"`
-	Detail          string                     `json:"detail,omitempty"`
-	Target          string                     `json:"target,omitempty"`
-	PrimaryTarget   string                     `json:"primaryTarget,omitempty"`
-	Targets         []string                   `json:"targets,omitempty"`
-	GroupKey        string                     `json:"groupKey,omitempty"`
-	Groupable       bool                       `json:"groupable,omitempty"`
-	Quiet           bool                       `json:"quiet,omitempty"`
-	DefaultExpanded bool                       `json:"defaultExpanded,omitempty"`
-	ToolCallIDs     []string                   `json:"toolCallIds,omitempty"`
-	Counts          []RuntimeExplorationCount  `json:"counts,omitempty"`
+	Kind            string                    `json:"kind,omitempty"`
+	Title           string                    `json:"title,omitempty"`
+	Detail          string                    `json:"detail,omitempty"`
+	Target          string                    `json:"target,omitempty"`
+	PrimaryTarget   string                    `json:"primaryTarget,omitempty"`
+	Targets         []string                  `json:"targets,omitempty"`
+	GroupKey        string                    `json:"groupKey,omitempty"`
+	Groupable       bool                      `json:"groupable,omitempty"`
+	Quiet           bool                      `json:"quiet,omitempty"`
+	DefaultExpanded bool                      `json:"defaultExpanded,omitempty"`
+	ToolCallIDs     []string                  `json:"toolCallIds,omitempty"`
+	Counts          []RuntimeExplorationCount `json:"counts,omitempty"`
 }
 
 type RuntimeExplorationCount struct {
