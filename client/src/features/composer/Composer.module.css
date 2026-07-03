@@ -60,6 +60,13 @@
 .rightControls .stopButton:not(:disabled):focus-visible {
   background: #0d0d0d;
   border-color: #0d0d0d;
+  box-shadow: 0 0 0 3px rgb(13 13 13 / 12%);
+}
+
+.senderRoot.senderRootBusy :global(.ant-sender),
+.senderRoot.senderRootBusy :global(.ant-sender:focus-within) {
+  border-color: rgb(13 13 13 / 88%);
+  box-shadow: 0 0 0 2px rgb(13 13 13 / 10%);
 }
 
 .stopIcon {

@@ -217,7 +217,7 @@ export function Composer({
           }}
           onChange={setDraft}
           placeholder={composer.placeholder}
-          rootClassName={styles.senderRoot}
+          rootClassName={[styles.senderRoot, isBusy ? styles.senderRootBusy : ''].filter(Boolean).join(' ')}
           suffix={false}
           value={draft}
         />
