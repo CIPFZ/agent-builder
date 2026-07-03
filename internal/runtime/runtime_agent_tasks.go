@@ -480,9 +480,13 @@ func (r *runtimeService) AgentTaskOutput(ctx context.Context, taskID string) (Ru
 }
 
 func (r *runtimeService) agentTaskMessages(ctx context.Context, taskID string) ([]RuntimeAgentTaskMessage, error) {
-	db, err := r.workspaceDB(ctx)
-	if err != nil {
-		return nil, err
+	db := r.turns.db
+	if db == nil {
+		var err error
+		db, err = r.workspaceDB(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return newRuntimeAgentTaskMessageStore(db).ListByTask(ctx, strings.TrimSpace(taskID))
 }
@@ -587,9 +591,13 @@ func (r *runtimeService) writeAgentTaskMessageStatusAudit(event string, task Run
 }
 
 func (r *runtimeService) agentTaskResult(ctx context.Context, taskID string) (RuntimeAgentTaskResult, error) {
-	db, err := r.workspaceDB(ctx)
-	if err != nil {
-		return RuntimeAgentTaskResult{}, err
+	db := r.turns.db
+	if db == nil {
+		var err error
+		db, err = r.workspaceDB(ctx)
+		if err != nil {
+			return RuntimeAgentTaskResult{}, err
+		}
 	}
 	return newRuntimeAgentTaskResultStore(db).Get(ctx, strings.TrimSpace(taskID))
 }
