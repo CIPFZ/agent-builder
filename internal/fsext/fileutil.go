@@ -158,7 +158,8 @@ func globWithDoubleStar(pattern, searchPath string, limit int, gitignore bool) (
 
 	results := make([]string, len(matches))
 	for i, m := range matches {
-		results[i] = m.Path
+		// Normalize all returned paths to forward slashes for cross-platform consistency
+		results[i] = filepath.ToSlash(m.Path)
 	}
 	return results, truncated || errors.Is(err, filepath.SkipAll), nil
 }
