@@ -52,6 +52,9 @@ const coalescedRefreshEvents = new Set([
   'task.message.processed',
   'usage.updated',
   'context.usage.updated',
+  'compact.started',
+  'compact.completed',
+  'compact.failed',
 ]);
 
 export const runtimeEventImmediateRefreshDelayMS = 0;

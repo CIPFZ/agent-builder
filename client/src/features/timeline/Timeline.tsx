@@ -17,6 +17,7 @@ import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import { HookExecutionDetailDrawer } from '../hooks/HookExecutionDetailDrawer.tsx';
 import { HookTimelineRow } from '../hooks/HookTimelineRow.tsx';
 import { InlineExpandable, TraceRow } from './TraceRow.tsx';
+import { CompactDivider } from './CompactDivider.tsx';
 import { useLatchedOpen, useMinDisplay, useRatchetCounts } from './hooks.ts';
 import styles from './Timeline.module.css';
 
@@ -328,6 +329,9 @@ function TimelineProcessItem({
   }
   if (item.kind === 'hook_run' || item.kind === 'todo_summary' || item.kind === 'recovery_notice') {
     return <WorkflowNoticeRow item={item} />;
+  }
+  if (item.kind === 'compact_boundary') {
+    return <CompactDivider item={item} />;
   }
   if (isContextGovernanceItem(item)) {
     return <ContextGovernanceRow item={item} />;

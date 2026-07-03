@@ -6,9 +6,11 @@ import styles from './ContextUsageIndicator.module.css';
 
 interface ContextUsageIndicatorProps {
   usage?: ContextUsageViewModel;
+  compacting?: boolean;
+  onManualCompact?: () => Promise<void>;
 }
 
-export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
+export function ContextUsageIndicator({ usage, compacting, onManualCompact }: ContextUsageIndicatorProps) {
   if (!usage || usage.contextWindow <= 0) {
     return null;
   }
@@ -49,8 +51,8 @@ export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
           {reserved && <div className={styles.reserved}>预留用于输出与压缩缓冲：{formatTokens(reserved.tokens)}</div>}
           <div className={styles.footer}>
             <span>{usage.updatedAt ? new Date(usage.updatedAt).toLocaleTimeString() : ''}</span>
-            <Tooltip title="即将支持">
-              <Button size="small" disabled icon={<CompressOutlined />}>
+            <Tooltip title={onManualCompact ? '' : '当前对话没有可压缩的 turn'}>
+              <Button size="small" disabled={!onManualCompact || compacting} icon={<CompressOutlined />} loading={compacting} onClick={() => void onManualCompact?.()}>
                 手动压缩
               </Button>
             </Tooltip>

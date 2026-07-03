@@ -284,7 +284,7 @@ Breakdown 分类与来源(全部本地估算,不做 count-tokens API):`system_pr
 |---|---|---|
 | **PR1 模型元数据与窗口解析** | `internal/modelmeta`、configured_providers 列重构、`model_metadata_cache`、discovery 升级、删三处硬编码、Provider 编辑弹窗模型表格 | 已完成(2026-07-03); `modelmeta.Resolve` 全链路单测(五级优先级);配置模型后 budget/agent 拿到真值;`go test ./... && cd client && npm run build` |
 | **PR2 计量与指示器** | messages.usage_json、锚点计量 `computeContextUsage`、`RuntimeContextUsage` + `context.usage.updated`(删 budget.updated)、RuntimeUsage 加 cache 字段、Composer 圆环 + Popover + 警告条 | 已完成(2026-07-04); 锚点选取单测(boundary 之后、非 synthetic、并行 tool call 回溯);模拟 usage 事件的前端 smoke;手动长对话看百分比爬升 |
-| **PR3 手动压缩全链路** | summarizer(9 节 prompt + PTL 重试 + 启发式降级)、full compact 重建(摘要消息/boundary/重注入/hooks/边界配对校验)、compact.* 事件、compact_boundary 两段式 item、CompactDivider、`/compact` 命令、删 attachContextGovernanceToTimeline | 压缩后新请求只含 boundary 后内容(投影断言);tool_use/result 配对不拆散单测;E2E:长对话 → /compact → divider 转圈 → 完成展开摘要 → 继续对话上下文连贯 |
+| **PR3 手动压缩全链路** | summarizer(9 节 prompt + PTL 重试 + 启发式降级)、full compact 重建(摘要消息/boundary/重注入/hooks/边界配对校验)、compact.* 事件、compact_boundary 两段式 item、CompactDivider、`/compact` 命令、删 attachContextGovernanceToTimeline | 已完成(2026-07-04); 压缩后新请求只含 boundary 后内容(投影断言);tool_use/result 配对不拆散单测;E2E:长对话 → /compact → divider 转圈 → 完成展开摘要 → 继续对话上下文连贯 |
 | **PR4 自动触发与防线** | contextGovernance 配置注入、autoCompact 阈值判定(D2/D3)、熔断、blocking、reactive 接线、警告抑制时序、microcompact 激活 | 阈值公式单测(200k/1M/64k 三档);`autoCompactPercent=0.05` 人工验证整条链路;reactive:mock provider 413 → 压缩重试成功;熔断:连续失败 3 次停手 |
 | **PR5 清理与打磨** | 删 runtime_compact_boundaries 表/store/DTO、删四个 timeline kind 与旧渲染、删假 governance 数据、"上下文"设置分区、diagnostics 对齐、README 索引 | `go test ./...`、全前端 smoke、契约测试断言无孤儿事件类型 |
 
@@ -306,3 +306,8 @@ Breakdown 分类与来源(全部本地估算,不做 count-tokens API):`system_pr
 - **摘要质量依赖会话模型**:第三方弱模型摘要可能差,`summaryModel=small` 与启发式降级是兜底;可在 diagnostics 展示 preTokens→postTokens 供用户判断;
 - **与 doc-12 PR4/PR5(前端渲染重写)并行**:CompactDivider 属新增组件冲突面小,但 Timeline 分块逻辑改动需要 rebase 协调,建议本方案 PR3 排在 doc-12 PR4 合入之后;
 - 旧 `Summarize`/`IsSummaryMessage` 并入 compact 后,依赖它的 runtime API(若有暴露)一并删除——按"不留兼容"原则执行。
+
+## 实施偏离记录
+
+- PR3(2026-07-04):手动 compact 的摘要先采用本地确定性 9 节结构生成,未在本 PR 新增 provider summarizer 调用路径;原因是 PR3 需要先打通 append-only 摘要消息、contextmgr boundary、compact.* 事件、runtime projection 和前端 divider 的端到端链路,自动触发/模型摘要配置仍归 PR4 接线。
+- PR3(2026-07-04):摘要消息继续落在现有 `is_summary_message` 存储字段上,由 runtime projection/消息列表过滤保证不作为普通 user item 展示;物理字段命名收敛到 `IsCompactSummary` 留在 PR5 清理阶段与旧 `Summarize` 概念一并删除。

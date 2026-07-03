@@ -2272,21 +2272,23 @@ type RuntimeReplayRecovery struct {
 }
 
 type RuntimeCompactBoundary struct {
-	ID             string                      `json:"id"`
-	SessionID      string                      `json:"sessionId"`
-	TurnID         string                      `json:"turnId,omitempty"`
-	Kind           string                      `json:"kind"`
-	Trigger        string                      `json:"trigger"`
-	Status         string                      `json:"status"`
-	BudgetBefore   *RuntimeBudgetReport        `json:"budgetBefore,omitempty"`
-	BudgetAfter    *RuntimeBudgetReport        `json:"budgetAfter,omitempty"`
-	SummaryRef     string                      `json:"summaryRef,omitempty"`
-	MessageRefs    []string                    `json:"messageRefs,omitempty"`
-	ToolCallRefs   []RuntimeCompactToolCallRef `json:"toolCallRefs,omitempty"`
-	ReinjectedRefs []RuntimeReinjectedRef      `json:"reinjectedRefs,omitempty"`
-	Error          string                      `json:"error,omitempty"`
-	CreatedAt      int64                       `json:"createdAt"`
-	CompletedAt    int64                       `json:"completedAt,omitempty"`
+	ID               string                      `json:"id"`
+	SessionID        string                      `json:"sessionId"`
+	TurnID           string                      `json:"turnId,omitempty"`
+	ProjectionID     string                      `json:"projectionId,omitempty"`
+	Kind             string                      `json:"kind"`
+	Trigger          string                      `json:"trigger"`
+	Status           string                      `json:"status"`
+	BudgetBefore     *RuntimeBudgetReport        `json:"budgetBefore,omitempty"`
+	BudgetAfter      *RuntimeBudgetReport        `json:"budgetAfter,omitempty"`
+	SummaryMessageID string                      `json:"summaryMessageId,omitempty"`
+	SummaryRef       string                      `json:"summaryRef,omitempty"`
+	MessageRefs      []string                    `json:"messageRefs,omitempty"`
+	ToolCallRefs     []RuntimeCompactToolCallRef `json:"toolCallRefs,omitempty"`
+	ReinjectedRefs   []RuntimeReinjectedRef      `json:"reinjectedRefs,omitempty"`
+	Error            string                      `json:"error,omitempty"`
+	CreatedAt        int64                       `json:"createdAt"`
+	CompletedAt      int64                       `json:"completedAt,omitempty"`
 }
 
 type RuntimeCompactToolCallRef struct {
@@ -2510,6 +2512,7 @@ type RuntimeContextActionRequest struct {
 	TurnID       string `json:"turnId"`
 	ProjectionID string `json:"projectionId,omitempty"`
 	Reason       string `json:"reason,omitempty"`
+	Instructions string `json:"instructions,omitempty"`
 }
 
 type RuntimeManualCompactResponse struct {

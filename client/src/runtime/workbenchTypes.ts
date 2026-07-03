@@ -1309,7 +1309,7 @@ export interface WorkbenchAdapter {
   markInterruptedDone: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;
   discardInterruptedTurn: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;
   retryRecoverableError: (current: WorkbenchViewModel, errorID: string) => Promise<WorkbenchViewModel>;
-  manualCompact: (current: WorkbenchViewModel, reason?: string) => Promise<WorkbenchViewModel>;
+  manualCompact: (current: WorkbenchViewModel, instructions?: string) => Promise<WorkbenchViewModel>;
   manualSnip: (current: WorkbenchViewModel, reason?: string) => Promise<WorkbenchViewModel>;
   resumeRunCheckpoint: (current: WorkbenchViewModel, runID: string, checkpointID: string) => Promise<WorkbenchViewModel>;
   readRunSchedulerPlan: (

@@ -178,7 +178,7 @@ func TestRuntimeRecordPromptAssemblyStoresSummaryEventAndFailedContext(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasRuntimeEventType(events.Events, "prompt.assembly.recorded") {
+	if !hasRuntimeEventType(events.Events, runtimeapi.EventPromptAssemblyRecorded) {
 		t.Fatalf("events = %#v", events.Events)
 	}
 	projections, err := service.contextStore.ListProjectionsByTurn(context.Background(), "turn-1")

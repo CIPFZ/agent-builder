@@ -68,7 +68,7 @@ interface WorkspaceProps {
   onInterruptedDone: (turnID: string) => Promise<void>;
   onInterruptedDiscard: (turnID: string) => Promise<void>;
   onRecoverableErrorRetry: (errorID: string) => Promise<void>;
-  onManualCompact?: () => Promise<void>;
+  onManualCompact?: (instructions?: string) => Promise<void>;
   onManualSnip?: () => Promise<void>;
   onRunCheckpointResume?: (runID: string, checkpointID: string) => Promise<void>;
   onRunTaskExecute?: (runID: string, taskID: string) => Promise<void>;
@@ -448,10 +448,15 @@ export function Workspace({
   }, [onMinimumWorkspaceWidthChange, rightPanelOpen]);
   const handlePromptSubmit = useCallback(
     async (prompt: string) => {
+      const compactMatch = prompt.trim().match(/^\/compact(?:\s+([\s\S]*))?$/);
+      if (compactMatch) {
+        await onManualCompact?.(compactMatch[1]?.trim());
+        return;
+      }
       pinAndScrollToBottom('auto');
       await onPromptSubmit(prompt);
     },
-    [onPromptSubmit, pinAndScrollToBottom],
+    [onManualCompact, onPromptSubmit, pinAndScrollToBottom],
   );
   const openRenameDialog = () => {
     if (!activeSession) {
@@ -617,6 +622,7 @@ export function Workspace({
               onPermissionModeSelect={onPermissionModeSelect}
               onCancel={onPromptCancel}
               onSubmit={handlePromptSubmit}
+              onManualCompact={onManualCompact}
             />
           )}
         </div>

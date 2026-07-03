@@ -959,6 +959,7 @@ interface RuntimeContextActionRequestDTO {
   turnId: string;
   projectionId?: string;
   reason?: string;
+  instructions?: string;
 }
 
 interface RuntimePromptAssemblyDTO {
@@ -3206,69 +3207,6 @@ function mapContextUsage(usage?: RuntimeContextUsageDTO): ContextUsageViewModel 
   };
 }
 
-export function attachContextGovernanceToTimeline(
-  items: ConversationTimelineItemViewModel[],
-  diagnostics?: ContextDiagnosticsViewModel,
-): ConversationTimelineItemViewModel[] {
-  if (!diagnostics) {
-    return items;
-  }
-  const markers: ConversationTimelineItemViewModel[] = [
-    ...diagnostics.compactBoundaries.map((boundary) => ({
-      id: `context-compact:${boundary.id}`,
-      kind: boundary.kind === 'micro' ? ('microcompact_marker' as const) : ('compact_boundary' as const),
-      sessionId: diagnostics.sessionId,
-      turnId: diagnostics.turnId,
-      title: boundary.kind,
-      status: boundary.status,
-      summary: [boundary.trigger, boundary.summaryRef, `${boundary.messageRefs.length} messages`].filter(Boolean).join(' / '),
-      createdAt: boundary.createdAt ?? diagnostics.createdAt,
-      updatedAt: boundary.completedAt,
-      source: 'runtime_activity' as const,
-      error: boundary.error,
-    })),
-    ...diagnostics.snipBoundaries.map((boundary) => ({
-      id: `context-snip:${boundary.id}`,
-      kind: 'snip_boundary' as const,
-      sessionId: diagnostics.sessionId,
-      turnId: diagnostics.turnId,
-      title: 'snip',
-      status: 'completed',
-      summary: [boundary.reason, `${boundary.removedMessageCount} messages`, boundary.summaryRef].filter(Boolean).join(' / '),
-      createdAt: boundary.createdAt ?? diagnostics.createdAt,
-      source: 'runtime_activity' as const,
-    })),
-    ...diagnostics.replacements.map((replacement) => ({
-      id: `context-replacement:${replacement.id}`,
-      kind: 'tool_result_replacement' as const,
-      sessionId: diagnostics.sessionId,
-      turnId: diagnostics.turnId,
-      toolCallId: replacement.toolCallId,
-      title: replacement.kind,
-      status: 'recorded',
-      summary: [replacement.reason, replacement.originalRef].filter(Boolean).join(' / '),
-      createdAt: replacement.createdAt ?? diagnostics.createdAt,
-      source: 'runtime_activity' as const,
-    })),
-    ...diagnostics.reactiveAttempts.map((attempt) => ({
-      id: `context-reactive:${attempt.id}`,
-      kind: 'reactive_compact_retry' as const,
-      sessionId: diagnostics.sessionId,
-      turnId: diagnostics.turnId,
-      title: attempt.action,
-      status: attempt.status,
-      summary: attempt.error,
-      createdAt: attempt.createdAt ?? diagnostics.createdAt,
-      source: 'runtime_activity' as const,
-      error: attempt.status === 'failed' ? attempt.error : undefined,
-    })),
-  ];
-  if (!markers.length) {
-    return items;
-  }
-  return dedupeTimelineItems([...items, ...markers]).sort((left, right) => (left.createdAt ?? 0) - (right.createdAt ?? 0) || left.id.localeCompare(right.id));
-}
-
 function mapRunSchedulerPlanCandidates(response?: RuntimeRunSchedulerPlanResponseDTO): RunSchedulerTaskCandidateViewModel[] {
   const plan = response?.plan;
   const runID = plan?.runId;
@@ -4567,17 +4505,20 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       () => staticWorkbenchAdapter.retryRecoverableError(current, errorID),
     );
   },
-  async manualCompact(current, reason) {
+  async manualCompact(current, instructions) {
     return withBridge(
       async (bridge) => {
         if (!bridge.ManualCompact) {
-          return staticWorkbenchAdapter.manualCompact(current, reason);
+          return staticWorkbenchAdapter.manualCompact(current, instructions);
         }
-        const req = contextActionRequest(current, reason || 'manual_compact');
+        const req = contextActionRequest(current, 'manual');
+        if (instructions?.trim()) {
+          req.instructions = instructions.trim();
+        }
         await bridge.ManualCompact(req);
         return hydrateWorkbench(current, bridge, { refreshTargets: ['session_activity'] });
       },
-      () => staticWorkbenchAdapter.manualCompact(current, reason),
+      () => staticWorkbenchAdapter.manualCompact(current, instructions),
     );
   },
   async manualSnip(current, reason) {

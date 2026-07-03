@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/db"
 	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 func TestContextThresholdSnapshots(t *testing.T) {
@@ -118,4 +120,105 @@ INSERT INTO runtime_context_boundaries (
 	if usage.UsedTokens < 100 {
 		t.Fatalf("post-boundary anchor missing from context usage: %#v", usage)
 	}
+}
+
+func TestManualCompactAppendsSummaryAndEvents(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service := newRuntimeService()
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
+	conn, err := db.Connect(ctx, workspace.Config.Options.DataDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Release(workspace.Config.Options.DataDirectory) })
+	service.turns = newRuntimeTurnStore(conn)
+
+	session, err := runtimeWorkbench.CreateSession(ctx, workspace.ID, "manual compact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.sessionID = session.ID
+	ws, err := runtimeWorkbench.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ws.Messages.Create(ctx, session.ID, message.CreateMessageParams{
+		Role:  message.User,
+		Parts: []message.ContentPart{message.TextContent{Text: "please keep the API route details"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ws.Messages.Create(ctx, session.ID, message.CreateMessageParams{
+		Role:  message.Assistant,
+		Parts: []message.ContentPart{message.TextContent{Text: "implemented the route and tests"}, message.Finish{Reason: message.FinishReasonEndTurn, Time: time.Now().Unix()}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := service.ManualCompact(ctx, RuntimeContextActionRequest{
+		SessionID:    session.ID,
+		TurnID:       "turn-compact",
+		Instructions: "保留 API route",
+		ProjectionID: "projection-compact",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Boundary.Kind != "full" || resp.Boundary.Status != contextmgr.ProjectionStatusCompleted || resp.Boundary.SummaryMessageID == "" {
+		t.Fatalf("boundary = %#v", resp.Boundary)
+	}
+	updated, err := runtimeWorkbench.GetSession(ctx, workspace.ID, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.SummaryMessageID != resp.Boundary.SummaryMessageID {
+		t.Fatalf("summary id = %q, boundary = %q", updated.SummaryMessageID, resp.Boundary.SummaryMessageID)
+	}
+	messages, err := ws.Messages.List(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summaryCount int
+	for _, msg := range messages {
+		if msg.IsSummaryMessage {
+			summaryCount++
+			if msg.Role != message.User || !strings.Contains(msg.Content().Text, "保留 API route") {
+				t.Fatalf("summary message = %#v", msg)
+			}
+		}
+	}
+	if summaryCount != 1 {
+		t.Fatalf("summary messages = %d, all = %#v", summaryCount, messages)
+	}
+	events, err := service.Events(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasRuntimeEventType(events.Events, runtimeapi.EventCompactStarted) || !hasRuntimeEventType(events.Events, runtimeapi.EventCompactCompleted) {
+		t.Fatalf("compact events missing: %#v", events.Events)
+	}
+	output := buildRuntimeOutputProjectionFromInput(runtimeConversationProjectionInput{
+		Activity: RuntimeSessionActivityWindowResponse{
+			SessionID: session.ID,
+			Messages: []RuntimeMessage{
+				{ID: "user-visible", SessionID: session.ID, Role: "user", Content: "visible", CreatedAt: 1},
+			},
+			Turns: []RuntimeTurn{{ID: "turn-compact", SessionID: session.ID, Status: "completed", UserMessageID: "user-visible", StartedAt: 1, FinishedAt: 2}},
+		},
+		Compact: []RuntimeCompactBoundary{{
+			ID:               resp.Boundary.ID,
+			SessionID:        session.ID,
+			TurnID:           "turn-compact",
+			Kind:             "full",
+			Status:           contextmgr.ProjectionStatusCompleted,
+			Trigger:          "manual",
+			SummaryMessageID: resp.Boundary.SummaryMessageID,
+			CreatedAt:        resp.Boundary.CreatedAt,
+			CompletedAt:      resp.Boundary.CompletedAt,
+		}},
+	}).snapshot(session.ID, "1")
+	assertHasConversationKind(t, output.Items, "compact_boundary")
 }

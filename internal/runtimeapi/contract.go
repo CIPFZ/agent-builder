@@ -45,6 +45,7 @@ var Endpoints = []Endpoint{
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/messages"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/context-usage"},
+	{Method: MethodPost, Path: "/v1/sessions/{session_id}/compact"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/activity-window"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/run-projection"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/todos"},
@@ -221,11 +222,10 @@ const (
 	EventReadFileStale                 = "read_file.stale"
 	EventReadFileMissing               = "read_file.missing"
 	EventContextUsageUpdated           = "context.usage.updated"
-	EventCompactBoundaryRecorded       = "compact.boundary.recorded"
-	EventCompactMicroCompleted         = "compact.micro.completed"
-	EventCompactFullCompleted          = "compact.full.completed"
+	EventPromptAssemblyRecorded        = "prompt.assembly.recorded"
+	EventCompactStarted                = "compact.started"
+	EventCompactCompleted              = "compact.completed"
 	EventCompactFailed                 = "compact.failed"
-	EventCompactOutputPreserved        = "compact.output.preserved"
 	EventSkillDiscoveryStarted         = "skill.discovery.started"
 	EventSkillDiscoveryCompleted       = "skill.discovery.completed"
 	EventSkillDiscoveryFailed          = "skill.discovery.failed"
@@ -396,11 +396,10 @@ var EventTypes = []string{
 	EventReadFileStale,
 	EventReadFileMissing,
 	EventContextUsageUpdated,
-	EventCompactBoundaryRecorded,
-	EventCompactMicroCompleted,
-	EventCompactFullCompleted,
+	EventPromptAssemblyRecorded,
+	EventCompactStarted,
+	EventCompactCompleted,
 	EventCompactFailed,
-	EventCompactOutputPreserved,
 	EventSkillDiscoveryStarted,
 	EventSkillDiscoveryCompleted,
 	EventSkillDiscoveryFailed,
