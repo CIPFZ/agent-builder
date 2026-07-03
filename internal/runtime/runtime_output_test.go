@@ -391,3 +391,67 @@ func findConversationItemByTool(t *testing.T, items []RuntimeConversationItem, t
 	t.Fatalf("missing tool item %q in %#v", toolCallID, items)
 	return RuntimeConversationItem{}
 }
+
+func TestRuntimeConversationItemSequenceStaysFloat64SafeAndOrdered(t *testing.T) {
+	turnStart := int64(1_751_500_000_123) // realistic UnixMilli
+	const maxSafeInteger = int64(1) << 53
+	ranks := []int{0, 500, 1000, 1010, 1020, 1030, runtimeConversationRankFinal}
+	previous := int64(-1)
+	for _, rank := range ranks {
+		sequence := runtimeConversationItemSequence(turnStart, rank, turnStart+int64(rank))
+		if sequence >= maxSafeInteger {
+			t.Fatalf("sequence %d for rank %d exceeds float64-safe range", sequence, rank)
+		}
+		if sequence <= previous {
+			t.Fatalf("rank %d sequence %d not greater than previous %d", rank, sequence, previous)
+		}
+		previous = sequence
+	}
+	// A turn starting one second later must sort after every item of the
+	// previous turn, including its final answer.
+	lastOfEarlierTurn := runtimeConversationItemSequence(turnStart, runtimeConversationRankFinal, turnStart+60_000)
+	firstOfLaterTurn := runtimeConversationItemSequence(turnStart+1000, 0, turnStart+1000)
+	if firstOfLaterTurn <= lastOfEarlierTurn {
+		t.Fatalf("later turn sequence %d not after earlier turn final %d", firstOfLaterTurn, lastOfEarlierTurn)
+	}
+	// Items created later within the same rank never sort earlier.
+	early := runtimeConversationItemSequence(turnStart, 1020, turnStart+50)
+	late := runtimeConversationItemSequence(turnStart, 1020, turnStart+950)
+	if late < early {
+		t.Fatalf("later item %d sorts before earlier item %d within the same rank", late, early)
+	}
+}
+
+func TestRuntimeConversationProjectionStreamingTurnAttributionFallback(t *testing.T) {
+	// Mid-stream the turn record may not yet reference the user or the
+	// streaming assistant message. Attribution must fall back to timestamps
+	// so no item lands in the turnStart==0 bucket (which would collapse its
+	// sequence to a near-zero value and pin it to the top of the timeline).
+	turnStart := int64(1_751_500_000_000)
+	snapshot := buildRuntimeOutputProjection(RuntimeSessionActivityWindowResponse{
+		SessionID: "session-1",
+		Messages: []RuntimeMessage{
+			{ID: "user-1", SessionID: "session-1", Role: "user", Content: "hi", CreatedAt: turnStart - 40, UpdatedAt: turnStart - 40},
+			{ID: "assistant-1", SessionID: "session-1", Role: "assistant", Parts: []RuntimeMessagePart{{Type: "text", Text: "strea"}}, CreatedAt: turnStart + 250, UpdatedAt: turnStart + 300},
+		},
+		Turns: []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "running", StartedAt: turnStart}},
+	}).snapshot("session-1", "1")
+
+	user := findConversationItem(t, snapshot.Items, "user_message")
+	if user.TurnID != "turn-1" {
+		t.Fatalf("user message not attributed to turn: %#v", user)
+	}
+	assistant := findConversationItem(t, snapshot.Items, "assistant_message")
+	if assistant.ID == "" || assistant.TurnID != "turn-1" {
+		t.Fatalf("assistant message not attributed to turn: %#v", assistant)
+	}
+	minSequence := (turnStart / 100) * runtimeConversationSequenceSpan
+	for _, item := range snapshot.Items {
+		if item.Sequence < minSequence {
+			t.Fatalf("item %q sequence %d fell below the turn base %d", item.ID, item.Sequence, minSequence)
+		}
+	}
+	if user.Sequence >= assistant.Sequence {
+		t.Fatalf("user sequence %d not before assistant sequence %d", user.Sequence, assistant.Sequence)
+	}
+}

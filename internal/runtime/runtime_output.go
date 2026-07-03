@@ -183,6 +183,24 @@ func buildRuntimeOutputProjectionFromInput(input runtimeConversationProjectionIn
 	p.events = append([]RuntimeEvent(nil), activity.Events...)
 
 	messageTurnIDs := runtimeOutputMessageTurnIDs(activity.Messages, activity.Turns, activity.ToolCalls)
+	// Mid-stream the turn record may not yet reference a freshly created
+	// message (UserMessageID/LatestAssistantMessageID lag behind message
+	// creation). An unmapped message would fall into the turnStart==0 bucket
+	// and its item sequence would collapse to a near-zero value, jumping to
+	// the very top of the timeline until the mapping catches up. Fall back to
+	// timestamp-based turn attribution so streaming items are born with their
+	// final turn and sequence.
+	for _, msg := range activity.Messages {
+		if messageTurnIDs[msg.ID] != "" {
+			continue
+		}
+		if msg.Role != "user" && msg.Role != "assistant" {
+			continue
+		}
+		if turnID := runtimeOutputFallbackTurnID(msg, activity.Turns); turnID != "" {
+			messageTurnIDs[msg.ID] = turnID
+		}
+	}
 	stepIndexByTurn := map[string]int{}
 	for _, msg := range sortedRuntimeOutputMessages(activity.Messages) {
 		if msg.Role != "assistant" {
@@ -495,6 +513,18 @@ type runtimeConversationItemEntry struct {
 	rank int
 }
 
+const (
+	// runtimeConversationSequenceSpan is the per-turn sequence space
+	// (rank + intra). Every rank must stay below it.
+	runtimeConversationSequenceSpan = 100_000
+	// runtimeConversationRankFinal orders the final assistant answer after
+	// every process item of the turn.
+	runtimeConversationRankFinal = 99_000
+	// runtimeConversationRankStepMax caps per-step ranks so extremely long
+	// turns can never collide with the final-answer rank.
+	runtimeConversationRankStepMax = 90_000
+)
+
 func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[string]string) map[string]RuntimeConversationItem {
 	var entries []runtimeConversationItemEntry
 	turnStart := map[string]int64{}
@@ -503,7 +533,11 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 	}
 	stepRank := map[string]int{}
 	for _, step := range p.steps {
-		stepRank[step.ID] = 1000 + step.Index*100
+		rank := 1000 + step.Index*100
+		if rank > runtimeConversationRankStepMax {
+			rank = runtimeConversationRankStepMax
+		}
+		stepRank[step.ID] = rank
 	}
 	appendEntry := func(item RuntimeConversationItem, rank int) {
 		if item.ID == "" {
@@ -559,7 +593,7 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 				phase := runtimeAssistantMessagePhase(msg, p.turns[turnID], len(toolCallIDs))
 				rank := baseRank + 10
 				if phase == "final" {
-					rank = 900000
+					rank = runtimeConversationRankFinal
 				}
 				itemID := "assistant-message-" + msg.ID
 				appendEntry(RuntimeConversationItem{
@@ -783,23 +817,32 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 }
 
 // runtimeConversationItemSequence produces a stable per-item sequence value.
-// The formula is turnStartMs*1_000_000 + rank*100 + intraRankCounter, where
-// the counter is a bounded offset of createdAt relative to the turn start.
-// Items generated later within the same rank get higher counters; adding a
-// new item at a different rank never shifts an existing item's sequence.
+// The formula is turnStartDs*100_000 + rank + intra, where turnStartDs is the
+// turn start in 100ms units and intra is a bounded 100ms-bucket offset of
+// createdAt relative to the turn start. Items generated later within the same
+// rank get higher counters; adding a new item at a different rank never shifts
+// an existing item's sequence.
+//
+// The base uses 100ms units (not milliseconds) so the full value stays below
+// 2^53 (JS Number.MAX_SAFE_INTEGER ~= 9.0e15; this yields ~1.8e15 today):
+// item sequences must survive JSON round-trips to the React client without
+// float64 precision loss, which previously collapsed nearby sequences and let
+// lexicographic ID tie-breaks reorder the timeline mid-stream. All ranks are
+// < runtimeConversationRankFinal and rank gaps are >= 10 everywhere, so an
+// intra of 0..9 never crosses into the next rank.
 // Sort ties (same sequence) are resolved by createdAt+id at consumption sites.
 func runtimeConversationItemSequence(turnStartMs int64, rank int, createdAt int64) int64 {
 	if turnStartMs < 0 {
 		turnStartMs = 0
 	}
-	intra := createdAt - turnStartMs
+	intra := (createdAt - turnStartMs) / 100
 	if intra < 0 {
 		intra = 0
 	}
-	if intra > 99 {
-		intra = 99
+	if intra > 9 {
+		intra = 9
 	}
-	return turnStartMs*1_000_000 + int64(rank)*100 + intra
+	return (turnStartMs/100)*runtimeConversationSequenceSpan + int64(rank) + intra
 }
 
 // appendExplorationSummaryItems produces one exploration_summary item per
@@ -1528,6 +1571,44 @@ func runtimeOutputMessageTurnIDs(messages []RuntimeMessage, turns []RuntimeTurn,
 	return out
 }
 
+// runtimeOutputFallbackTurnID attributes an unmapped message to a turn by
+// timestamp. A user message precedes the turn it triggers, so it prefers the
+// earliest turn starting at or after its creation; an assistant message is
+// created after its turn started, so it prefers the nearest earlier turn.
+func runtimeOutputFallbackTurnID(msg RuntimeMessage, turns []RuntimeTurn) string {
+	if msg.Role == "user" {
+		if turnID := runtimeOutputEarliestTurnAfter(msg, turns); turnID != "" {
+			return turnID
+		}
+		return runtimeOutputNearestTurnID(msg, turns)
+	}
+	if turnID := runtimeOutputNearestTurnID(msg, turns); turnID != "" {
+		return turnID
+	}
+	return runtimeOutputEarliestTurnAfter(msg, turns)
+}
+
+// runtimeOutputEarliestTurnAfter returns the first turn of the message's
+// session that started at or after the message was created.
+func runtimeOutputEarliestTurnAfter(msg RuntimeMessage, turns []RuntimeTurn) string {
+	bestID := ""
+	var bestStarted int64
+	for _, turn := range turns {
+		if turn.SessionID != msg.SessionID {
+			continue
+		}
+		started := firstPositiveInt64(turn.StartedAt, turn.FinishedAt)
+		if started < msg.CreatedAt {
+			continue
+		}
+		if bestID == "" || started < bestStarted || (started == bestStarted && turn.ID < bestID) {
+			bestID = turn.ID
+			bestStarted = started
+		}
+	}
+	return bestID
+}
+
 func runtimeOutputNearestTurnID(msg RuntimeMessage, turns []RuntimeTurn) string {
 	bestID := ""
 	var bestStarted int64
@@ -1590,6 +1671,12 @@ func sortedRuntimeConversationItemMap(values map[string]RuntimeConversationItem)
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Sequence != out[j].Sequence {
 			return out[i].Sequence < out[j].Sequence
+		}
+		// Sequences deliberately have coarse intra-rank resolution (100ms
+		// buckets) so they fit into float64-safe integers; creation time
+		// breaks ties before the ID does, matching the frontend comparator.
+		if out[i].CreatedAt != out[j].CreatedAt {
+			return out[i].CreatedAt < out[j].CreatedAt
 		}
 		return out[i].ID < out[j].ID
 	})
