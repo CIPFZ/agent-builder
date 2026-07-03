@@ -869,3 +869,66 @@ func hasReplayPolicy(replay RuntimeReplayExportResponse, toolCallID string, deci
 		return item.ToolCallID == toolCallID && item.Decision == string(decision) && item.Mode == string(mode)
 	})
 }
+
+// TestRuntimeScenarioHarnessSideEffectsDoNotBootstrapWorkspace guards the
+// deadlock fix: ambient side effects that fire from EvaluateToolCall
+// (audit persistence, runtime ref creation, sandbox bookkeeping) must
+// never call ensureWorkspaceStarted behind the caller's back. If they
+// did, a headless test harness with no attached backend would suddenly
+// gain a live workbench and permission service — a subsequent
+// PolicyAsk decision would then invoke the interactive
+// permissionService.Request path, which blocks forever waiting on a UI
+// grant/deny (see runtime_scheduler_recorder.go line ~250) and hangs
+// the runtime test suite.
+func TestRuntimeScenarioHarnessSideEffectsDoNotBootstrapWorkspace(t *testing.T) {
+	t.Parallel()
+
+	h := newRuntimeScenarioHarness(t)
+	h.seedTurn("session-noboot", "turn-noboot")
+
+	// Allow decision writes an audit entry, records a policy decision
+	// runtime event, and drops into the shell/ref side-effect paths.
+	allow := h.evaluatePolicy(permission.PolicyModeAutoRead, nil, agent.SchedulerToolCall{
+		ID: "tool-noboot-read", SessionID: "session-noboot", TurnID: "turn-noboot", Name: "view", Source: string(scheduler.ToolSourceBuiltin), CapabilityID: "builtin:view", InputSummary: `{"file_path":"README.md"}`,
+	})
+	if allow.Decision != string(permission.PolicyAllow) {
+		t.Fatalf("allow decision = %#v", allow)
+	}
+
+	// Deny decision for a shell tool exercises the sandbox decision
+	// store path and the shell classification audit entry.
+	deny := h.evaluatePolicy(permission.PolicyModePlan, nil, agent.SchedulerToolCall{
+		ID: "tool-noboot-deny", SessionID: "session-noboot", TurnID: "turn-noboot", Name: "bash", Source: string(scheduler.ToolSourceShell), CapabilityID: "builtin:bash", InputSummary: `{"command":"rm -rf build"}`,
+	})
+	if deny.Decision != string(permission.PolicyDeny) {
+		t.Fatalf("deny decision = %#v", deny)
+	}
+
+	// Ask-in-non-headless-profile must fail closed to a Deny with
+	// Headless=true rather than block on Permissions.Request. If the
+	// audit/refs/sandbox side effects had bootstrapped a workspace,
+	// EvaluateToolCall would see runtime != nil and call the interactive
+	// permission service instead, hanging this goroutine.
+	done := make(chan agent.SchedulerToolPolicyDecision, 1)
+	go func() {
+		done <- h.evaluatePolicy(permission.PolicyModeAutoRead, []RuntimePolicyRule{{
+			ID: "ask-shell-noboot", Decision: string(permission.PolicyAsk), Source: "scenario", ShellPrefix: "go test", Reason: "regression scope.",
+		}}, agent.SchedulerToolCall{
+			ID: "tool-noboot-ask", SessionID: "session-noboot", TurnID: "turn-noboot", Name: "bash", Source: string(scheduler.ToolSourceShell), CapabilityID: "builtin:bash", InputSummary: `{"command":"go test ./..."}`,
+		})
+	}()
+	select {
+	case ask := <-done:
+		if ask.Decision != string(permission.PolicyDeny) || !ask.Headless {
+			t.Fatalf("headless ask decision should fail closed: %#v", ask)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ask evaluation hung — a side-effect path likely bootstrapped the workspace and reached permissionService.Request")
+	}
+
+	h.service.mu.Lock()
+	defer h.service.mu.Unlock()
+	if h.service.runtime != nil || h.service.workspace != nil {
+		t.Fatalf("runtime bootstrapped as a side effect: runtime=%v workspace=%v", h.service.runtime, h.service.workspace)
+	}
+}

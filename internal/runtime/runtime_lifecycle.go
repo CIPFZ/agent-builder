@@ -47,6 +47,37 @@ func (r *runtimeService) workspaceDB(ctx context.Context) (*sql.DB, error) {
 	return conn, nil
 }
 
+// workspaceDBIfStarted returns the workspace database if the runtime has
+// already been bootstrapped, or (nil, nil) if it has not. Unlike
+// workspaceDB it never calls ensureWorkspaceStarted, so it's safe to call
+// from ambient side-effect paths (audit persistence, ref creation, sandbox
+// bookkeeping) that must not silently spin up the workbench, permission
+// service, and their consumer goroutines. If a workspace has been attached
+// but its config still points at an empty data directory, this returns
+// (nil, nil) as well — callers treat that as "persistence unavailable" and
+// no-op rather than erroring the outer request.
+func (r *runtimeService) workspaceDBIfStarted(ctx context.Context) (*sql.DB, error) {
+	r.mu.Lock()
+	runtimeWorkbench := r.runtime
+	var workspaceID string
+	if r.workspace != nil {
+		workspaceID = r.workspace.ID
+	}
+	r.mu.Unlock()
+	if runtimeWorkbench == nil || workspaceID == "" {
+		return nil, nil
+	}
+	ws, err := runtimeWorkbench.GetWorkspace(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	dataDir := strings.TrimSpace(ws.Cfg.Config().Options.DataDirectory)
+	if dataDir == "" {
+		return nil, nil
+	}
+	return db.Connect(ctx, dataDir)
+}
+
 func (r *runtimeService) configDB(ctx context.Context) (*sql.DB, error) {
 	layout, err := resolveDesktopLayout()
 	if err != nil {

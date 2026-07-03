@@ -309,7 +309,12 @@ func (r *runtimeService) ensureSandboxDecisionStore(ctx context.Context) (*runti
 		r.sandboxDecisions = newRuntimeSandboxDecisionStore(r.turns.db)
 		return &r.sandboxDecisions, nil
 	}
-	db, err := r.workspaceDB(ctx)
+	// Never bootstrap the workspace just to open the sandbox decision
+	// store — see workspaceDBIfStarted for why. When no workspace has
+	// been attached fall back to an in-memory store: sandbox bookkeeping
+	// is a side effect of tool evaluation and the store already supports
+	// mem-only operation.
+	db, err := r.workspaceDBIfStarted(ctx)
 	if err != nil {
 		return nil, err
 	}

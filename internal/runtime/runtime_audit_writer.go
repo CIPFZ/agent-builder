@@ -155,9 +155,25 @@ func (r *runtimeService) writeAudit(entry auditEntry) {
 }
 
 func (r *runtimeService) writeRuntimeAuditEvent(ctx context.Context, entry auditEntry) {
-	db, err := r.workspaceDB(ctx)
+	// Audit persistence must never bootstrap the runtime workspace.
+	// writeAudit fires on every policy evaluation, and if the workspace
+	// hasn't been started yet a bootstrap would silently spin up the
+	// workbench, permission service, and all consumer goroutines behind
+	// the caller's back. For a headless test harness (scenario tests
+	// without an attached backend) that turns the fail-closed "no
+	// permission service" branch of EvaluateToolCall into an interactive
+	// permissionService.Request that blocks forever waiting for a UI
+	// grant/deny. Use the IfStarted variant so we no-op when there is
+	// no workspace; the runtime event stream still carries the policy
+	// decision because recordPolicyDecision already stored an
+	// EventPermissionPolicyApplied runtime event before this audit hook
+	// ran.
+	db, err := r.workspaceDBIfStarted(ctx)
 	if err != nil {
 		slog.Debug("Runtime audit database unavailable", "error", err)
+		return
+	}
+	if db == nil {
 		return
 	}
 	payload, err := auditPayload(entry)

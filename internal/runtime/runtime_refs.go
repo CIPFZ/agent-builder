@@ -414,9 +414,17 @@ func (r *runtimeService) ensureRuntimeRefStore(ctx context.Context) (runtimeRefS
 		r.refs = newRuntimeRefStore(r.turns.db, dataDir)
 		return r.refs, nil
 	}
-	db, err := r.workspaceDB(ctx)
+	// Never bootstrap the workspace just to open a ref store — see
+	// workspaceDBIfStarted for why. Ref creation is a side effect of
+	// tool result recording, so silently no-op when no workspace has
+	// been attached: callers (createRuntimeRef → createToolOutputRefs)
+	// already ignore Create errors and skip persistence.
+	db, err := r.workspaceDBIfStarted(ctx)
 	if err != nil {
 		return runtimeRefStore{}, err
+	}
+	if db == nil {
+		return runtimeRefStore{}, errors.New("runtime ref database is not available")
 	}
 	dataDir := ""
 	r.mu.Lock()
