@@ -667,30 +667,18 @@ function isActiveTurnStatus(status?: string) {
 }
 
 function isContextGovernanceItem(item: ConversationTimelineItemViewModel) {
-  return (
-    item.kind === 'compact_boundary' ||
-    item.kind === 'snip_boundary' ||
-    item.kind === 'microcompact_marker' ||
-    item.kind === 'reactive_compact_retry' ||
-    item.kind === 'tool_result_replacement' ||
-    item.kind === 'context_source'
-  );
+	return (
+		item.kind === 'compact_boundary' ||
+		item.kind === 'context_source'
+	);
 }
 
 function contextGovernanceTitle(item: ConversationTimelineItemViewModel) {
-  switch (item.kind) {
-    case 'compact_boundary':
-      return `Context compact${item.title ? `: ${item.title}` : ''}`;
-    case 'snip_boundary':
-      return 'Context snip';
-    case 'microcompact_marker':
-      return 'Tool result microcompact';
-    case 'reactive_compact_retry':
-      return `Reactive compact retry${item.title ? `: ${item.title}` : ''}`;
-    case 'tool_result_replacement':
-      return `Tool result replacement${item.toolCallId ? `: ${item.toolCallId}` : ''}`;
-    case 'context_source':
-      return `Context source${item.title ? `: ${item.title}` : ''}`;
+	switch (item.kind) {
+		case 'compact_boundary':
+			return `Context compact${item.title ? `: ${item.title}` : ''}`;
+		case 'context_source':
+			return `Context source${item.title ? `: ${item.title}` : ''}`;
     default:
       return item.title || 'Context governance';
   }

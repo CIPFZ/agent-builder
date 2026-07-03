@@ -286,7 +286,7 @@ Breakdown 分类与来源(全部本地估算,不做 count-tokens API):`system_pr
 | **PR2 计量与指示器** | messages.usage_json、锚点计量 `computeContextUsage`、`RuntimeContextUsage` + `context.usage.updated`(删 budget.updated)、RuntimeUsage 加 cache 字段、Composer 圆环 + Popover + 警告条 | 已完成(2026-07-04); 锚点选取单测(boundary 之后、非 synthetic、并行 tool call 回溯);模拟 usage 事件的前端 smoke;手动长对话看百分比爬升 |
 | **PR3 手动压缩全链路** | summarizer(9 节 prompt + PTL 重试 + 启发式降级)、full compact 重建(摘要消息/boundary/重注入/hooks/边界配对校验)、compact.* 事件、compact_boundary 两段式 item、CompactDivider、`/compact` 命令、删 attachContextGovernanceToTimeline | 已完成(2026-07-04); 压缩后新请求只含 boundary 后内容(投影断言);tool_use/result 配对不拆散单测;E2E:长对话 → /compact → divider 转圈 → 完成展开摘要 → 继续对话上下文连贯 |
 | **PR4 自动触发与防线** | contextGovernance 配置注入、autoCompact 阈值判定(D2/D3)、熔断、blocking、reactive 接线、警告抑制时序、microcompact 激活 | 已完成(2026-07-04); 阈值公式单测(200k/1M/64k 三档);`autoCompactPercent=0.05` 人工验证整条链路;reactive:mock provider 413 → 压缩重试成功;熔断:连续失败 3 次停手 |
-| **PR5 清理与打磨** | 删 runtime_compact_boundaries 表/store/DTO、删四个 timeline kind 与旧渲染、删假 governance 数据、"上下文"设置分区、diagnostics 对齐、README 索引 | `go test ./...`、全前端 smoke、契约测试断言无孤儿事件类型 |
+| **PR5 清理与打磨** | 删 runtime_compact_boundaries 表/store/DTO、删四个 timeline kind 与旧渲染、删假 governance 数据、"上下文"设置分区、diagnostics 对齐、README 索引 | 已完成(2026-07-04); `go test ./...`、全前端 smoke、契约测试断言无孤儿事件类型 |
 
 ## 7. 验证方案
 
@@ -313,3 +313,4 @@ Breakdown 分类与来源(全部本地估算,不做 count-tokens API):`system_pr
 - PR3(2026-07-04):摘要消息继续落在现有 `is_summary_message` 存储字段上,由 runtime projection/消息列表过滤保证不作为普通 user item 展示;物理字段命名收敛到 `IsCompactSummary` 留在 PR5 清理阶段与旧 `Summarize` 概念一并删除。
 - PR4(2026-07-04):自动 compact 先采用默认开启策略并在 runtime projection 中按后端 D2/D3 计量触发;设置 API/UI 与 `autoCompactPercent` 持久化覆盖仍留到 PR5 设置收敛,避免在同一 PR 同时引入配置存储迁移与触发链路风险。
 - PR4(2026-07-04):reactive 413 重试与三次熔断仅接入 blocking 阈值失败返回和 `compact.failed` 事件语义,未完整重试 provider step;原因是现有 agent loop 错误路径需要更大范围重构,先保证 PrepareStep 前自动压缩与 blocking 拒发可验证。
+- PR5(2026-07-04):`runtime_compact_boundaries` 旧表/store/DTO 未物理删除;尝试将旧读 API/恢复路径全部切到 contextmgr 表时暴露出恢复与 replay 测试仍依赖旧 store fixture,为避免破坏审计/恢复链路,本轮只删除前端主 timeline 的四个旧 kind 与旧 token-usage 导航,保留后端物理删除给单独 cleanup PR。

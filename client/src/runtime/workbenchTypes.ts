@@ -223,10 +223,6 @@ export type ConversationTimelineKind =
   | 'agent_task'
   | 'turn_terminal'
   | 'compact_boundary'
-  | 'snip_boundary'
-  | 'microcompact_marker'
-  | 'reactive_compact_retry'
-  | 'tool_result_replacement'
   | 'exploration_summary';
 
 export interface ConversationTimelineItemViewModel {

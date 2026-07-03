@@ -42,7 +42,7 @@ const settings = {
     { key: 'memory', label: '记忆', icon: <HistoryOutlined /> },
     { key: 'plugins', label: '插件', icon: <AppstoreAddOutlined /> },
     { key: 'computer-use', label: 'Computer Use', icon: <DesktopOutlined /> },
-    { key: 'token-usage', label: 'Token 用量', icon: <BarChartOutlined /> },
+    { key: 'context', label: '上下文', icon: <BarChartOutlined /> },
     { key: 'diagnostics', label: '诊断', icon: <ExperimentOutlined /> },
   ],
   permissions: [],
