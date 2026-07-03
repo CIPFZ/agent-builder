@@ -15,6 +15,13 @@
 - [09-system-prompt-comparison-and-plan.md](09-system-prompt-comparison-and-plan.md)：System Prompt 机制梳理对比，以及按 Claude 式 section graph 拆分的目标方案和路线。
 - [10-error-recovery-implementation-plan.md](10-error-recovery-implementation-plan.md)：Error Recovery 机制完整实施方案，覆盖 runtime 恢复、request hygiene、显式续跑、reactive retry、前端 Recovery Center 和旧结构删除。
 - [11-conversation-output-rendering-refactor-plan.md](11-conversation-output-rendering-refactor-plan.md)：Conversation Output 与主对话展示的彻底重构实施方案，覆盖 runtime projection、tool/result/permission/hook/task 串联、前端输出合同和旧 activity 展示路径删除。
+- [12-conversation-two-phase-and-streaming-refactor-plan.md](12-conversation-two-phase-and-streaming-refactor-plan.md)：对话输入/输出 UI 重构方案（两阶段 turn + 流式 + 聚合），plan-11 的 PR4/PR5 具体化。
+- [13-conversation-ui-issues-and-fix-plan.md](13-conversation-ui-issues-and-fix-plan.md)：流式落地后四个对话 UI 体验问题（timeline 顺序错乱、过程信息视觉、会话切换闪回、滚动跟随）的根因梳理与修复方案。
+- [14-context-ref-cc-haha.md](14-context-ref-cc-haha.md)：参考项目 cc-haha 的上下文管理/自动压缩/用量展示梳理（usage 锚点计量、绝对 buffer 阈值、桌面端 ContextUsageIndicator 与 CompactStatusDivider 范本）。
+- [15-context-ref-deepseek-gui.md](15-context-ref-deepseek-gui.md)：参考项目 DeepSeek-GUI 的上下文压缩梳理（三档阈值、启发式摘要永不失败降级链、compaction 一等 item + SSE 事件契约及其踩坑）。
+- [16-context-ref-myclaw-claude-code.md](16-context-ref-myclaw-claude-code.md)：Claude Code 源码快照的上下文机制深挖（阈值公式、9 节摘要 prompt、多层压缩级联 §8、append-only 持久化交互 §9）。
+- [17-context-current-state.md](17-context-current-state.md)：Agent Builder 上下文/压缩/用量现状快照（contextmgr 休眠状态、usage 链路、窗口硬编码、前端接入点、问题清单）。
+- [18-context-compaction-implementation-plan.md](18-context-compaction-implementation-plan.md)：上下文自动压缩与 context 展示完整实施方案（六层防线、锚点计量、模型元数据解析链、composer 指示器、压缩 divider、设置能力、PR 序列）。
 
 ## 梳理原则
 
