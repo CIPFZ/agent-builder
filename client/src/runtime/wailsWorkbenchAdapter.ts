@@ -3333,13 +3333,18 @@ function providerModelsFromIDs(models?: string[]): ProviderModelViewModel[] {
 }
 
 function mapProviderModel(model: ProviderModelViewModel): ProviderModelViewModel {
+  // Backend contract: contextWindow / maxOutputTokens carry the user's
+  // explicit values only; resolved values arrive in dedicated fields.
+  // Discovery responses report provider-discovered values, which are never
+  // user input: keep them on the resolved side only.
+  const discovered = model.source === 'discovered';
   return {
     id: model.id,
     displayName: model.displayName,
-    contextWindow: model.source === 'user_override' ? model.contextWindow : undefined,
-    maxOutputTokens: model.source === 'user_override' ? model.maxOutputTokens : undefined,
-    resolvedContextWindow: model.contextWindow,
-    resolvedMaxOutputTokens: model.maxOutputTokens,
+    contextWindow: discovered ? undefined : model.contextWindow || undefined,
+    maxOutputTokens: discovered ? undefined : model.maxOutputTokens || undefined,
+    resolvedContextWindow: model.resolvedContextWindow ?? model.contextWindow ?? undefined,
+    resolvedMaxOutputTokens: model.resolvedMaxOutputTokens ?? model.maxOutputTokens ?? undefined,
     source: model.source,
   };
 }

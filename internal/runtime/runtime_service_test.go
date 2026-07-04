@@ -548,7 +548,7 @@ func TestApplyModelConfigSelectsConfiguredModelFromDiscoveredList(t *testing.T) 
 		APIKey:   "test-key",
 		Model:    "deepseek-v4-pro",
 		Models:   []string{"deepseek-v4-flash", "deepseek-v4-pro"},
-	})
+	}, embeddedCatalogAllModels(), nil)
 
 	selected := store.Config().Models[config.SelectedModelTypeLarge]
 	if selected.Model != "deepseek-v4-pro" {

@@ -41,6 +41,8 @@ func newRuntimeService() *runtimeService {
 		eventStream: newRuntimeSSEServer(),
 
 		messageStream: make(map[string]*messageStreamCursor),
+
+		compactTurnStates: make(map[string]runtimeTurnCompactState),
 	}
 
 	service.httpAPI = newRuntimeHTTPServer(service)

@@ -261,11 +261,17 @@ type RuntimeConfiguredProviderResponse struct {
 }
 
 type RuntimeProviderModel struct {
-	ID              string `json:"id"`
-	DisplayName     string `json:"displayName,omitempty"`
-	ContextWindow   int    `json:"contextWindow,omitempty"`
-	MaxOutputTokens int    `json:"maxOutputTokens,omitempty"`
-	Source          string `json:"source,omitempty"`
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName,omitempty"`
+	// ContextWindow / MaxOutputTokens carry the user's explicit overrides
+	// only (0 = not set by the user).
+	ContextWindow   int `json:"contextWindow,omitempty"`
+	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
+	// Resolved* carry the values produced by the modelmeta resolution chain
+	// (user override > provider default > discovered > builtin > fallback).
+	ResolvedContextWindow   int    `json:"resolvedContextWindow,omitempty"`
+	ResolvedMaxOutputTokens int    `json:"resolvedMaxOutputTokens,omitempty"`
+	Source                  string `json:"source,omitempty"`
 }
 
 type RuntimeProviderModelDiscoveryResponse struct {

@@ -262,7 +262,7 @@ func (r *runtimeService) VerifyModelConfig(ctx context.Context, req RuntimeModel
 		Models:    map[config.SelectedModelType]config.SelectedModel{},
 		Options:   &config.Options{},
 	})
-	applyModelConfig(store, cfg)
+	applyModelConfig(store, cfg, embeddedCatalogAllModels(), nil)
 	provider, ok := store.Config().Providers.Get(localProviderID)
 	if !ok {
 		return RuntimeModelVerifyResponse{}, errors.New("model provider was not configured")

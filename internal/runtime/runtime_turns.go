@@ -195,6 +195,9 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 	}
 	r.sessionTurns[sessionID] = requestID
 	r.mu.Unlock()
+	// A new turn starts fresh: any boundary-anchored compact projection from
+	// a previous turn is superseded by the session.SummaryMessageID slice.
+	r.clearCompactStatesForSession(sessionID)
 	startedTurn := RuntimeTurn{
 		ID:            requestID,
 		SessionID:     sessionID,
@@ -739,6 +742,9 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 	state.UsageDelta = usageAfter.Sub(usageBefore)
 	r.requests[requestID] = state
 	r.mu.Unlock()
+	// The turn reached a terminal state: drop its in-memory compact
+	// projection state (persisted boundary + summary take over from here).
+	r.clearCompactTurnState(sessionID, requestID)
 
 	entry := auditEntry{
 		RequestID:     requestID,

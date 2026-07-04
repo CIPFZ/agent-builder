@@ -245,27 +245,7 @@ func applyConfiguredProviderModel(store *config.ConfigStore, provider RuntimeCon
 		providerType = catwalk.TypeAnthropic
 	}
 	configuredModel := configuredProviderModel(provider, modelID)
-	userContextWindow := 0
-	userMaxOutputTokens := 0
-	discoveredContextWindow := 0
-	discoveredMaxOutputTokens := 0
-	if configuredModel.Source == "" || configuredModel.Source == modelmeta.SourceUserOverride {
-		userContextWindow = configuredModel.ContextWindow
-		userMaxOutputTokens = configuredModel.MaxOutputTokens
-	} else if configuredModel.Source == modelmeta.SourceDiscovered {
-		discoveredContextWindow = configuredModel.ContextWindow
-		discoveredMaxOutputTokens = configuredModel.MaxOutputTokens
-	}
-	limits := modelmeta.Resolve(modelmeta.ResolveRequest{
-		ProviderID:                   provider.ProviderID,
-		ModelID:                      modelID,
-		UserContextWindow:            userContextWindow,
-		UserMaxOutputTokens:          userMaxOutputTokens,
-		ProviderDefaultContextWindow: provider.DefaultContextWindow,
-		DiscoveredContextWindow:      discoveredContextWindow,
-		DiscoveredMaxOutputTokens:    discoveredMaxOutputTokens,
-		Catalog:                      configuredProviderCatalogModels(provider.ProviderID),
-	})
+	limits := configuredProviderModelLimits(provider, modelID)
 	model := catwalk.Model{
 		ID:               modelID,
 		Name:             firstNonEmpty(configuredModel.DisplayName, modelID),
@@ -297,6 +277,30 @@ func configuredProviderModel(provider RuntimeConfiguredProvider, modelID string)
 		}
 	}
 	return RuntimeProviderModel{ID: modelID}
+}
+
+// configuredProviderModelLimits resolves model limits for a configured
+// provider model. Enriched models carry the resolved values in the dedicated
+// Resolved* fields (user-entered values stay in ContextWindow /
+// MaxOutputTokens); non-enriched models fall through to the modelmeta
+// resolution chain with the user-explicit values as overrides.
+func configuredProviderModelLimits(provider RuntimeConfiguredProvider, modelID string) modelmeta.ModelLimits {
+	configuredModel := configuredProviderModel(provider, modelID)
+	if configuredModel.ResolvedContextWindow > 0 {
+		return modelmeta.ModelLimits{
+			ContextWindow:   configuredModel.ResolvedContextWindow,
+			MaxOutputTokens: firstPositiveInt(configuredModel.ResolvedMaxOutputTokens, configuredModel.MaxOutputTokens, modelmeta.FallbackMaxOutput),
+			Source:          firstNonEmpty(configuredModel.Source, "resolved"),
+		}
+	}
+	return modelmeta.Resolve(modelmeta.ResolveRequest{
+		ProviderID:                   provider.ProviderID,
+		ModelID:                      modelID,
+		UserContextWindow:            configuredModel.ContextWindow,
+		UserMaxOutputTokens:          configuredModel.MaxOutputTokens,
+		ProviderDefaultContextWindow: provider.DefaultContextWindow,
+		Catalog:                      configuredProviderCatalogModels(provider.ProviderID),
+	})
 }
 
 func configuredProviderModelProtocol(provider RuntimeConfiguredProvider) string {

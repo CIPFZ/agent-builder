@@ -788,7 +788,7 @@ function ProviderEditorModal({
                       placeholder={formatTokenWindow(row.resolvedContextWindow)}
                       status={isInvalidContextWindow(row.contextWindow) ? 'error' : undefined}
                       value={row.contextWindow}
-                      onChange={(value) => updateModelRow(index, { contextWindow: value ?? undefined, source: value ? 'user_override' : row.source })}
+                      onChange={(value) => updateModelRow(index, { contextWindow: value ?? undefined, source: value ? 'user_override' : undefined })}
                     />
                     <Tag>{formatModelSource(row.source)}</Tag>
                   </Flex>
@@ -803,7 +803,7 @@ function ProviderEditorModal({
                     min={1}
                     placeholder={formatTokenWindow(row.resolvedMaxOutputTokens)}
                     value={row.maxOutputTokens}
-                    onChange={(value) => updateModelRow(index, { maxOutputTokens: value ?? undefined, source: value ? 'user_override' : row.source })}
+                    onChange={(value) => updateModelRow(index, { maxOutputTokens: value ?? undefined })}
                   />
                 ),
               },
@@ -1152,7 +1152,7 @@ function mergeProviderModelRows(existing: ProviderModelViewModel[], discovered: 
       maxOutputTokens: current?.maxOutputTokens,
       resolvedContextWindow: model.resolvedContextWindow ?? model.contextWindow,
       resolvedMaxOutputTokens: model.resolvedMaxOutputTokens ?? model.maxOutputTokens,
-      source: current?.contextWindow || current?.maxOutputTokens ? 'user_override' : model.source,
+      source: current?.contextWindow ? 'user_override' : model.source,
     };
   });
 }
@@ -1223,11 +1223,13 @@ function normalizeConfiguredProvider(
     ...(values.models ?? []),
     { id: defaultModel ?? '' },
   ]).map((model) => ({
+    // Only the user's explicit values are saved; resolved values and source
+    // are recomputed by the backend resolution chain.
     id: model.id,
     displayName: model.displayName,
     contextWindow: model.contextWindow,
     maxOutputTokens: model.maxOutputTokens,
-    source: model.contextWindow || model.maxOutputTokens ? 'user_override' : undefined,
+    source: model.contextWindow ? 'user_override' : undefined,
   }));
   return {
     id: values.id || values.providerId,

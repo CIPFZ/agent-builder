@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"charm.land/fantasy"
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
 	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/permission"
@@ -219,6 +220,24 @@ type runtimeService struct {
 	httpAPI              *runtimeHTTPServer
 	messageStream        map[string]*messageStreamCursor
 	sessionOutputStream  *runtimeSessionOutputBroker
+	compactTurnMu        sync.Mutex
+	compactTurnStates    map[string]runtimeTurnCompactState
+}
+
+// runtimeTurnCompactState is the per-(session,turn) in-memory state produced
+// by a full compact executed mid-turn. It anchors the boundary projection so
+// every subsequent step of the same turn keeps sending the compacted
+// sequence (summary + pairing-safe tail) instead of falling back to the full
+// history. It also carries the "at most one auto compact per turn" flag. The
+// state is cleared when the turn reaches a terminal status and when a new
+// turn starts for the session; the next turn is served by the
+// session.SummaryMessageID slice in getSessionMessages.
+type runtimeTurnCompactState struct {
+	SummaryMessages      []fantasy.Message
+	TailStartIndex       int
+	SnapshotLen          int
+	HasProjection        bool
+	AutoCompactAttempted bool
 }
 
 // messageStreamCursor tracks how much of an assistant message's text /

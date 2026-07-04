@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"unicode/utf8"
 
 	"charm.land/fantasy"
 	"github.com/CIPFZ/agent-builder/internal/message"
@@ -183,5 +184,5 @@ func approxTokenCount(s string) int64 {
 	if s == "" {
 		return 0
 	}
-	return int64((len(s) + 3) / 4)
+	return int64((utf8.RuneCountInString(s) + 3) / 4)
 }

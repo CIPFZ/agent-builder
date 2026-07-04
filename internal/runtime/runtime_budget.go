@@ -23,7 +23,7 @@ func (r *runtimeService) computeRuntimeBudget(ctx context.Context, sessionID, tu
 		report.InputBudget.EstimatedTokens = estimateRuntimeTokens(strings.Repeat("x", promptLength))
 	}
 	if r.runtime != nil && r.workspace != nil && sessionID != "" {
-		report.ContextWindow = r.currentRuntimeContextWindow(ctx, model)
+		report.ContextWindow = r.currentRuntimeContextWindow(ctx, sessionID, model)
 		if msgs, err := r.runtime.ListSessionMessages(ctx, r.workspace.ID, sessionID); err == nil {
 			report.Messages.Count = len(msgs)
 			for _, msg := range msgs {
@@ -80,12 +80,20 @@ func (r *runtimeService) computeRuntimeBudget(ctx context.Context, sessionID, tu
 	return report
 }
 
-func (r *runtimeService) currentRuntimeContextWindow(ctx context.Context, model string) int {
-	limits := r.currentRuntimeModelLimits(ctx, model)
+func (r *runtimeService) currentRuntimeContextWindow(ctx context.Context, sessionID, model string) int {
+	limits := r.currentRuntimeModelLimits(ctx, sessionID, model)
 	return limits.ContextWindow
 }
 
-func (r *runtimeService) currentRuntimeModelLimits(ctx context.Context, model string) modelmeta.ModelLimits {
+// currentRuntimeModelLimits resolves the context window and max output token
+// limits for the model actually selected for the session. It walks the
+// selected_models scope chain (session > project > global) against the
+// configured provider store first; only when that resolution is unavailable
+// does it fall back to the workspace-config global provider.
+func (r *runtimeService) currentRuntimeModelLimits(ctx context.Context, sessionID, model string) modelmeta.ModelLimits {
+	if limits, ok := r.selectedConfiguredModelLimits(ctx, sessionID, model); ok {
+		return limits
+	}
 	if r.runtime == nil || r.workspace == nil {
 		return modelmeta.ModelLimits{ContextWindow: modelmeta.FallbackContextWindow, MaxOutputTokens: modelmeta.FallbackMaxOutput, Source: "fallback"}
 	}
@@ -122,6 +130,55 @@ func (r *runtimeService) currentRuntimeModelLimits(ctx context.Context, model st
 		}
 	}
 	return modelmeta.ModelLimits{ContextWindow: modelmeta.FallbackContextWindow, MaxOutputTokens: modelmeta.FallbackMaxOutput, Source: "fallback"}
+}
+
+// selectedConfiguredModelLimits resolves limits through the selected_models
+// scope chain: session scope first, then the active project, then global.
+func (r *runtimeService) selectedConfiguredModelLimits(ctx context.Context, sessionID, model string) (modelmeta.ModelLimits, bool) {
+	store, providerStore, err := r.selectedModelStores(ctx)
+	if err != nil {
+		return modelmeta.ModelLimits{}, false
+	}
+	r.mu.Lock()
+	projectID := r.activeProjectID
+	r.mu.Unlock()
+	var selected RuntimeSelectedModel
+	found := false
+	if trimmed := strings.TrimSpace(sessionID); trimmed != "" {
+		if candidate, err := store.Get(ctx, "session", "", trimmed); err == nil {
+			selected, found = candidate, true
+		}
+	}
+	if !found && strings.TrimSpace(projectID) != "" {
+		if candidate, err := store.Get(ctx, "project", strings.TrimSpace(projectID), ""); err == nil {
+			selected, found = candidate, true
+		}
+	}
+	if !found {
+		if candidate, err := store.Get(ctx, "global", "", ""); err == nil {
+			selected, found = candidate, true
+		}
+	}
+	if !found {
+		return modelmeta.ModelLimits{}, false
+	}
+	provider, err := providerStore.GetConfigured(ctx, selected.ConfiguredProviderID)
+	if err != nil {
+		return modelmeta.ModelLimits{}, false
+	}
+	provider, err = providerStore.enrichConfiguredProviderModels(ctx, provider)
+	if err != nil {
+		return modelmeta.ModelLimits{}, false
+	}
+	target := strings.TrimSpace(model)
+	if target == "" {
+		target = strings.TrimSpace(selected.Model)
+	}
+	if target == "" {
+		return modelmeta.ModelLimits{}, false
+	}
+	limits := configuredProviderModelLimits(provider, target)
+	return limits, limits.ContextWindow > 0
 }
 
 func estimateRuntimeTokens(text string) int {

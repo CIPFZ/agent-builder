@@ -10,12 +10,31 @@ import (
 	"time"
 )
 
+// contextDBTX is satisfied by both *sql.DB and *sql.Tx so store writes can
+// participate in an externally managed transaction.
+type contextDBTX interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 type SQLStore struct {
-	db *sql.DB
+	db contextDBTX
 }
 
 func NewSQLStore(db *sql.DB) SQLStore {
+	if db == nil {
+		return SQLStore{}
+	}
 	return SQLStore{db: db}
+}
+
+// WithTx returns a store view that executes against the given transaction.
+func (s SQLStore) WithTx(tx *sql.Tx) SQLStore {
+	if tx == nil {
+		return s
+	}
+	return SQLStore{db: tx}
 }
 
 func (s SQLStore) UpsertProjection(ctx context.Context, projection Projection) (Projection, error) {

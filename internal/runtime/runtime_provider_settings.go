@@ -584,29 +584,23 @@ func (s runtimeProviderSettingsStore) enrichConfiguredProviderModels(ctx context
 	models := compactProviderModels(provider.Models)
 	for i := range models {
 		cached := metadataByID[models[i].ID]
-		userContextWindow := models[i].ContextWindow
-		userMaxOutputTokens := models[i].MaxOutputTokens
 		limits := modelmeta.Resolve(modelmeta.ResolveRequest{
 			ProviderID:                   provider.ProviderID,
 			ModelID:                      models[i].ID,
-			UserContextWindow:            userContextWindow,
-			UserMaxOutputTokens:          userMaxOutputTokens,
+			UserContextWindow:            models[i].ContextWindow,
+			UserMaxOutputTokens:          models[i].MaxOutputTokens,
 			ProviderDefaultContextWindow: provider.DefaultContextWindow,
 			DiscoveredContextWindow:      cached.ContextWindow,
 			DiscoveredMaxOutputTokens:    cached.MaxOutputTokens,
 			Catalog:                      configuredProviderCatalogModels(provider.ProviderID),
 		})
-		if models[i].ContextWindow == 0 {
-			models[i].ContextWindow = limits.ContextWindow
-		}
-		if models[i].MaxOutputTokens == 0 {
-			models[i].MaxOutputTokens = limits.MaxOutputTokens
-		}
-		if userContextWindow > 0 || userMaxOutputTokens > 0 {
-			models[i].Source = modelmeta.SourceUserOverride
-		} else {
-			models[i].Source = limits.Source
-		}
+		// ContextWindow / MaxOutputTokens keep the user's explicit input only
+		// (0 = not set). Resolved values live in the dedicated fields, and
+		// Source reflects the resolution tier that actually provided the
+		// window — user_override only when the user really set the window.
+		models[i].ResolvedContextWindow = limits.ContextWindow
+		models[i].ResolvedMaxOutputTokens = limits.MaxOutputTokens
+		models[i].Source = limits.Source
 	}
 	provider.Models = models
 	return provider, nil
@@ -891,8 +885,21 @@ func nullableInt(value int) any {
 	return value
 }
 
+// mustMarshalProviderModels persists only the user's explicit values:
+// resolved values and resolution source are runtime projections and must
+// never be written back into models_json.
 func mustMarshalProviderModels(values []RuntimeProviderModel) string {
-	data, err := json.Marshal(compactProviderModels(values))
+	models := compactProviderModels(values)
+	stored := make([]RuntimeProviderModel, 0, len(models))
+	for _, model := range models {
+		stored = append(stored, RuntimeProviderModel{
+			ID:              model.ID,
+			DisplayName:     model.DisplayName,
+			ContextWindow:   model.ContextWindow,
+			MaxOutputTokens: model.MaxOutputTokens,
+		})
+	}
+	data, err := json.Marshal(stored)
 	if err != nil {
 		return "[]"
 	}

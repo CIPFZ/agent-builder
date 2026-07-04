@@ -58,7 +58,7 @@ func (r *runtimeService) computeContextUsage(ctx context.Context, sessionID, tur
 			model = status.Model
 		}
 	}
-	limits := r.currentRuntimeModelLimits(ctx, model)
+	limits := r.currentRuntimeModelLimits(ctx, sessionID, model)
 	thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens)
 	budget := r.computeRuntimeBudget(ctx, sessionID, turnID, model, promptLength, contextSummary)
 
@@ -66,12 +66,29 @@ func (r *runtimeService) computeContextUsage(ctx context.Context, sessionID, tur
 	if err != nil {
 		return RuntimeContextUsage{}, fmt.Errorf("failed to list Agent Builder session messages: %w", err)
 	}
-	boundaryAt, compactCount := r.latestCompletedFullBoundary(ctx, sessionID)
+	// Post-boundary selection is ordinal: locate the latest completed full
+	// boundary's summary message in the ordered list and slice from there.
+	// Timestamps are never compared (second/millisecond mixups and same-second
+	// messages made that unreliable). Unknown summary id (old sessions) falls
+	// back to the full list.
+	summaryMessageID, compactCount := r.latestCompletedFullBoundary(ctx, sessionID)
+	postBoundary := messages
+	if summaryMessageID != "" {
+		for i, msg := range messages {
+			if msg.ID == summaryMessageID {
+				postBoundary = messages[i:]
+				break
+			}
+		}
+	}
+	// The anchor is the last assistant message in the post-boundary slice that
+	// carries real provider usage. Estimated usage is never persisted to
+	// message.Usage (see agent OnStepFinish), so any non-zero usage is real.
 	anchorIndex := -1
 	var anchorUsage int64
-	for i := len(messages) - 1; i >= 0; i-- {
-		msg := messages[i]
-		if !messageCreatedAfterBoundary(msg.CreatedAt, boundaryAt) || msg.Role != message.Assistant || msg.IsSummaryMessage || msg.Usage.IsZero() || isSyntheticRuntimeMessage(msg) {
+	for i := len(postBoundary) - 1; i >= 0; i-- {
+		msg := postBoundary[i]
+		if msg.Role != message.Assistant || msg.IsSummaryMessage || msg.Usage.IsZero() || isSyntheticRuntimeMessage(msg) {
 			continue
 		}
 		anchorIndex = i
@@ -81,21 +98,27 @@ func (r *runtimeService) computeContextUsage(ctx context.Context, sessionID, tur
 
 	estimated := anchorIndex < 0
 	postBoundaryEstimate := 0
-	for _, msg := range messages {
-		if messageCreatedAfterBoundary(msg.CreatedAt, boundaryAt) {
-			postBoundaryEstimate += estimateRuntimeMessageTokens(msg)
-		}
+	for _, msg := range postBoundary {
+		postBoundaryEstimate += estimateRuntimeMessageTokens(msg)
 	}
 	anchorBased := 0
 	if anchorIndex >= 0 {
 		anchorBased = int(anchorUsage)
-		for _, msg := range messages[anchorIndex+1:] {
+		for _, msg := range postBoundary[anchorIndex+1:] {
 			anchorBased += estimateRuntimeMessageTokens(msg)
 		}
 	} else {
 		anchorBased = postBoundaryEstimate
 	}
-	localEstimate := budget.TotalEstimatedTokens - budget.Messages.EstimatedTokens + postBoundaryEstimate
+	// Local estimate = fixed overhead (system, tools, skills, mcp, context
+	// sources) + post-boundary message estimate. Full-history message and
+	// tool-output buckets as well as the synthetic input budget are removed to
+	// avoid double counting.
+	localEstimate := budget.TotalEstimatedTokens -
+		budget.Messages.EstimatedTokens -
+		budget.ToolOutputs.EstimatedTokens -
+		budget.InputBudget.EstimatedTokens +
+		postBoundaryEstimate
 	used := maxInt(anchorBased, localEstimate)
 	used = clampInt(used, 0, limits.ContextWindow)
 
@@ -107,6 +130,9 @@ func (r *runtimeService) computeContextUsage(ctx context.Context, sessionID, tur
 	} else if used >= thresholds.WarningAt {
 		level = contextUsageLevelWarning
 	}
+
+	systemPromptTokens := r.latestPromptAssemblySystemTokens(ctx, sessionID)
+	memoryTokens := budget.ContextSources.EstimatedTokens + r.memoryInjectionTokensForTurn(ctx, sessionID, turnID)
 
 	return RuntimeContextUsage{
 		SessionID:         sessionID,
@@ -120,10 +146,25 @@ func (r *runtimeService) computeContextUsage(ctx context.Context, sessionID, tur
 		Estimated:         estimated,
 		OutputReserve:     thresholds.OutputReserve,
 		AutoCompactBuffer: thresholds.AutoCompactBuffer,
-		Breakdown:         contextUsageBreakdown(used, limits.ContextWindow, thresholds, budget),
+		Breakdown:         contextUsageBreakdown(used, limits.ContextWindow, thresholds, budget, systemPromptTokens, memoryTokens),
 		CompactCount:      compactCount,
 		UpdatedAt:         time.Now().UTC().UnixMilli(),
 	}, nil
+}
+
+// latestPromptAssemblySystemTokens returns the system prompt token estimate
+// (including provider prefix) from the most recent prompt assembly recorded
+// for the session, or 0 when unavailable.
+func (r *runtimeService) latestPromptAssemblySystemTokens(ctx context.Context, sessionID string) int {
+	if r.promptAssemblies.db == nil {
+		return 0
+	}
+	assemblies, err := r.promptAssemblies.ListBySession(ctx, sessionID, 1)
+	if err != nil || len(assemblies) == 0 {
+		return 0
+	}
+	system := assemblies[len(assemblies)-1].System
+	return system.TokenEstimate + system.PromptPrefixTokens
 }
 
 func (r *runtimeService) publishContextUsageUpdated(ctx context.Context, sessionID, turnID, model string, promptLength int, contextSummary *RuntimeTurnContextSummary) {
@@ -166,20 +207,20 @@ func contextThresholds(contextWindow, modelMaxOutputTokens int) runtimeContextTh
 	}
 }
 
-func contextUsageBreakdown(used, contextWindow int, thresholds runtimeContextThresholds, budget RuntimeBudgetReport) []RuntimeContextCategory {
+func contextUsageBreakdown(used, contextWindow int, thresholds runtimeContextThresholds, budget RuntimeBudgetReport, systemPromptTokens, memoryTokens int) []RuntimeContextCategory {
 	tools := budget.ToolSchemas.EstimatedTokens + budget.SelectedToolSchemas.EstimatedTokens
 	skills := budget.Skills.EstimatedTokens
 	mcp := budget.MCP.EstimatedTokens
-	memory := budget.ContextSources.EstimatedTokens
-	other := tools + skills + mcp + memory
-	messages := maxInt(used-other, 0)
+	known := systemPromptTokens + tools + skills + mcp + memoryTokens
+	messages := maxInt(used-known, 0)
 	reserved := thresholds.OutputReserve + thresholds.AutoCompactBuffer
 	free := maxInt(contextWindow-used-reserved, 0)
 	return []RuntimeContextCategory{
+		{Key: "system_prompt", Label: "系统提示", Tokens: systemPromptTokens, Estimated: true},
 		{Key: "tools", Label: "工具", Tokens: tools, Estimated: true},
 		{Key: "skills", Label: "技能", Tokens: skills, Estimated: true},
 		{Key: "mcp", Label: "MCP", Tokens: mcp, Estimated: true},
-		{Key: "memory", Label: "记忆", Tokens: memory, Estimated: true},
+		{Key: "memory", Label: "记忆", Tokens: memoryTokens, Estimated: true},
 		{Key: "messages", Label: "消息", Tokens: messages, Estimated: false},
 		{Key: "reserved", Label: "预留", Tokens: reserved, Estimated: true},
 		{Key: "free", Label: "剩余", Tokens: free, Estimated: true},
@@ -226,36 +267,35 @@ func isSyntheticRuntimeMessage(msg message.Message) bool {
 	return false
 }
 
-func messageCreatedAfterBoundary(messageCreatedAt, boundaryAt int64) bool {
-	if boundaryAt <= 0 {
-		return true
-	}
-	return normalizeRuntimeTimestampMillis(messageCreatedAt) > normalizeRuntimeTimestampMillis(boundaryAt)
-}
-
-func normalizeRuntimeTimestampMillis(value int64) int64 {
-	if value > 0 && value < 100_000_000_000 {
-		return value * 1000
-	}
-	return value
-}
-
-func (r *runtimeService) latestCompletedFullBoundary(ctx context.Context, sessionID string) (int64, int) {
+// latestCompletedFullBoundary returns the summary message id of the most
+// recent completed full compact boundary for the session plus the total
+// completed full compact count. Ordering is by created_at with the boundary
+// id as tiebreaker so same-millisecond boundaries stay deterministic.
+func (r *runtimeService) latestCompletedFullBoundary(ctx context.Context, sessionID string) (string, int) {
 	conn, err := r.workspaceDB(ctx)
 	if err != nil || conn == nil {
-		return 0, 0
+		return "", 0
 	}
-	var latest sql.NullInt64
 	var count int
-	err = conn.QueryRowContext(ctx, `
-SELECT COALESCE(MAX(COALESCE(completed_at, created_at)), 0), COUNT(*)
+	if err := conn.QueryRowContext(ctx, `
+SELECT COUNT(*)
 FROM runtime_context_boundaries
 WHERE session_id = ? AND kind = 'full' AND status = 'completed'
-`, sessionID).Scan(&latest, &count)
-	if err != nil {
-		return 0, 0
+`, sessionID).Scan(&count); err != nil {
+		return "", 0
 	}
-	return latest.Int64, count
+	var summaryID sql.NullString
+	err = conn.QueryRowContext(ctx, `
+SELECT summary_message_id
+FROM runtime_context_boundaries
+WHERE session_id = ? AND kind = 'full' AND status = 'completed'
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`, sessionID).Scan(&summaryID)
+	if err != nil {
+		return "", count
+	}
+	return strings.TrimSpace(summaryID.String), count
 }
 
 func runtimeContextUsagePayload(usage RuntimeContextUsage) map[string]any {

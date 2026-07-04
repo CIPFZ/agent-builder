@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -93,35 +94,56 @@ func (r *runtimeService) ManualCompact(ctx context.Context, req RuntimeContextAc
 	if req.TurnID == "" {
 		return RuntimeManualCompactResponse{}, errors.New("turn id is required")
 	}
+	if r.sessionTurnActive(req.SessionID) {
+		return RuntimeManualCompactResponse{}, errors.New("会话正在运行，请等待本轮完成后再压缩")
+	}
 	if err := r.ensureContextManager(ctx); err != nil {
 		return RuntimeManualCompactResponse{}, err
 	}
-	result, err := r.runManualFullCompact(ctx, req)
+	result, _, err := r.runManualFullCompact(ctx, req)
 	if err != nil {
 		return RuntimeManualCompactResponse{}, err
 	}
 	return RuntimeManualCompactResponse{Boundary: runtimeContextBoundaryFromContext(result.Boundary)}, nil
 }
 
-func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeContextActionRequest) (contextmgr.CompactResult, error) {
+// sessionTurnActive reports whether the session has a turn that is still
+// running. Manual compaction is rejected while a turn is active because the
+// compact rewrites session.SummaryMessageID which the running turn's message
+// selection depends on.
+func (r *runtimeService) sessionTurnActive(sessionID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	turnID, ok := r.sessionTurns[sessionID]
+	if !ok {
+		return false
+	}
+	state, ok := r.requests[turnID]
+	if !ok {
+		return false
+	}
+	return !isFinalRuntimeRequestState(state)
+}
+
+func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeContextActionRequest) (contextmgr.CompactResult, message.Message, error) {
 	wsID, err := r.currentWorkspaceID()
 	if err != nil {
-		return contextmgr.CompactResult{}, err
+		return contextmgr.CompactResult{}, message.Message{}, err
 	}
 	conn, err := r.workspaceDB(ctx)
 	if err != nil {
-		return contextmgr.CompactResult{}, err
+		return contextmgr.CompactResult{}, message.Message{}, err
 	}
 	now := time.Now().UTC()
 	createdAt := now.UnixMilli()
-	boundaryID := fmt.Sprintf("ctxbound_full_manual_%s_%d", strings.ReplaceAll(req.TurnID, ":", "_"), createdAt)
-	projectionID := strings.TrimSpace(req.ProjectionID)
-	if projectionID == "" {
-		projectionID = contextmgr.ProjectionID(req.TurnID, 1)
-	}
 	trigger := strings.TrimSpace(req.Reason)
 	if trigger == "" {
 		trigger = "manual"
+	}
+	boundaryID := fmt.Sprintf("ctxbound_full_%s_%s_%d", trigger, strings.ReplaceAll(req.TurnID, ":", "_"), createdAt)
+	projectionID := strings.TrimSpace(req.ProjectionID)
+	if projectionID == "" {
+		projectionID = contextmgr.ProjectionID(req.TurnID, 1)
 	}
 	started := contextmgr.Boundary{
 		ID:           boundaryID,
@@ -135,7 +157,7 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 	}
 	started, err = r.contextStore.UpsertBoundary(ctx, started)
 	if err != nil {
-		return contextmgr.CompactResult{}, err
+		return contextmgr.CompactResult{}, message.Message{}, err
 	}
 	r.emitCompactEvent(runtimeapi.EventCompactStarted, req.SessionID, req.TurnID, map[string]any{
 		"boundary_id": boundaryID,
@@ -145,16 +167,60 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 	})
 	messages, err := r.runtime.ListSessionMessages(ctx, wsID, req.SessionID)
 	if err != nil {
-		return contextmgr.CompactResult{}, r.failManualFullCompact(ctx, started, err)
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
 	}
 	if len(messages) == 0 {
 		err = errors.New("manual compact requires at least one message")
-		return contextmgr.CompactResult{}, r.failManualFullCompact(ctx, started, err)
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
 	}
-	summaryText := buildManualCompactSummary(messages, req.Instructions)
+	// Only the region after the previous completed full boundary participates
+	// in this compact: everything before it is already covered by the
+	// previous summary (the summary message itself is carried forward as
+	// summarization input for continuity, but is excluded from stats).
+	prevSummaryID, _ := r.latestCompletedFullBoundary(ctx, req.SessionID)
+	summaryInput := messages
+	statsRegion := messages
+	if prevSummaryID != "" {
+		for i, msg := range messages {
+			if msg.ID == prevSummaryID {
+				summaryInput = messages[i:]
+				statsRegion = messages[i+1:]
+				break
+			}
+		}
+	}
+	summaryText, err := r.generateCompactSummary(ctx, req, summaryInput)
+	if err != nil {
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+	}
 	wrappedSummary := compactSummaryMessageText(summaryText, trigger)
-	messageSvc := message.NewService(db.New(conn))
-	summaryMessage, err := messageSvc.Create(ctx, req.SessionID, message.CreateMessageParams{
+	sess, err := r.runtime.GetSession(ctx, wsID, req.SessionID)
+	if err != nil {
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+	}
+	messageRefs := make([]string, 0, len(statsRegion))
+	preTokens := 0
+	for _, msg := range statsRegion {
+		if msg.ID == "" || msg.IsSummaryMessage || msg.Role == message.System {
+			continue
+		}
+		messageRefs = append(messageRefs, msg.ID)
+		preTokens += estimateRuntimeMessageTokens(msg)
+	}
+	postTokens := estimateRuntimeTokens(wrappedSummary)
+	completed := started
+	completed.Status = contextmgr.ProjectionStatusCompleted
+	completed.MessageRefs = messageRefs
+	completed.BudgetBefore = &contextmgr.BudgetReport{TotalEstimatedTokens: preTokens}
+	completed.BudgetAfter = &contextmgr.BudgetReport{TotalEstimatedTokens: postTokens}
+
+	// The summary message and the completed boundary are written in a single
+	// SQLite transaction so readers never observe one without the other.
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+	}
+	summaryMessage, err := message.NewService(db.New(tx)).Create(ctx, req.SessionID, message.CreateMessageParams{
 		Role: message.User,
 		Parts: []message.ContentPart{
 			message.TextContent{Text: wrappedSummary},
@@ -166,37 +232,26 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 		},
 	})
 	if err != nil {
-		return contextmgr.CompactResult{}, r.failManualFullCompact(ctx, started, err)
+		_ = tx.Rollback()
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
 	}
-	sess, err := r.runtime.GetSession(ctx, wsID, req.SessionID)
-	if err != nil {
-		return contextmgr.CompactResult{}, r.failManualFullCompact(ctx, started, err)
-	}
-	sess.SummaryMessageID = summaryMessage.ID
-	if _, err := r.runtime.SaveSession(ctx, wsID, sess); err != nil {
-		return contextmgr.CompactResult{}, r.failManualFullCompact(ctx, started, err)
-	}
-	messageRefs := make([]string, 0, len(messages))
-	preTokens := 0
-	for _, msg := range messages {
-		if msg.ID == "" || msg.IsSummaryMessage || msg.Role == message.System {
-			continue
-		}
-		messageRefs = append(messageRefs, msg.ID)
-		preTokens += estimateRuntimeMessageTokens(msg)
-	}
-	postTokens := estimateRuntimeTokens(wrappedSummary)
-	completed := started
-	completed.Status = contextmgr.ProjectionStatusCompleted
 	completed.SummaryMessageID = summaryMessage.ID
 	completed.SummaryRef = "runtime://messages/" + summaryMessage.ID
-	completed.MessageRefs = messageRefs
-	completed.BudgetBefore = &contextmgr.BudgetReport{TotalEstimatedTokens: preTokens}
-	completed.BudgetAfter = &contextmgr.BudgetReport{TotalEstimatedTokens: postTokens}
 	completed.CompletedAt = time.Now().UTC().UnixMilli()
-	completed, err = r.contextStore.UpsertBoundary(ctx, completed)
+	completed, err = r.contextStore.WithTx(tx).UpsertBoundary(ctx, completed)
 	if err != nil {
-		return contextmgr.CompactResult{}, r.failManualFullCompact(ctx, started, err)
+		_ = tx.Rollback()
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+	}
+	// session.SummaryMessageID moves immediately after the transaction; if it
+	// fails the boundary is marked failed so metering never anchors to a
+	// summary the read path does not use.
+	sess.SummaryMessageID = summaryMessage.ID
+	if _, err := r.runtime.SaveSession(ctx, wsID, sess); err != nil {
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
 	}
 	r.emitCompactEvent(runtimeapi.EventCompactCompleted, req.SessionID, req.TurnID, map[string]any{
 		"boundary_id":        completed.ID,
@@ -209,7 +264,45 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 		"summary":            "context compact completed",
 	})
 	r.publishContextUsageUpdated(ctx, req.SessionID, req.TurnID, "", 0, nil)
-	return contextmgr.CompactResult{Boundary: completed}, nil
+	return contextmgr.CompactResult{Boundary: completed}, summaryMessage, nil
+}
+
+// generateCompactSummary produces the compact summary text. It currently uses
+// the deterministic heuristic summarizer; the model-backed summarizer (WP2)
+// plugs in here without touching the compact transaction flow.
+func (r *runtimeService) generateCompactSummary(ctx context.Context, req RuntimeContextActionRequest, messages []message.Message) (string, error) {
+	return buildManualCompactSummary(messages, req.Instructions, r.recentReadFilePaths(ctx, req.SessionID, 10)), nil
+}
+
+// recentReadFilePaths returns up to limit most recently read file paths for
+// the session from the read_files table.
+func (r *runtimeService) recentReadFilePaths(ctx context.Context, sessionID string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	conn := r.turns.db
+	if conn == nil {
+		var err error
+		if conn, err = r.workspaceDB(ctx); err != nil {
+			return nil
+		}
+	}
+	files, err := db.New(conn).ListSessionReadFiles(ctx, sessionID)
+	if err != nil {
+		return nil
+	}
+	paths := make([]string, 0, minInt(len(files), limit))
+	for _, file := range files {
+		path := strings.TrimSpace(file.Path)
+		if path == "" {
+			continue
+		}
+		paths = append(paths, path)
+		if len(paths) >= limit {
+			break
+		}
+	}
+	return paths
 }
 
 func (r *runtimeService) failManualFullCompact(ctx context.Context, boundary contextmgr.Boundary, compactErr error) error {
@@ -459,38 +552,59 @@ func runtimePromptSectionSummaries(sections []agent.PromptSectionSummary) []Runt
 }
 
 func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot agent.ModelInputSnapshot) (agent.ModelInputProjection, error) {
-	messages, err := r.injectProjectMemory(ctx, agentModelInputSnapshotLite{
-		SessionID: snapshot.SessionID,
-		TurnID:    snapshot.TurnID,
-		Step:      firstPositiveInt(snapshot.Step, 1),
-	}, snapshot.Messages)
-	if err == nil {
-		snapshot.Messages = messages
-	}
 	if err := r.ensureContextManager(ctx); err != nil {
 		return agent.ModelInputProjection{}, err
 	}
 	if !isCompactGuardedTurn(snapshot.TurnID, snapshot.Source) {
-		if usage, usageErr := r.computeContextUsage(ctx, snapshot.SessionID, snapshot.TurnID, snapshot.Model, 0, nil); usageErr == nil && usage.AutoCompactAt > 0 && usage.UsedTokens >= usage.AutoCompactAt {
-			limits := r.currentRuntimeModelLimits(ctx, snapshot.Model)
-			thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens)
-			compactReq := RuntimeContextActionRequest{
-				SessionID:    snapshot.SessionID,
-				TurnID:       snapshot.TurnID,
-				ProjectionID: contextmgr.ProjectionID(snapshot.TurnID, firstPositiveInt(snapshot.Step, 1)),
-				Reason:       "auto",
-				Instructions: "请直接继续当前任务，不要复述摘要、不要向用户提问。",
-			}
-			if compact, compactErr := r.runManualFullCompact(ctx, compactReq); compactErr == nil {
-				if compactedMessages, loadErr := r.modelMessagesAfterRuntimeCompact(ctx, snapshot.SessionID, compact.Boundary.SummaryMessageID, snapshot.Messages, 6); loadErr == nil {
-					snapshot.Messages = compactedMessages
+		state, hasState := r.compactStateForTurn(snapshot.SessionID, snapshot.TurnID)
+		switch {
+		case hasState && state.HasProjection:
+			// A full compact already happened in this turn: every subsequent
+			// step keeps projecting summary + pairing-safe tail so the model
+			// never falls back to the pre-compact history.
+			snapshot.Messages = applyCompactTurnProjection(snapshot.SessionID, snapshot.TurnID, snapshot.Messages, state)
+		case hasState && state.AutoCompactAttempted:
+			// At most one auto compact per turn.
+		default:
+			if usage, usageErr := r.computeContextUsage(ctx, snapshot.SessionID, snapshot.TurnID, snapshot.Model, 0, nil); usageErr == nil && usage.AutoCompactAt > 0 && usage.UsedTokens >= usage.AutoCompactAt {
+				r.markAutoCompactAttempted(snapshot.SessionID, snapshot.TurnID)
+				limits := r.currentRuntimeModelLimits(ctx, snapshot.SessionID, snapshot.Model)
+				thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens)
+				compactReq := RuntimeContextActionRequest{
+					SessionID:    snapshot.SessionID,
+					TurnID:       snapshot.TurnID,
+					ProjectionID: contextmgr.ProjectionID(snapshot.TurnID, firstPositiveInt(snapshot.Step, 1)),
+					Reason:       "auto",
+					Instructions: "请直接继续当前任务，不要复述摘要、不要向用户提问。",
 				}
-			} else if usage.UsedTokens >= thresholds.BlockingAt {
-				return agent.ModelInputProjection{}, fmt.Errorf("上下文超出模型限制,请手动压缩(/compact)或新建会话: %w", compactErr)
+				if compact, summaryMessage, compactErr := r.runManualFullCompact(ctx, compactReq); compactErr == nil {
+					compactState := runtimeTurnCompactState{
+						SummaryMessages:      summaryMessage.ToAIMessage(),
+						TailStartIndex:       pairSafeTailStart(snapshot.Messages, compactKeepTailMessages),
+						SnapshotLen:          len(snapshot.Messages),
+						HasProjection:        true,
+						AutoCompactAttempted: true,
+					}
+					r.setCompactTurnState(snapshot.SessionID, snapshot.TurnID, compactState)
+					snapshot.Messages = applyCompactTurnProjection(snapshot.SessionID, snapshot.TurnID, snapshot.Messages, compactState)
+					r.warnIfAutoCompactIneffective(ctx, snapshot, compact.Boundary.ID)
+				} else if usage.UsedTokens >= thresholds.BlockingAt {
+					return agent.ModelInputProjection{}, fmt.Errorf("上下文超出模型限制,请手动压缩(/compact)或新建会话: %w", compactErr)
+				}
 			}
 		}
 	}
-	limits := r.currentRuntimeModelLimits(ctx, snapshot.Model)
+	// Project memory is injected after the boundary-anchored projection so it
+	// is always prepended as a system message at the head of the final
+	// sequence and never participates in compaction statistics.
+	if messages, err := r.injectProjectMemory(ctx, agentModelInputSnapshotLite{
+		SessionID: snapshot.SessionID,
+		TurnID:    snapshot.TurnID,
+		Step:      firstPositiveInt(snapshot.Step, 1),
+	}, snapshot.Messages); err == nil {
+		snapshot.Messages = messages
+	}
+	limits := r.currentRuntimeModelLimits(ctx, snapshot.SessionID, snapshot.Model)
 	thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens)
 	result, err := r.contextManager.BuildModelInput(ctx, contextmgr.BuildInputRequest{
 		SessionID:     snapshot.SessionID,
@@ -531,43 +645,105 @@ func isCompactGuardedTurn(turnID, source string) bool {
 		source == "compact"
 }
 
-func (r *runtimeService) modelMessagesAfterRuntimeCompact(ctx context.Context, sessionID, summaryMessageID string, tail []fantasy.Message, keepTail int) ([]fantasy.Message, error) {
-	if strings.TrimSpace(summaryMessageID) == "" {
-		return nil, errors.New("compact summary message id is empty")
+// applyCompactTurnProjection assembles the boundary-anchored projection:
+// leading system messages + compact summary + the pairing-safe tail starting
+// at the registered index. Fantasy messages only append within a turn so the
+// index stays stable; if the snapshot shape changed unexpectedly the
+// projection is skipped with a warning.
+func applyCompactTurnProjection(sessionID, turnID string, messages []fantasy.Message, state runtimeTurnCompactState) []fantasy.Message {
+	if !state.HasProjection {
+		return messages
 	}
-	wsID, err := r.currentWorkspaceID()
-	if err != nil {
-		return nil, err
+	if state.TailStartIndex < 0 || state.TailStartIndex > len(messages) || len(messages) < state.SnapshotLen {
+		slog.Warn("Compact turn projection skipped: snapshot shape changed",
+			"session_id", sessionID,
+			"turn_id", turnID,
+			"tail_start", state.TailStartIndex,
+			"snapshot_len", state.SnapshotLen,
+			"message_count", len(messages),
+		)
+		return messages
 	}
-	messages, err := r.runtime.ListSessionMessages(ctx, wsID, sessionID)
-	if err != nil {
-		return nil, err
+	leading := leadingSystemMessageCount(messages)
+	if leading > state.TailStartIndex {
+		leading = state.TailStartIndex
 	}
-	var summary message.Message
-	for _, msg := range messages {
-		if msg.ID == summaryMessageID {
-			summary = msg
-			break
-		}
-	}
-	if summary.ID == "" {
-		return nil, errors.New("compact summary message not found")
-	}
-	out := summary.ToAIMessage()
-	if keepTail > 0 && len(tail) > keepTail {
-		tail = tail[len(tail)-keepTail:]
-	}
-	out = append(out, cloneFantasyMessages(tail)...)
-	return out, nil
+	tail := trimTrailingDanglingToolCalls(messages[state.TailStartIndex:])
+	out := make([]fantasy.Message, 0, leading+len(state.SummaryMessages)+len(tail))
+	out = append(out, messages[:leading]...)
+	out = append(out, state.SummaryMessages...)
+	out = append(out, tail...)
+	return out
 }
 
-func cloneFantasyMessages(messages []fantasy.Message) []fantasy.Message {
-	if len(messages) == 0 {
-		return nil
+func (r *runtimeService) warnIfAutoCompactIneffective(ctx context.Context, snapshot agent.ModelInputSnapshot, boundaryID string) {
+	usage, err := r.computeContextUsage(ctx, snapshot.SessionID, snapshot.TurnID, snapshot.Model, 0, nil)
+	if err != nil || usage.AutoCompactAt <= 0 || usage.UsedTokens < usage.AutoCompactAt {
+		return
 	}
-	out := make([]fantasy.Message, len(messages))
-	copy(out, messages)
-	return out
+	_, _ = r.contextStore.UpsertWarning(ctx, contextmgr.Warning{
+		ID:        "ctxwarn_ineffective_" + boundaryID,
+		SessionID: snapshot.SessionID,
+		TurnID:    snapshot.TurnID,
+		Code:      "auto_compact_ineffective",
+		Message:   fmt.Sprintf("auto compact left used tokens at %d (threshold %d); skipping further auto compaction this turn", usage.UsedTokens, usage.AutoCompactAt),
+		Severity:  "warning",
+	})
+	slog.Warn("Auto compact ineffective",
+		"session_id", snapshot.SessionID,
+		"turn_id", snapshot.TurnID,
+		"used_tokens", usage.UsedTokens,
+		"auto_compact_at", usage.AutoCompactAt,
+	)
+}
+
+func compactTurnStateKey(sessionID, turnID string) string {
+	return sessionID + "\x00" + turnID
+}
+
+func (r *runtimeService) compactStateForTurn(sessionID, turnID string) (runtimeTurnCompactState, bool) {
+	r.compactTurnMu.Lock()
+	defer r.compactTurnMu.Unlock()
+	state, ok := r.compactTurnStates[compactTurnStateKey(sessionID, turnID)]
+	return state, ok
+}
+
+func (r *runtimeService) setCompactTurnState(sessionID, turnID string, state runtimeTurnCompactState) {
+	r.compactTurnMu.Lock()
+	defer r.compactTurnMu.Unlock()
+	if r.compactTurnStates == nil {
+		r.compactTurnStates = make(map[string]runtimeTurnCompactState)
+	}
+	r.compactTurnStates[compactTurnStateKey(sessionID, turnID)] = state
+}
+
+func (r *runtimeService) markAutoCompactAttempted(sessionID, turnID string) {
+	r.compactTurnMu.Lock()
+	defer r.compactTurnMu.Unlock()
+	if r.compactTurnStates == nil {
+		r.compactTurnStates = make(map[string]runtimeTurnCompactState)
+	}
+	key := compactTurnStateKey(sessionID, turnID)
+	state := r.compactTurnStates[key]
+	state.AutoCompactAttempted = true
+	r.compactTurnStates[key] = state
+}
+
+func (r *runtimeService) clearCompactTurnState(sessionID, turnID string) {
+	r.compactTurnMu.Lock()
+	defer r.compactTurnMu.Unlock()
+	delete(r.compactTurnStates, compactTurnStateKey(sessionID, turnID))
+}
+
+func (r *runtimeService) clearCompactStatesForSession(sessionID string) {
+	r.compactTurnMu.Lock()
+	defer r.compactTurnMu.Unlock()
+	prefix := sessionID + "\x00"
+	for key := range r.compactTurnStates {
+		if strings.HasPrefix(key, prefix) {
+			delete(r.compactTurnStates, key)
+		}
+	}
 }
 
 func (r *runtimeService) enrichPromptAssembliesWithContext(ctx context.Context, assemblies []RuntimePromptAssembly) ([]RuntimePromptAssembly, error) {
@@ -767,9 +943,8 @@ func firstPositiveInt(values ...int) int {
 	return 0
 }
 
-func buildManualCompactSummary(messages []message.Message, instructions string) string {
+func buildManualCompactSummary(messages []message.Message, instructions string, readFiles []string) string {
 	var userMessages []string
-	var files []string
 	var errors []string
 	var currentWork []string
 	for _, msg := range messages {
@@ -790,15 +965,21 @@ func buildManualCompactSummary(messages []message.Message, instructions string) 
 			}
 		case message.Tool:
 			for _, part := range msg.Parts {
-				if result, ok := part.(message.ToolResult); ok {
-					if strings.Contains(result.Name, "read") || strings.Contains(result.Content, "File:") {
-						files = append(files, compactClip(firstNonEmpty(result.Name, result.ToolCallID), 120))
-					}
-					if result.IsError {
-						errors = append(errors, compactClip(result.Content, 400))
-					}
+				if result, ok := part.(message.ToolResult); ok && result.IsError {
+					errors = append(errors, compactClip(result.Content, 400))
 				}
 			}
+		}
+	}
+	files := make([]string, 0, len(readFiles))
+	for _, path := range readFiles {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		files = append(files, compactClip(path, 240))
+		if len(files) >= 10 {
+			break
 		}
 	}
 	var b strings.Builder

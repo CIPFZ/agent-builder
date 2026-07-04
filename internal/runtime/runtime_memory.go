@@ -304,6 +304,24 @@ func lastUserText(messages []fantasy.Message) string {
 	return ""
 }
 
+// memoryInjectionTokensForTurn sums the token estimates of project memory
+// injections recorded for the given turn. Used by the context usage breakdown
+// to fold project memory into the memory category.
+func (r *runtimeService) memoryInjectionTokensForTurn(ctx context.Context, sessionID, turnID string) int {
+	if strings.TrimSpace(turnID) == "" || r.turns.db == nil {
+		return 0
+	}
+	injections, err := memory.NewStore(r.turns.db).ListInjectionsByTurn(ctx, sessionID, turnID)
+	if err != nil {
+		return 0
+	}
+	total := 0
+	for _, injection := range injections {
+		total += injection.TokenEstimate
+	}
+	return total
+}
+
 func (r *runtimeService) memoryContextSourcesForTurn(ctx context.Context, sessionID, turnID string) []RuntimeContextSource {
 	if r.turns.db == nil {
 		return nil

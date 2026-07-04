@@ -78,6 +78,17 @@ func configuredProviderCatalogModels(providerID string) []catwalk.Model {
 	return nil
 }
 
+// embeddedCatalogAllModels flattens every embedded provider's model list.
+// Used for providers with no catalog identity (e.g. the local model config)
+// so the modelmeta builtin tier can still match known model ids.
+func embeddedCatalogAllModels() []catwalk.Model {
+	var models []catwalk.Model
+	for _, provider := range append(embedded.GetAll(), hyper.Embedded()) {
+		models = append(models, provider.Models...)
+	}
+	return models
+}
+
 func runtimeProviderTypes() []RuntimeProviderType {
 	return []RuntimeProviderType{
 		{ID: string(catwalk.TypeOpenAI), Name: "OpenAI", Description: "OpenAI Responses / Chat Completions 协议"},

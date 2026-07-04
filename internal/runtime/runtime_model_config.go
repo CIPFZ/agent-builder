@@ -16,6 +16,7 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/db"
 	"github.com/CIPFZ/agent-builder/internal/modelmeta"
 )
 
@@ -88,8 +89,27 @@ func applyLocalModelConfig(store *config.ConfigStore, layout desktopLayout) loca
 	if result.Error != nil || !result.Applied {
 		return result
 	}
-	applyModelConfig(store, local)
+	applyModelConfig(store, local, embeddedCatalogAllModels(), loadLocalModelMetadataCache(layout))
 	return result
+}
+
+// loadLocalModelMetadataCache reads discovered model metadata for the local
+// provider from the desktop config database, keyed by model id. Missing
+// database or table simply yields no metadata.
+func loadLocalModelMetadataCache(layout desktopLayout) map[string]RuntimeProviderModel {
+	conn, err := db.Connect(context.Background(), layout.DataDir)
+	if err != nil {
+		return nil
+	}
+	models, err := newRuntimeProviderSettingsStore(conn).ListModelMetadata(context.Background(), localProviderID)
+	if err != nil || len(models) == 0 {
+		return nil
+	}
+	byID := make(map[string]RuntimeProviderModel, len(models))
+	for _, model := range models {
+		byID[model.ID] = model
+	}
+	return byID
 }
 
 func applyDesktopProxy(result localModelConfigResult) {
@@ -307,7 +327,11 @@ func compactModelIDs(models []string) []string {
 	return compact
 }
 
-func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig) {
+// applyModelConfig registers the local model provider. The catwalk catalog
+// and any cached discovered metadata are passed in so the modelmeta
+// resolution chain can use its discovered/builtin tiers instead of always
+// falling back to the default window.
+func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig, catalog []catwalk.Model, metadata map[string]RuntimeProviderModel) {
 	if store.Config().Options == nil {
 		store.Config().Options = &config.Options{}
 	}
@@ -328,9 +352,13 @@ func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig) {
 		if model == "" {
 			continue
 		}
+		cached := metadata[model]
 		limits := modelmeta.Resolve(modelmeta.ResolveRequest{
-			ProviderID: localProviderID,
-			ModelID:    model,
+			ProviderID:                localProviderID,
+			ModelID:                   model,
+			DiscoveredContextWindow:   cached.ContextWindow,
+			DiscoveredMaxOutputTokens: cached.MaxOutputTokens,
+			Catalog:                   catalog,
 		})
 		models = append(models, catwalk.Model{
 			ID:               model,
