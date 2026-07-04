@@ -112,9 +112,6 @@ func (r *runtimeService) RecoveryStatus(ctx context.Context) (RuntimeRecoverySta
 }
 
 func (r *runtimeService) recoveryCompactBoundaries(ctx context.Context, activeTurns, interruptedTurns []RuntimeTurn) []RuntimeCompactBoundary {
-	if r.compactBoundaries.db == nil {
-		return nil
-	}
 	seen := map[string]struct{}{}
 	var out []RuntimeCompactBoundary
 	var turns []RuntimeTurn
@@ -128,11 +125,11 @@ func (r *runtimeService) recoveryCompactBoundaries(ctx context.Context, activeTu
 			continue
 		}
 		seen[turn.ID] = struct{}{}
-		boundaries, err := r.compactBoundaries.ListByTurn(ctx, turn.ID)
+		boundaries, err := r.contextStore.ListBoundariesByTurn(ctx, turn.ID)
 		if err != nil {
 			continue
 		}
-		out = append(out, boundaries...)
+		out = append(out, runtimeCompactBoundariesFromContext(boundaries)...)
 	}
 	return out
 }

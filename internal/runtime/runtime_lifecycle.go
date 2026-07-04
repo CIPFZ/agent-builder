@@ -148,7 +148,6 @@ func (r *runtimeService) restart() {
 	r.toolEvents = make(map[string]runtimeToolEventState)
 	r.toolCalls = nil
 	r.refs = runtimeRefStore{}
-	r.compactBoundaries = runtimeCompactBoundaryStore{}
 	r.worktrees = runtimeWorktreeStore{}
 	r.agentTasks = runtimeAgentTaskStore{}
 	r.hookExecutions = runtimeHookExecutionStore{}
@@ -328,7 +327,6 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 	r.refs = newRuntimeRefStore(conn, wsRuntime.Cfg.Config().Options.DataDirectory)
 	r.contextStore = contextmgr.NewSQLStore(conn)
 	r.contextManager = contextmgr.NewManager(contextmgr.ManagerOptions{Store: r.contextStore})
-	r.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
 	r.promptAssemblies = newRuntimePromptAssemblyStore(conn)
 	r.worktrees = newRuntimeWorktreeStore(conn)
 	r.agentTasks = newRuntimeAgentTaskStore(conn)

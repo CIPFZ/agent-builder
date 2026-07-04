@@ -2687,8 +2687,13 @@ Use this skill from the desktop runtime.
 	})
 
 	resp := runtimeSkillsFromConfig(store, root)
+	// SkillFilePath is normalized to forward slashes (see
+	// runtimeSkillsFromConfigWithPolicy), so compare against a
+	// slash-normalized root rather than the raw (OS-native, backslash on
+	// Windows) t.TempDir() value.
+	normalizedRoot := filepath.ToSlash(root)
 	for _, skill := range resp.Skills {
-		if skill.Name == "managed-skill" && skill.Enabled && strings.HasPrefix(skill.SkillFilePath, root) {
+		if skill.Name == "managed-skill" && skill.Enabled && strings.HasPrefix(skill.SkillFilePath, normalizedRoot) {
 			if len(store.Config().Options.SkillsPaths) != 0 {
 				t.Fatalf("desktop path was persisted to config: %#v", store.Config().Options.SkillsPaths)
 			}

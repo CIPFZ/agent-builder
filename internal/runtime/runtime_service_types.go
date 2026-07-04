@@ -194,7 +194,6 @@ type runtimeService struct {
 	refs                 runtimeRefStore
 	contextManager       contextmgr.Manager
 	contextStore         contextmgr.SQLStore
-	compactBoundaries    runtimeCompactBoundaryStore
 	promptAssemblies     runtimePromptAssemblyStore
 	worktrees            runtimeWorktreeStore
 	sandboxDecisions     runtimeSandboxDecisionStore
@@ -224,6 +223,13 @@ type runtimeService struct {
 	sessionOutputStream  *runtimeSessionOutputBroker
 	compactTurnMu        sync.Mutex
 	compactTurnStates    map[string]runtimeTurnCompactState
+	// compactFailureMu guards compactFailures. WP4: the map tracks
+	// consecutive full-compact failures per session so we can open a
+	// per-session circuit breaker after three failures and skip further
+	// auto/reactive compaction until a successful compact or manual
+	// invocation resets the counter (see runtime_prompt_assembly.go).
+	compactFailureMu sync.Mutex
+	compactFailures  map[string]int
 }
 
 // runtimeTurnCompactState is the per-(session,turn) in-memory state produced
@@ -240,6 +246,15 @@ type runtimeTurnCompactState struct {
 	SnapshotLen          int
 	HasProjection        bool
 	AutoCompactAttempted bool
+	// ReactiveMicroKeepRecent overrides MicrocompactConfig.KeepRecent when
+	// > 0. Set by a reactive attempt-1 (projection reduction) to intensify
+	// microcompact for this turn only. Value 1 = keep only the newest
+	// tool result verbatim.
+	ReactiveMicroKeepRecent int
+	// ReactiveMicroTokenDivisor divides MicrocompactConfig.ToolResultTokenLimit
+	// when > 1 (halved on attempt 1 per plan). It stacks over the default
+	// tokenLimit derived from the effective window.
+	ReactiveMicroTokenDivisor int
 }
 
 // messageStreamCursor tracks how much of an assistant message's text /

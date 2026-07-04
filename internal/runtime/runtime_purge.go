@@ -131,7 +131,6 @@ func purgeRuntimeSessionTx(ctx context.Context, tx *sql.Tx, sessionID string, re
 		`DELETE FROM runtime_events WHERE session_id = ?`,
 		`DELETE FROM runtime_refs WHERE session_id = ?`,
 		`DELETE FROM runtime_worktrees WHERE session_id = ?`,
-		`DELETE FROM runtime_compact_boundaries WHERE session_id = ?`,
 		`DELETE FROM runtime_permission_requests WHERE session_id = ?`,
 		`DELETE FROM runtime_tool_calls WHERE session_id = ?`,
 		`DELETE FROM runtime_agent_task_results WHERE task_id IN (SELECT id FROM runtime_agent_tasks WHERE parent_session_id = ? OR child_session_id = ?)`,

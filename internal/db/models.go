@@ -243,24 +243,6 @@ type RuntimeAuditEvent struct {
 	PermissionID sql.NullString `json:"permission_id"`
 }
 
-type RuntimeCompactBoundary struct {
-	ID                 string         `json:"id"`
-	SessionID          string         `json:"session_id"`
-	TurnID             sql.NullString `json:"turn_id"`
-	Kind               string         `json:"kind"`
-	Trigger            string         `json:"trigger"`
-	Status             string         `json:"status"`
-	BudgetBeforeJson   sql.NullString `json:"budget_before_json"`
-	BudgetAfterJson    sql.NullString `json:"budget_after_json"`
-	SummaryRef         sql.NullString `json:"summary_ref"`
-	MessageRefsJson    sql.NullString `json:"message_refs_json"`
-	ToolCallRefsJson   sql.NullString `json:"tool_call_refs_json"`
-	ReinjectedRefsJson sql.NullString `json:"reinjected_refs_json"`
-	Error              sql.NullString `json:"error"`
-	CreatedAt          int64          `json:"created_at"`
-	CompletedAt        sql.NullInt64  `json:"completed_at"`
-}
-
 type RuntimeContextBoundary struct {
 	ID                 string         `json:"id"`
 	SessionID          string         `json:"session_id"`

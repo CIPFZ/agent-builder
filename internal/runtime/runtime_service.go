@@ -18,16 +18,15 @@ func newRuntimeService() *runtimeService {
 
 		toolEvents: make(map[string]runtimeToolEventState),
 
-		toolCalls:         scheduler.New(NewRuntimeToolCallStore()),
-		refs:              runtimeRefStore{},
-		compactBoundaries: runtimeCompactBoundaryStore{},
-		promptAssemblies:  runtimePromptAssemblyStore{},
-		worktrees:         runtimeWorktreeStore{},
-		sandboxDecisions:  runtimeSandboxDecisionStore{},
-		hookExecutions:    runtimeHookExecutionStore{},
-		runs:              runtimeRunStore{},
-		transitions:       runtimeRunTransitionStore{},
-		recoveryLinks:     runtimeRecoveryLinkStore{},
+		toolCalls:        scheduler.New(NewRuntimeToolCallStore()),
+		refs:             runtimeRefStore{},
+		promptAssemblies: runtimePromptAssemblyStore{},
+		worktrees:        runtimeWorktreeStore{},
+		sandboxDecisions: runtimeSandboxDecisionStore{},
+		hookExecutions:   runtimeHookExecutionStore{},
+		runs:             runtimeRunStore{},
+		transitions:      runtimeRunTransitionStore{},
+		recoveryLinks:    runtimeRecoveryLinkStore{},
 
 		agentTasks: runtimeAgentTaskStore{},
 
@@ -43,6 +42,8 @@ func newRuntimeService() *runtimeService {
 		messageStream: make(map[string]*messageStreamCursor),
 
 		compactTurnStates: make(map[string]runtimeTurnCompactState),
+
+		compactFailures: make(map[string]int),
 	}
 
 	service.httpAPI = newRuntimeHTTPServer(service)

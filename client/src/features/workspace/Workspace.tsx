@@ -769,7 +769,7 @@ export function Workspace({
                   />
                   <RunProjectionPreview run={viewModel.runProjection} onResumeCheckpoint={onRunCheckpointResume} onExecuteTask={onRunTaskExecute} />
                   <ReactCallchainInspector callchain={viewModel.reactCallchain} onHookExecutionLoad={onHookExecutionLoad} />
-                  <ContextDiagnosticsPanel diagnostics={viewModel.contextDiagnostics} onManualCompact={onManualCompact} onManualSnip={onManualSnip} />
+                  <ContextDiagnosticsPanel diagnostics={viewModel.contextDiagnostics} contextUsage={viewModel.composer.contextUsage} onManualCompact={onManualCompact} onManualSnip={onManualSnip} />
                   <TurnDiagnosticsPanel
                     diagnostics={viewModel.turnDiagnostics}
                     hookExecutions={viewModel.hookExecutions}

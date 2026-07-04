@@ -19,6 +19,42 @@ type ModelInputBuilder interface {
 	BuildModelInput(context.Context, ModelInputSnapshot) (ModelInputProjection, error)
 }
 
+// ReactiveCompactor is invoked by the agent loop after a provider request
+// fails with a context-length error. The implementation records the reactive
+// attempt, executes the correct recovery action for the current attempt
+// number (projection reduction for attempt 1, full compact for attempt 2+),
+// and can signal that the session's circuit breaker is open — in which case
+// the agent must stop retrying and surface the underlying error.
+type ReactiveCompactor interface {
+	ReactiveCompact(context.Context, ReactiveCompactSnapshot) (ReactiveCompactResult, error)
+}
+
+// ReactiveCompactSnapshot is the input the agent hands to ReactiveCompact
+// after a Stream call fails with a context-length error. Messages is the
+// prompt-side view of the history passed to the failed model call and is
+// used by the runtime to install a per-turn boundary-anchored projection
+// (summary + pairing-safe tail) so the next Stream attempt sends less input.
+type ReactiveCompactSnapshot struct {
+	SessionID string
+	TurnID    string
+	Step      int
+	Provider  string
+	Model     string
+	Attempt   int
+	Error     string
+	Messages  []fantasy.Message
+}
+
+// ReactiveCompactResult carries what the caller needs to decide whether to
+// retry the failed Stream call. When CircuitOpen is true the caller must
+// stop retrying — the runtime has already published compact.failed with
+// circuit_open=true and further reactive attempts would produce the same
+// result until a successful compact resets the counter.
+type ReactiveCompactResult struct {
+	Action      string
+	CircuitOpen bool
+}
+
 type ModelInputSnapshot struct {
 	SessionID string
 	TurnID    string

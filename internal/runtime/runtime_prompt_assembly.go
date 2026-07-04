@@ -37,6 +37,20 @@ func (r *runtimeSchedulerRecorder) BuildModelInput(ctx context.Context, snapshot
 	return r.service.buildModelInputProjection(ctx, snapshot)
 }
 
+// ReactiveCompact implements agent.ReactiveCompactor by delegating to the
+// runtime service. The agent loop calls this after fantasy.Stream returns a
+// context-length error; the runtime records the attempt in contextmgr,
+// enforces the per-session circuit breaker, and executes either a
+// microcompact-strengthening projection reduction (attempt 1) or a full
+// compact (attempt 2+). Returning CircuitOpen=true tells the agent to stop
+// retrying.
+func (r *runtimeSchedulerRecorder) ReactiveCompact(ctx context.Context, snapshot agent.ReactiveCompactSnapshot) (agent.ReactiveCompactResult, error) {
+	if r == nil || r.service == nil {
+		return agent.ReactiveCompactResult{}, nil
+	}
+	return r.service.runReactiveCompact(ctx, snapshot)
+}
+
 func (r *runtimeService) PromptAssembliesByTurn(ctx context.Context, turnID string) (RuntimePromptAssembliesResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimePromptAssembliesResponse{}, err
@@ -107,6 +121,11 @@ func (r *runtimeService) ManualCompact(ctx context.Context, req RuntimeContextAc
 	if err := r.ensureContextManager(ctx); err != nil {
 		return RuntimeManualCompactResponse{}, err
 	}
+	// Manual compact resets the circuit breaker up front: the user is
+	// explicitly asking for a compaction, so whatever streak of auto/reactive
+	// failures the session accumulated is irrelevant for this attempt and
+	// should not gate the subsequent auto/reactive path either.
+	r.resetCompactFailures(req.SessionID)
 	result, _, err := r.runManualFullCompact(ctx, req)
 	if err != nil {
 		return RuntimeManualCompactResponse{}, err
@@ -132,7 +151,22 @@ func (r *runtimeService) sessionTurnActive(sessionID string) bool {
 	return !isFinalRuntimeRequestState(state)
 }
 
+// manualFullCompactCallContext carries retry/attempt metadata into the
+// compact execution path so failManualFullCompact can emit accurate
+// attempt/will_retry/circuit_open fields on compact.failed. Manual and auto
+// callers pass zero (attempt=1, willRetry=false); reactive callers pass
+// their attempt number plus a hint about whether the outer agent loop will
+// try again.
+type manualFullCompactCallContext struct {
+	Attempt   int
+	WillRetry bool
+}
+
 func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeContextActionRequest) (contextmgr.CompactResult, message.Message, error) {
+	return r.runManualFullCompactWithContext(ctx, req, manualFullCompactCallContext{})
+}
+
+func (r *runtimeService) runManualFullCompactWithContext(ctx context.Context, req RuntimeContextActionRequest, callCtx manualFullCompactCallContext) (contextmgr.CompactResult, message.Message, error) {
 	wsID, err := r.currentWorkspaceID()
 	if err != nil {
 		return contextmgr.CompactResult{}, message.Message{}, err
@@ -174,11 +208,11 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 	})
 	messages, err := r.runtime.ListSessionMessages(ctx, wsID, req.SessionID)
 	if err != nil {
-		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err, callCtx)
 	}
 	if len(messages) == 0 {
 		err = errors.New("manual compact requires at least one message")
-		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err, callCtx)
 	}
 	// Only the region after the previous completed full boundary participates
 	// in this compact: everything before it is already covered by the
@@ -215,13 +249,13 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 	summaryText, summaryMode, summaryErr := r.generateCompactSummary(ctx, req, summaryInput, instructions)
 	progressStop()
 	if summaryErr != nil {
-		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, summaryErr)
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, summaryErr, callCtx)
 	}
 
 	wrappedSummary := compactSummaryMessageText(summaryText, trigger)
 	sess, err := r.runtime.GetSession(ctx, wsID, req.SessionID)
 	if err != nil {
-		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err, callCtx)
 	}
 	messageRefs := make([]string, 0, len(statsRegion))
 	preTokens := 0
@@ -259,7 +293,7 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 	// SQLite transaction so readers never observe one without the other.
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
-		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err, callCtx)
 	}
 	summaryMessage, err := message.NewService(db.New(tx)).Create(ctx, req.SessionID, message.CreateMessageParams{
 		Role:             message.User,
@@ -274,7 +308,7 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 	})
 	if err != nil {
 		_ = tx.Rollback()
-		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err, callCtx)
 	}
 	completed.SummaryMessageID = summaryMessage.ID
 	completed.SummaryRef = "runtime://messages/" + summaryMessage.ID
@@ -282,17 +316,17 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 	completed, err = r.contextStore.WithTx(tx).UpsertBoundary(ctx, completed)
 	if err != nil {
 		_ = tx.Rollback()
-		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err, callCtx)
 	}
 	if err := tx.Commit(); err != nil {
-		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err, callCtx)
 	}
 	// session.SummaryMessageID moves immediately after the transaction; if it
 	// fails the boundary is marked failed so metering never anchors to a
 	// summary the read path does not use.
 	sess.SummaryMessageID = summaryMessage.ID
 	if _, err := r.runtime.SaveSession(ctx, wsID, sess); err != nil {
-		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err, callCtx)
 	}
 
 	// filetracker stale: after a successful compact the next turn should
@@ -337,6 +371,9 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 		"reinjected_count":   len(reinjection.refs),
 		"summary":            "context compact completed",
 	})
+	// Reset the per-session circuit breaker on any successful full compact:
+	// a good compact clears whatever streak of failures the session had.
+	r.resetCompactFailures(req.SessionID)
 	r.publishContextUsageUpdated(ctx, req.SessionID, req.TurnID, "", 0, nil)
 	return contextmgr.CompactResult{Boundary: completed}, summaryMessage, nil
 }
@@ -751,19 +788,75 @@ func (r *runtimeService) recentReadFilePaths(ctx context.Context, sessionID stri
 	return paths
 }
 
-func (r *runtimeService) failManualFullCompact(ctx context.Context, boundary contextmgr.Boundary, compactErr error) error {
+// compactCircuitBreakerThreshold is the number of consecutive auto/reactive
+// full-compact failures per session after which the runtime opens the
+// circuit and stops attempting further compaction until a successful
+// (or manual) compact resets the counter.
+const compactCircuitBreakerThreshold = 3
+
+// isCompactCircuitOpen reports whether the session's consecutive
+// full-compact failure counter has reached the configured threshold.
+func (r *runtimeService) isCompactCircuitOpen(sessionID string) bool {
+	r.compactFailureMu.Lock()
+	defer r.compactFailureMu.Unlock()
+	return r.compactFailures[sessionID] >= compactCircuitBreakerThreshold
+}
+
+// incrementCompactFailure bumps the per-session counter and returns the new
+// value so callers can decide whether the circuit is now open.
+func (r *runtimeService) incrementCompactFailure(sessionID string) int {
+	r.compactFailureMu.Lock()
+	defer r.compactFailureMu.Unlock()
+	if r.compactFailures == nil {
+		r.compactFailures = make(map[string]int)
+	}
+	r.compactFailures[sessionID]++
+	return r.compactFailures[sessionID]
+}
+
+// resetCompactFailures clears the counter for the session; called on any
+// successful full compact and when the user manually /compacts.
+func (r *runtimeService) resetCompactFailures(sessionID string) {
+	r.compactFailureMu.Lock()
+	defer r.compactFailureMu.Unlock()
+	delete(r.compactFailures, sessionID)
+}
+
+func (r *runtimeService) failManualFullCompact(ctx context.Context, boundary contextmgr.Boundary, compactErr error, callCtx manualFullCompactCallContext) error {
 	failed := boundary
 	failed.Status = contextmgr.ProjectionStatusFailed
 	failed.Error = compactErr.Error()
 	failed.CompletedAt = time.Now().UTC().UnixMilli()
 	_, _ = r.contextStore.UpsertBoundary(ctx, failed)
+
+	// Circuit-breaker accounting. Manual failures do NOT increment the
+	// counter (the user explicitly asked for it and gets an immediate error
+	// they can act on). Auto and reactive failures count toward the
+	// threshold so a broken provider or a summarizer stuck in a loop stops
+	// burning tokens indefinitely.
+	trigger := strings.ToLower(strings.TrimSpace(boundary.Trigger))
+	circuitOpen := false
+	switch trigger {
+	case "auto", "reactive":
+		count := r.incrementCompactFailure(boundary.SessionID)
+		circuitOpen = count >= compactCircuitBreakerThreshold
+	default:
+		circuitOpen = r.isCompactCircuitOpen(boundary.SessionID)
+	}
+
+	attempt := callCtx.Attempt
+	if attempt <= 0 {
+		attempt = 1
+	}
+	willRetry := callCtx.WillRetry && !circuitOpen
+
 	r.emitCompactEvent(runtimeapi.EventCompactFailed, boundary.SessionID, boundary.TurnID, map[string]any{
 		"boundary_id":  boundary.ID,
 		"kind":         boundary.Kind,
 		"trigger":      boundary.Trigger,
-		"attempt":      1,
-		"will_retry":   false,
-		"circuit_open": false,
+		"attempt":      attempt,
+		"will_retry":   willRetry,
+		"circuit_open": circuitOpen,
 		"error":        compactErr.Error(),
 		"summary":      compactErr.Error(),
 	})
@@ -853,8 +946,8 @@ func (r *runtimeService) recordPromptAssembly(ctx context.Context, snapshot agen
 		contextSummary = runtimeTurnContextSummary(contextSources)
 	}
 	var compact []RuntimeCompactBoundary
-	if r.compactBoundaries.db != nil {
-		compact, _ = r.compactBoundaries.ListByTurn(ctx, snapshot.TurnID)
+	if boundaries, err := r.contextStore.ListBoundariesByTurn(ctx, snapshot.TurnID); err == nil {
+		compact = runtimeCompactBoundariesFromContext(boundaries)
 	}
 	promptLength := snapshot.Messages.TokenEstimate * 4
 	budget := r.computeRuntimeBudget(ctx, snapshot.SessionID, snapshot.TurnID, snapshot.Model, promptLength, &contextSummary)
@@ -1014,29 +1107,44 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 		default:
 			if usage, usageErr := r.computeContextUsage(ctx, snapshot.SessionID, snapshot.TurnID, snapshot.Model, 0, nil); usageErr == nil && usage.AutoCompactEnabled && usage.AutoCompactAt > 0 && usage.UsedTokens >= usage.AutoCompactAt {
 				r.markAutoCompactAttempted(snapshot.SessionID, snapshot.TurnID)
-				limits := r.currentRuntimeModelLimits(ctx, snapshot.SessionID, snapshot.Model)
-				gov := r.contextGovernanceFor(ctx, snapshot.SessionID, snapshot.Model)
-				thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens, gov.AutoCompactPercent)
-				compactReq := RuntimeContextActionRequest{
-					SessionID:    snapshot.SessionID,
-					TurnID:       snapshot.TurnID,
-					ProjectionID: contextmgr.ProjectionID(snapshot.TurnID, firstPositiveInt(snapshot.Step, 1)),
-					Reason:       "auto",
-					Instructions: "请直接继续当前任务，不要复述摘要、不要向用户提问。",
-				}
-				if compact, summaryMessage, compactErr := r.runManualFullCompact(ctx, compactReq); compactErr == nil {
-					compactState := runtimeTurnCompactState{
-						SummaryMessages:      summaryMessage.ToAIMessage(),
-						TailStartIndex:       pairSafeTailStart(snapshot.Messages, compactKeepTailMessages),
-						SnapshotLen:          len(snapshot.Messages),
-						HasProjection:        true,
-						AutoCompactAttempted: true,
+				// Circuit breaker: after N consecutive auto/reactive failures
+				// we stop trying automatic compaction for this session so a
+				// broken provider does not burn tokens on a loop. The user's
+				// next /compact resets the counter.
+				if r.isCompactCircuitOpen(snapshot.SessionID) {
+					r.emitCompactEvent(runtimeapi.EventCompactFailed, snapshot.SessionID, snapshot.TurnID, map[string]any{
+						"kind":         "full",
+						"trigger":      "auto",
+						"attempt":      1,
+						"will_retry":   false,
+						"circuit_open": true,
+						"summary":      "auto compact skipped (circuit open)",
+					})
+				} else {
+					limits := r.currentRuntimeModelLimits(ctx, snapshot.SessionID, snapshot.Model)
+					gov := r.contextGovernanceFor(ctx, snapshot.SessionID, snapshot.Model)
+					thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens, gov.AutoCompactPercent)
+					compactReq := RuntimeContextActionRequest{
+						SessionID:    snapshot.SessionID,
+						TurnID:       snapshot.TurnID,
+						ProjectionID: contextmgr.ProjectionID(snapshot.TurnID, firstPositiveInt(snapshot.Step, 1)),
+						Reason:       "auto",
+						Instructions: "请直接继续当前任务，不要复述摘要、不要向用户提问。",
 					}
-					r.setCompactTurnState(snapshot.SessionID, snapshot.TurnID, compactState)
-					snapshot.Messages = applyCompactTurnProjection(snapshot.SessionID, snapshot.TurnID, snapshot.Messages, compactState)
-					r.warnIfAutoCompactIneffective(ctx, snapshot, compact.Boundary.ID)
-				} else if usage.UsedTokens >= thresholds.BlockingAt {
-					return agent.ModelInputProjection{}, fmt.Errorf("上下文超出模型限制,请手动压缩(/compact)或新建会话: %w", compactErr)
+					if compact, summaryMessage, compactErr := r.runManualFullCompact(ctx, compactReq); compactErr == nil {
+						compactState := runtimeTurnCompactState{
+							SummaryMessages:      summaryMessage.ToAIMessage(),
+							TailStartIndex:       pairSafeTailStart(snapshot.Messages, compactKeepTailMessages),
+							SnapshotLen:          len(snapshot.Messages),
+							HasProjection:        true,
+							AutoCompactAttempted: true,
+						}
+						r.setCompactTurnState(snapshot.SessionID, snapshot.TurnID, compactState)
+						snapshot.Messages = applyCompactTurnProjection(snapshot.SessionID, snapshot.TurnID, snapshot.Messages, compactState)
+						r.warnIfAutoCompactIneffective(ctx, snapshot, compact.Boundary.ID)
+					} else if usage.UsedTokens >= thresholds.BlockingAt {
+						return agent.ModelInputProjection{}, fmt.Errorf("上下文超出模型限制,请手动压缩(/compact)或新建会话: %w", compactErr)
+					}
 				}
 			}
 		}
@@ -1054,6 +1162,20 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 	limits := r.currentRuntimeModelLimits(ctx, snapshot.SessionID, snapshot.Model)
 	gov := r.contextGovernanceFor(ctx, snapshot.SessionID, snapshot.Model)
 	thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens, gov.AutoCompactPercent)
+	// WP4 §2: reactive attempt-1 installs a per-turn microcompact override
+	// (stronger KeepRecent, halved token limit). We consult the turn state
+	// AFTER any auto compact ran so the override survives the projection
+	// installation.
+	microKeep := gov.MicrocompactKeepRecent
+	microTokenLimit := maxInt(1, thresholds.EffectiveWindow/4)
+	if state, hasState := r.compactStateForTurn(snapshot.SessionID, snapshot.TurnID); hasState {
+		if state.ReactiveMicroKeepRecent > 0 {
+			microKeep = state.ReactiveMicroKeepRecent
+		}
+		if state.ReactiveMicroTokenDivisor > 1 {
+			microTokenLimit = maxInt(1, microTokenLimit/state.ReactiveMicroTokenDivisor)
+		}
+	}
 	result, err := r.contextManager.BuildModelInput(ctx, contextmgr.BuildInputRequest{
 		SessionID:     snapshot.SessionID,
 		TurnID:        snapshot.TurnID,
@@ -1064,8 +1186,8 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 		ModelMessages: snapshot.Messages,
 		Microcompact: contextmgr.MicrocompactConfig{
 			Enabled:              gov.MicrocompactEnabled,
-			KeepRecent:           gov.MicrocompactKeepRecent,
-			ToolResultTokenLimit: maxInt(1, thresholds.EffectiveWindow/4),
+			KeepRecent:           microKeep,
+			ToolResultTokenLimit: microTokenLimit,
 		},
 	})
 	if err != nil {
@@ -1145,6 +1267,108 @@ func (r *runtimeService) warnIfAutoCompactIneffective(ctx context.Context, snaps
 	)
 }
 
+// runReactiveCompact drives the runtime side of the agent's post-error
+// recovery loop. It (a) records a contextmgr.ReactiveAttempt row so the
+// diagnostics panel sees the retry, (b) short-circuits when the per-session
+// circuit breaker is open, (c) intensifies microcompact for attempt 1, and
+// (d) runs a full compact anchored on the failing turn for attempt 2+. The
+// caller (internal/agent/agent.go) uses CircuitOpen to break out of the
+// retry loop; the friendly error is composed by the caller so the runtime
+// stays transport-neutral.
+func (r *runtimeService) runReactiveCompact(ctx context.Context, snapshot agent.ReactiveCompactSnapshot) (agent.ReactiveCompactResult, error) {
+	sessionID := strings.TrimSpace(snapshot.SessionID)
+	turnID := strings.TrimSpace(snapshot.TurnID)
+	if sessionID == "" || turnID == "" {
+		return agent.ReactiveCompactResult{}, errors.New("reactive compact requires session and turn ids")
+	}
+	projectionID := contextmgr.ProjectionID(turnID, firstPositiveInt(snapshot.Step, 1))
+
+	// Record the attempt regardless of circuit state so diagnostics show
+	// each recovery attempt the agent tried.
+	if err := r.ensureContextManager(ctx); err == nil && r.contextManager != nil {
+		_, _ = r.contextManager.ReactiveCompact(ctx, contextmgr.ReactiveCompactRequest{
+			SessionID:    sessionID,
+			TurnID:       turnID,
+			ProjectionID: projectionID,
+			Attempt:      snapshot.Attempt,
+			Error:        snapshot.Error,
+		})
+	}
+
+	if r.isCompactCircuitOpen(sessionID) {
+		attempt := snapshot.Attempt
+		if attempt <= 0 {
+			attempt = 1
+		}
+		r.emitCompactEvent(runtimeapi.EventCompactFailed, sessionID, turnID, map[string]any{
+			"kind":         "full",
+			"trigger":      "reactive",
+			"attempt":      attempt,
+			"will_retry":   false,
+			"circuit_open": true,
+			"summary":      "reactive compact skipped (circuit open)",
+			"error":        snapshot.Error,
+		})
+		return agent.ReactiveCompactResult{CircuitOpen: true}, nil
+	}
+
+	if snapshot.Attempt <= 1 {
+		// Attempt 1: strengthen microcompact for this turn only. Halve the
+		// tool-result token limit and clamp KeepRecent=1 so the next Stream
+		// call re-issues the same history through a tighter projection.
+		r.setReactiveProjectionOverride(sessionID, turnID, 1, 2)
+		return agent.ReactiveCompactResult{Action: "projection_reduction"}, nil
+	}
+
+	// Attempt 2+: full compact under the reactive trigger. WillRetry is
+	// true if the agent will still have another attempt to spare after this
+	// one succeeds/fails and the circuit does not open.
+	callCtx := manualFullCompactCallContext{
+		Attempt:   snapshot.Attempt,
+		WillRetry: snapshot.Attempt < maxRuntimeReactiveAttempts,
+	}
+	compactReq := RuntimeContextActionRequest{
+		SessionID:    sessionID,
+		TurnID:       turnID,
+		ProjectionID: projectionID,
+		Reason:       "reactive",
+		Instructions: "上下文超出模型限制，已执行反应式压缩。请直接继续当前任务，不要复述摘要、不要向用户提问。",
+	}
+	_, summaryMessage, err := r.runManualFullCompactWithContext(ctx, compactReq, callCtx)
+	if err != nil {
+		// failManualFullCompact already emitted compact.failed with real
+		// attempt / will_retry / circuit_open fields, and incremented the
+		// circuit-breaker counter.
+		return agent.ReactiveCompactResult{CircuitOpen: r.isCompactCircuitOpen(sessionID)}, err
+	}
+	// Install the boundary-anchored turn projection so the next PrepareStep
+	// in this turn sends summary + pairing-safe tail instead of the full
+	// history. Also mark AutoCompactAttempted so the auto path skips —
+	// there's nothing more to compact this turn.
+	if summaryMessage.ID != "" && len(snapshot.Messages) > 0 {
+		state := runtimeTurnCompactState{
+			SummaryMessages:      summaryMessage.ToAIMessage(),
+			TailStartIndex:       pairSafeTailStart(snapshot.Messages, compactKeepTailMessages),
+			SnapshotLen:          len(snapshot.Messages),
+			HasProjection:        true,
+			AutoCompactAttempted: true,
+		}
+		// Preserve any reactive microcompact override that was already
+		// installed on attempt 1 so the intensified projection stays in
+		// effect if subsequent steps re-enter buildModelInputProjection.
+		if prev, ok := r.compactStateForTurn(sessionID, turnID); ok {
+			state.ReactiveMicroKeepRecent = prev.ReactiveMicroKeepRecent
+			state.ReactiveMicroTokenDivisor = prev.ReactiveMicroTokenDivisor
+		}
+		r.setCompactTurnState(sessionID, turnID, state)
+	}
+	return agent.ReactiveCompactResult{Action: "full_compact"}, nil
+}
+
+// maxRuntimeReactiveAttempts mirrors the agent-side cap so failManualFullCompact
+// can populate will_retry deterministically without cross-package leakage.
+const maxRuntimeReactiveAttempts = 3
+
 func compactTurnStateKey(sessionID, turnID string) string {
 	return sessionID + "\x00" + turnID
 }
@@ -1174,6 +1398,27 @@ func (r *runtimeService) markAutoCompactAttempted(sessionID, turnID string) {
 	key := compactTurnStateKey(sessionID, turnID)
 	state := r.compactTurnStates[key]
 	state.AutoCompactAttempted = true
+	r.compactTurnStates[key] = state
+}
+
+// setReactiveProjectionOverride installs (or refreshes) the microcompact
+// intensification used by reactive attempt 1. buildModelInputProjection
+// reads these fields when constructing MicrocompactConfig on subsequent
+// PrepareStep calls in this turn, without touching global governance.
+func (r *runtimeService) setReactiveProjectionOverride(sessionID, turnID string, keepRecent, tokenDivisor int) {
+	r.compactTurnMu.Lock()
+	defer r.compactTurnMu.Unlock()
+	if r.compactTurnStates == nil {
+		r.compactTurnStates = make(map[string]runtimeTurnCompactState)
+	}
+	key := compactTurnStateKey(sessionID, turnID)
+	state := r.compactTurnStates[key]
+	if keepRecent > 0 {
+		state.ReactiveMicroKeepRecent = keepRecent
+	}
+	if tokenDivisor > 1 {
+		state.ReactiveMicroTokenDivisor = tokenDivisor
+	}
 	r.compactTurnStates[key] = state
 }
 

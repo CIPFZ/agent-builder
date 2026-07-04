@@ -1,18 +1,23 @@
 import { Alert, Button, Tag, Tooltip, Typography } from 'antd';
 import { ApiOutlined, CompressOutlined, DatabaseOutlined, FileSearchOutlined, ProfileOutlined, ToolOutlined } from '@ant-design/icons';
 import { useState, type ReactNode } from 'react';
-import type { BudgetBucketViewModel, ContextDiagnosticsViewModel } from '../../runtime/workbenchTypes.ts';
+import type { BudgetBucketViewModel, ContextDiagnosticsViewModel, ContextUsageViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './ContextDiagnosticsPanel.module.css';
 
 const { Text } = Typography;
 
 interface ContextDiagnosticsPanelProps {
   diagnostics?: ContextDiagnosticsViewModel;
+  // Same source the composer's ContextUsageIndicator reads
+  // (viewModel.composer.contextUsage) — passed down so the header's big
+  // number/percentage share one source of truth instead of the indicator
+  // and this panel drifting apart on separate estimates.
+  contextUsage?: ContextUsageViewModel;
   onManualCompact?: () => Promise<void>;
   onManualSnip?: () => Promise<void>;
 }
 
-export function ContextDiagnosticsPanel({ diagnostics, onManualCompact, onManualSnip }: ContextDiagnosticsPanelProps) {
+export function ContextDiagnosticsPanel({ diagnostics, contextUsage, onManualCompact, onManualSnip }: ContextDiagnosticsPanelProps) {
   const [runningAction, setRunningAction] = useState<'compact' | 'snip' | undefined>();
   if (!diagnostics) {
     return null;
@@ -79,7 +84,7 @@ export function ContextDiagnosticsPanel({ diagnostics, onManualCompact, onManual
       ) : null}
 
       <div className={styles.metrics}>
-        <Metric icon={<DatabaseOutlined />} label="Budget" value={`${diagnostics.budget.totalEstimatedTokens || 0} tokens`} />
+        <Metric icon={<DatabaseOutlined />} label="Budget" value={budgetHeaderValue(diagnostics, contextUsage)} />
         <Metric icon={<ToolOutlined />} label="Tools" value={`${diagnostics.tools.selectedCount} selected / ${diagnostics.tools.omittedCount} omitted`} />
         <Metric icon={<FileSearchOutlined />} label="Sections" value={`${diagnostics.sections.length} prompt`} />
       </div>
@@ -236,6 +241,19 @@ function BudgetRow({ label, bucket }: { label: string; bucket?: BudgetBucketView
       <Text>{bucket ? `${bucket.count} / ${bucket.estimatedTokens}` : '0 / 0'}</Text>
     </div>
   );
+}
+
+// budgetHeaderValue prefers the session's live context usage (the same
+// source ContextUsageIndicator reads) for the header's big number and
+// percentage, since it reflects the anchored, post-boundary token count
+// rather than this single prompt-assembly snapshot's estimate. It falls back
+// to the assembly's own budget total when usage isn't available yet (e.g.
+// before the first assistant step completes).
+function budgetHeaderValue(diagnostics: ContextDiagnosticsViewModel, contextUsage?: ContextUsageViewModel) {
+  if (contextUsage) {
+    return `${contextUsage.usedTokens} / ${contextUsage.contextWindow} tokens (${contextUsage.percentUsed}%)`;
+  }
+  return `${diagnostics.budget.totalEstimatedTokens || 0} tokens`;
 }
 
 function cachePolicyColor(policy: string) {

@@ -87,7 +87,6 @@ func TestRuntimeRecordPromptAssemblyStoresSummaryEventAndFailedContext(t *testin
 	service.contextManager = contextmgr.NewManager(contextmgr.ManagerOptions{Store: service.contextStore})
 	service.promptAssemblies = newRuntimePromptAssemblyStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
-	service.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
 
 	err = service.recordPromptAssembly(context.Background(), agent.PromptAssemblySnapshot{
 		SessionID: "session-1",

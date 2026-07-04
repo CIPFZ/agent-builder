@@ -304,8 +304,14 @@ func runtimeSkillsFromConfigWithPolicy(store *config.ConfigStore, policyMode per
 			runtimeSkill.Description = skill.Description
 			runtimeSkill.Builtin = skill.Builtin
 			runtimeSkill.Enabled = !disabledSet[skill.Name] && runtimeSkill.State != capabilityStateFailed
-			runtimeSkill.Path = skill.Path
-			runtimeSkill.SkillFilePath = skill.SkillFilePath
+			// skills.Discover walks with fastwalk's ToSlash option, which
+			// forces forward slashes on Windows regardless of the input
+			// path's separator style. Normalize both path fields to forward
+			// slashes here so callers can reliably prefix-match them against
+			// a root path without caring which separator style that root
+			// happened to use (filepath.ToSlash is a no-op on non-Windows).
+			runtimeSkill.Path = filepath.ToSlash(skill.Path)
+			runtimeSkill.SkillFilePath = filepath.ToSlash(skill.SkillFilePath)
 			runtimeSkill.CapabilityID = "skill:" + skill.Name
 			runtimeSkill.AllowedTools = normalizeSkillMetadataList(skill.AllowedTools)
 			runtimeSkill.Metadata = cloneSkillMetadata(skill.Metadata)

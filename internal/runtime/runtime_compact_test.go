@@ -8,69 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/db"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
-
-func TestRuntimeCompactBoundaryStorePersistsBoundary(t *testing.T) {
-	t.Parallel()
-
-	dataDir := t.TempDir()
-	conn, err := db.Connect(context.Background(), dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Release(dataDir) })
-
-	store := newRuntimeCompactBoundaryStore(conn)
-	budget := RuntimeBudgetReport{
-		SessionID:            "session-1",
-		TurnID:               "turn-1",
-		Messages:             RuntimeBudgetBucket{Count: 2, EstimatedTokens: 10},
-		ToolOutputs:          RuntimeBudgetBucket{Count: 1, EstimatedTokens: 300},
-		TotalEstimatedTokens: 310,
-		UpdatedAt:            time.Now().UnixMilli(),
-	}
-	boundary, err := store.Upsert(context.Background(), RuntimeCompactBoundary{
-		ID:             "compact-1",
-		SessionID:      "session-1",
-		TurnID:         "turn-1",
-		Kind:           "micro",
-		Trigger:        "test",
-		Status:         "completed",
-		BudgetBefore:   &budget,
-		BudgetAfter:    &budget,
-		SummaryRef:     "runtime://turns/turn-1/compact/micro",
-		ToolCallRefs:   []RuntimeCompactToolCallRef{{ToolCallID: "tool-1", Ref: "runtime://tool-calls/tool-1/output", EstimatedTokens: 300}},
-		ReinjectedRefs: []RuntimeReinjectedRef{{ID: "agents:/work/AGENTS.md", Kind: "agents", Status: compactStatusCompleted, Ref: "runtime://context-sources/AGENTS.md"}},
-		CreatedAt:      1000,
-		CompletedAt:    1100,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if boundary.BudgetBefore == nil || boundary.BudgetBefore.TotalEstimatedTokens != 310 {
-		t.Fatalf("budget missing: %#v", boundary)
-	}
-
-	turnBoundaries, err := store.ListByTurn(context.Background(), "turn-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(turnBoundaries) != 1 || len(turnBoundaries[0].ToolCallRefs) != 1 {
-		t.Fatalf("turn boundaries = %#v", turnBoundaries)
-	}
-	if len(turnBoundaries[0].ReinjectedRefs) != 1 || turnBoundaries[0].ReinjectedRefs[0].Kind != "agents" {
-		t.Fatalf("reinjected refs = %#v", turnBoundaries[0].ReinjectedRefs)
-	}
-	sessionBoundaries, err := store.ListBySession(context.Background(), "session-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(sessionBoundaries) != 1 || sessionBoundaries[0].ID != "compact-1" {
-		t.Fatalf("session boundaries = %#v", sessionBoundaries)
-	}
-}
 
 func TestRuntimeReplayExportIncludesCompactReinjectionAndRedactsSecrets(t *testing.T) {
 	t.Parallel()
@@ -128,22 +69,18 @@ func TestRuntimeRecoveryStatusIncludesCompactBoundaries(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Release(dataDir) })
 	service := newRuntimeService()
-	service.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
+	service.contextStore = contextmgr.NewSQLStore(conn)
 	service.recovery.interruptedTurns = []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: turnStatusInterrupted}}
-	if _, err := service.compactBoundaries.Upsert(context.Background(), RuntimeCompactBoundary{
-		ID:        "compact-full",
-		SessionID: "session-1",
-		TurnID:    "turn-1",
-		Kind:      compactKindFull,
-		Trigger:   "test",
-		Status:    compactStatusCompleted,
-		ReinjectedRefs: []RuntimeReinjectedRef{{
-			ID:     "agents:/work/AGENTS.md",
-			Kind:   "agents",
-			Status: compactStatusCompleted,
-		}},
-		CreatedAt:   time.Now().UnixMilli(),
-		CompletedAt: time.Now().UnixMilli(),
+	if _, err := service.contextStore.UpsertBoundary(context.Background(), contextmgr.Boundary{
+		ID:             "compact-full",
+		SessionID:      "session-1",
+		TurnID:         "turn-1",
+		Kind:           compactKindFull,
+		Trigger:        "test",
+		Status:         compactStatusCompleted,
+		ReinjectedRefs: []string{"agents:/work/AGENTS.md"},
+		CreatedAt:      time.Now().UnixMilli(),
+		CompletedAt:    time.Now().UnixMilli(),
 	}); err != nil {
 		t.Fatal(err)
 	}

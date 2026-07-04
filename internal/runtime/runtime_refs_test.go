@@ -208,7 +208,6 @@ func newTestRuntimeServiceWithRefs(t *testing.T) *runtimeService {
 	service.turns = newRuntimeTurnStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	service.refs = newRuntimeRefStore(conn, dataDir)
-	service.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
 	return service

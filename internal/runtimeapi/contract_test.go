@@ -1,7 +1,18 @@
 package runtimeapi
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
 	"slices"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -126,7 +137,6 @@ func TestEventTypesFreezePhase2Schema(t *testing.T) {
 	t.Parallel()
 
 	for _, eventType := range []string{
-		EventRuntimeStarted,
 		EventRecoveryStatusChanged,
 		EventRecoveryTurnResumed,
 		EventRecoveryTurnDiscarded,
@@ -134,7 +144,6 @@ func TestEventTypesFreezePhase2Schema(t *testing.T) {
 		EventRecoveryRetryStarted,
 		EventRecoveryRetryCompleted,
 		EventRecoveryRetryFailed,
-		EventRecoveryHistoryHygieneApplied,
 		EventRecoveryCompactRetryStarted,
 		EventRecoveryCompactRetryCompleted,
 		EventRecoveryCompactRetryFailed,
@@ -245,4 +254,150 @@ func TestOutputTextDeltaIsEphemeral(t *testing.T) {
 			t.Fatalf("%q must not be classified ephemeral", persisted)
 		}
 	}
+}
+
+// TestNoOrphanEventTypes guards against event type constants that are
+// declared in the const block and registered in EventTypes but never
+// referenced by any producer or consumer anywhere else in the Go source
+// tree (internal/ and desktop/, excluding _test.go files and this package's
+// own contract.go, where the constant is necessarily declared/registered).
+// Such an "orphan" event is either dead code left behind after a refactor,
+// or a sign a feature's event wiring was never finished — either way it
+// should be caught here rather than discovered by grep during a future
+// cleanup pass.
+//
+// This walks the source tree at test time (rather than using go:embed,
+// which cannot reach outside this package's directory) because the set of
+// files to scan spans the whole repo and changes as the codebase evolves.
+func TestNoOrphanEventTypes(t *testing.T) {
+	t.Parallel()
+
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("could not determine contract_test.go path via runtime.Caller")
+	}
+	pkgDir := filepath.Dir(thisFile)
+	contractPath := filepath.Join(pkgDir, "contract.go")
+	repoRoot := filepath.Join(pkgDir, "..", "..")
+
+	identifierByValue, err := eventIdentifiersByValue(contractPath)
+	if err != nil {
+		t.Fatalf("failed to parse event identifiers from %s: %v", contractPath, err)
+	}
+
+	sources, err := goSourceFiles(repoRoot, []string{"internal", "desktop"}, contractPath)
+	if err != nil {
+		t.Fatalf("failed to collect source tree: %v", err)
+	}
+
+	var orphans []string
+	for _, value := range EventTypes {
+		name, ok := identifierByValue[value]
+		if !ok {
+			t.Fatalf("EventTypes value %q has no matching const identifier in contract.go", value)
+		}
+		pattern := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
+		referenced := false
+		for _, content := range sources {
+			if pattern.MatchString(content) {
+				referenced = true
+				break
+			}
+		}
+		if !referenced {
+			orphans = append(orphans, name)
+		}
+	}
+	if len(orphans) > 0 {
+		sort.Strings(orphans)
+		t.Fatalf("orphan event types (declared/registered but never referenced outside contract.go and *_test.go): %v", orphans)
+	}
+}
+
+// eventIdentifiersByValue parses contract.go and returns a map from each
+// string constant's value (e.g. "compact.started") to its Go identifier
+// (e.g. "EventCompactStarted"), covering every `Name = "literal"` const spec
+// in the file regardless of which const block it lives in.
+func eventIdentifiersByValue(path string) (map[string]string, error) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range genDecl.Specs {
+			valueSpec, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range valueSpec.Names {
+				if i >= len(valueSpec.Values) {
+					continue
+				}
+				lit, ok := valueSpec.Values[i].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					continue
+				}
+				value, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					continue
+				}
+				out[value] = name.Name
+			}
+		}
+	}
+	return out, nil
+}
+
+// goSourceFiles reads every non-test .go file under the given subdirectories
+// of root (skipping excludePath, which is contract.go itself — the file
+// where every event identifier is necessarily declared).
+func goSourceFiles(root string, subdirs []string, excludePath string) ([]string, error) {
+	excludeAbs, err := filepath.Abs(excludePath)
+	if err != nil {
+		return nil, err
+	}
+	var contents []string
+	for _, subdir := range subdirs {
+		dir := filepath.Join(root, subdir)
+		walkErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				// Skip vendored/build/dependency directories that are not
+				// part of this repo's own source.
+				switch d.Name() {
+				case "node_modules", "dist", "build", "bin", ".git":
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			abs, err := filepath.Abs(path)
+			if err != nil {
+				return err
+			}
+			if abs == excludeAbs {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			contents = append(contents, string(data))
+			return nil
+		})
+		if walkErr != nil {
+			return nil, walkErr
+		}
+	}
+	return contents, nil
 }

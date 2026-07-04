@@ -36,6 +36,7 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/agent/tools"
 	"github.com/CIPFZ/agent-builder/internal/agent/tools/mcp"
 	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/csync"
 	"github.com/CIPFZ/agent-builder/internal/message"
 	"github.com/CIPFZ/agent-builder/internal/pubsub"
@@ -43,6 +44,18 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/stringext"
 	"github.com/CIPFZ/agent-builder/internal/version"
 )
+
+// maxReactiveCompactAttempts caps the number of reactive-compact retries per
+// turn. After this many failed context-length errors the agent surfaces a
+// friendly error asking the user to /compact manually or start a new
+// session. Aligned with 19 号 WP4 §1 ("每 turn ≤3 次").
+const maxReactiveCompactAttempts = 3
+
+// errContextTooLongAfterCompact is the user-visible message the agent
+// returns once reactive compaction has exhausted its retries. Kept as a
+// constant so tests can assert on it without importing the package's
+// private error strings.
+const errContextTooLongAfterCompact = "上下文超出模型限制且自动压缩未能恢复，请手动 /compact 或新建会话"
 
 const (
 	DefaultSessionName = "Untitled Session"
@@ -124,6 +137,7 @@ type sessionAgent struct {
 	guardConfig       config.ToolResultGuardConfig
 	modelInputBuilder ModelInputBuilder
 	assemblyRecorder  PromptAssemblyRecorder
+	reactiveCompactor ReactiveCompactor
 }
 
 type SessionAgentOptions struct {
@@ -142,6 +156,7 @@ type SessionAgentOptions struct {
 	GuardConfig          config.ToolResultGuardConfig
 	ModelInputBuilder    ModelInputBuilder
 	AssemblyRecorder     PromptAssemblyRecorder
+	ReactiveCompactor    ReactiveCompactor
 }
 
 func NewSessionAgent(
@@ -165,6 +180,7 @@ func NewSessionAgent(
 		guardConfig:          opts.GuardConfig,
 		modelInputBuilder:    opts.ModelInputBuilder,
 		assemblyRecorder:     opts.AssemblyRecorder,
+		reactiveCompactor:    opts.ReactiveCompactor,
 	}
 }
 
@@ -285,239 +301,295 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	if call.MaxOutputTokens > 0 {
 		maxOutputTokens = &call.MaxOutputTokens
 	}
-	result, err := agent.Stream(genCtx, fantasy.AgentStreamCall{
-		Prompt:           message.PromptWithTextAttachments(call.Prompt, call.Attachments),
-		Files:            files,
-		Messages:         history,
-		ProviderOptions:  call.ProviderOptions,
-		MaxOutputTokens:  maxOutputTokens,
-		TopP:             call.TopP,
-		Temperature:      call.Temperature,
-		PresencePenalty:  call.PresencePenalty,
-		TopK:             call.TopK,
-		FrequencyPenalty: call.FrequencyPenalty,
-		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
-			a.guard.ResetTurn()
-			prepared.Messages = options.Messages
-			for i := range prepared.Messages {
-				prepared.Messages[i].ProviderOptions = nil
-			}
-
-			// Use latest tools (updated by SetTools when MCP tools change).
-			prepared.Tools = a.tools.Copy()
-			allToolNames := agentToolNames(prepared.Tools)
-			selectedToolNames := append([]string(nil), allToolNames...)
-			var omittedToolNames []string
-			if discoveryRecorder, ok := unwrapToolDiscoveryRecorder(prepared.Tools); ok {
-				selected := selectToolsForPreparedStep(callContext, prepared.Tools, discoveryRecorder, call.SessionID, call.TurnID)
-				selectedToolNames = agentToolNames(selected)
-				omittedToolNames = omittedAgentToolNames(allToolNames, selectedToolNames)
-				prepared.Tools = selected
-			}
-
-			queuedCalls, _ := a.messageQueue.Get(call.SessionID)
-			a.messageQueue.Del(call.SessionID)
-			for _, queued := range queuedCalls {
-				userMessage, createErr := a.createUserMessage(callContext, queued)
-				if createErr != nil {
-					return callContext, prepared, createErr
+	// Reactive compaction retry loop. WP4 §1: when a provider request fails
+	// with a context-length error, we ask the registered ReactiveCompactor
+	// to either strengthen this turn's projection (attempt 1) or run a full
+	// compact (attempt 2+), then re-issue the whole Stream call. fantasy's
+	// Stream is not mid-flight resumable, so the loop restarts the entire
+	// call — messages state is idempotent because the failed assistant
+	// placeholder is deleted before each retry and the runtime-side turn
+	// projection anchors the compressed view. History does NOT need to be
+	// rebuilt between retries: the runtime's per-turn compact state kicks in
+	// during PrepareStep -> BuildModelInput -> applyCompactTurnProjection,
+	// which replaces the prefix with summary + pairing-safe tail.
+	var (
+		result           *fantasy.AgentResult
+		reactiveAttempts int
+	)
+	for {
+		currentAssistant = nil
+		stepMessages = nil
+		result, err = agent.Stream(genCtx, fantasy.AgentStreamCall{
+			Prompt:           message.PromptWithTextAttachments(call.Prompt, call.Attachments),
+			Files:            files,
+			Messages:         history,
+			ProviderOptions:  call.ProviderOptions,
+			MaxOutputTokens:  maxOutputTokens,
+			TopP:             call.TopP,
+			Temperature:      call.Temperature,
+			PresencePenalty:  call.PresencePenalty,
+			TopK:             call.TopK,
+			FrequencyPenalty: call.FrequencyPenalty,
+			PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
+				a.guard.ResetTurn()
+				prepared.Messages = options.Messages
+				for i := range prepared.Messages {
+					prepared.Messages[i].ProviderOptions = nil
 				}
-				prepared.Messages = append(prepared.Messages, userMessage.ToAIMessage()...)
-			}
 
-			prepared.Messages = a.workaroundProviderMediaLimitations(prepared.Messages, largeModel)
-
-			lastSystemRoleInx := 0
-			systemMessageUpdated := false
-			for i, msg := range prepared.Messages {
-				// Only add cache control to the last message.
-				if msg.Role == fantasy.MessageRoleSystem {
-					lastSystemRoleInx = i
-				} else if !systemMessageUpdated {
-					prepared.Messages[lastSystemRoleInx].ProviderOptions = a.getCacheControlOptions()
-					systemMessageUpdated = true
+				// Use latest tools (updated by SetTools when MCP tools change).
+				prepared.Tools = a.tools.Copy()
+				allToolNames := agentToolNames(prepared.Tools)
+				selectedToolNames := append([]string(nil), allToolNames...)
+				var omittedToolNames []string
+				if discoveryRecorder, ok := unwrapToolDiscoveryRecorder(prepared.Tools); ok {
+					selected := selectToolsForPreparedStep(callContext, prepared.Tools, discoveryRecorder, call.SessionID, call.TurnID)
+					selectedToolNames = agentToolNames(selected)
+					omittedToolNames = omittedAgentToolNames(allToolNames, selectedToolNames)
+					prepared.Tools = selected
 				}
-				// Than add cache control to the last 2 messages.
-				if i > len(prepared.Messages)-3 {
-					prepared.Messages[i].ProviderOptions = a.getCacheControlOptions()
+
+				queuedCalls, _ := a.messageQueue.Get(call.SessionID)
+				a.messageQueue.Del(call.SessionID)
+				for _, queued := range queuedCalls {
+					userMessage, createErr := a.createUserMessage(callContext, queued)
+					if createErr != nil {
+						return callContext, prepared, createErr
+					}
+					prepared.Messages = append(prepared.Messages, userMessage.ToAIMessage()...)
 				}
-			}
 
-			if promptPrefix != "" {
-				prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(promptPrefix)}, prepared.Messages...)
-			}
+				prepared.Messages = a.workaroundProviderMediaLimitations(prepared.Messages, largeModel)
 
-			projectionID := ""
-			projectedMessages, projection, buildErr := a.buildModelInput(callContext, ModelInputSnapshot{
-				SessionID: call.SessionID,
-				TurnID:    call.TurnID,
-				Step:      stepNumber(prepared.Messages),
-				Provider:  largeModel.ModelCfg.Provider,
-				Model:     largeModel.ModelCfg.Model,
-				Source:    "main_turn",
-				Messages:  prepared.Messages,
-			})
-			if buildErr != nil {
-				return callContext, prepared, buildErr
-			}
-			projectionID = projection.ProjectionID
-			prepared.Messages = projectedMessages
-
-			a.recordPromptAssembly(callContext, call, projectionID, largeModel, systemPrompt, systemSections, promptPrefix, mcpInstructions, prepared.Messages, prepared.Tools, selectedToolNames, omittedToolNames)
-
-			sessionLock.Lock()
-			stepMessages = cloneFantasyMessages(prepared.Messages)
-			sessionLock.Unlock()
-
-			var assistantMsg message.Message
-			assistantMsg, err = a.messages.Create(callContext, call.SessionID, message.CreateMessageParams{
-				Role:     message.Assistant,
-				Parts:    []message.ContentPart{},
-				Model:    largeModel.ModelCfg.Model,
-				Provider: largeModel.ModelCfg.Provider,
-			})
-			if err != nil {
-				return callContext, prepared, err
-			}
-			if err := a.markDeliveredToolResults(callContext, call.SessionID, prepared.Messages, stepNumber(prepared.Messages)); err != nil {
-				return callContext, prepared, err
-			}
-			callContext = context.WithValue(callContext, tools.MessageIDContextKey, assistantMsg.ID)
-			callContext = context.WithValue(callContext, tools.SupportsImagesContextKey, largeModel.CatwalkCfg.SupportsImages)
-			callContext = context.WithValue(callContext, tools.ModelNameContextKey, largeModel.CatwalkCfg.Name)
-			currentAssistant = &assistantMsg
-			return callContext, prepared, err
-		},
-		OnReasoningStart: func(id string, reasoning fantasy.ReasoningContent) error {
-			currentAssistant.AppendReasoningContent(reasoning.Text)
-			return a.messages.Update(genCtx, *currentAssistant)
-		},
-		OnReasoningDelta: func(id string, text string) error {
-			currentAssistant.AppendReasoningContent(text)
-			return a.messages.Update(genCtx, *currentAssistant)
-		},
-		OnReasoningEnd: func(id string, reasoning fantasy.ReasoningContent) error {
-			// handle anthropic signature
-			if anthropicData, ok := reasoning.ProviderMetadata[anthropic.Name]; ok {
-				if reasoning, ok := anthropicData.(*anthropic.ReasoningOptionMetadata); ok {
-					currentAssistant.AppendReasoningSignature(reasoning.Signature)
-				}
-			}
-			if googleData, ok := reasoning.ProviderMetadata[google.Name]; ok {
-				if reasoning, ok := googleData.(*google.ReasoningMetadata); ok {
-					currentAssistant.AppendThoughtSignature(reasoning.Signature, reasoning.ToolID)
-				}
-			}
-			if openaiData, ok := reasoning.ProviderMetadata[openai.Name]; ok {
-				if reasoning, ok := openaiData.(*openai.ResponsesReasoningMetadata); ok {
-					currentAssistant.SetReasoningResponsesData(reasoning)
-				}
-			}
-			currentAssistant.FinishThinking()
-			return a.messages.Update(genCtx, *currentAssistant)
-		},
-		OnTextDelta: func(id string, text string) error {
-			// Strip leading newline from initial text content. This is is
-			// particularly important in non-interactive mode where leading
-			// newlines are very visible.
-			if len(currentAssistant.Parts) == 0 {
-				text = strings.TrimPrefix(text, "\n")
-			}
-
-			currentAssistant.AppendContent(text)
-			return a.messages.Update(genCtx, *currentAssistant)
-		},
-		OnToolInputStart: func(id string, toolName string) error {
-			toolCall := message.ToolCall{
-				ID:               id,
-				Name:             toolName,
-				ProviderExecuted: false,
-				Finished:         false,
-			}
-			currentAssistant.AddToolCall(toolCall)
-			// Use parent ctx instead of genCtx to ensure the update succeeds
-			// even if the request is canceled mid-stream
-			return a.messages.Update(ctx, *currentAssistant)
-		},
-		OnRetry: func(err *fantasy.ProviderError, delay time.Duration) {
-			slog.Warn("Provider request failed, retrying", providerRetryLogFields(err, delay)...)
-		},
-		OnToolCall: func(tc fantasy.ToolCallContent) error {
-			toolCall := message.ToolCall{
-				ID:               tc.ToolCallID,
-				Name:             tc.ToolName,
-				Input:            tc.Input,
-				ProviderExecuted: false,
-				Finished:         true,
-			}
-			currentAssistant.AddToolCall(toolCall)
-			// Use parent ctx instead of genCtx to ensure the update succeeds
-			// even if the request is canceled mid-stream
-			return a.messages.Update(ctx, *currentAssistant)
-		},
-		OnToolResult: func(result fantasy.ToolResultContent) error {
-			toolResult := a.convertToToolResult(result)
-			processed := a.guard.Process(toolResult)
-			// Use parent ctx instead of genCtx to ensure the message is created
-			// even if the request is canceled mid-stream
-			_, createMsgErr := a.messages.Create(ctx, currentAssistant.SessionID, message.CreateMessageParams{
-				Role: message.Tool,
-				Parts: []message.ContentPart{
-					processed,
-				},
-			})
-			return createMsgErr
-		},
-		OnStepFinish: func(stepResult fantasy.StepResult) error {
-			finishReason := message.FinishReasonUnknown
-			switch stepResult.FinishReason {
-			case fantasy.FinishReasonLength:
-				finishReason = message.FinishReasonMaxTokens
-			case fantasy.FinishReasonStop:
-				finishReason = message.FinishReasonEndTurn
-			case fantasy.FinishReasonToolCalls:
-				finishReason = message.FinishReasonToolUse
-			}
-			// If a tool result halted the turn (e.g. a hook halt or a
-			// permission denial), the step ends on FinishReasonToolCalls but
-			// the model will not be called again. Treat it as the end of the
-			// turn so the UI can render the assistant footer.
-			if finishReason == message.FinishReasonToolUse {
-				for _, tr := range stepResult.Content.ToolResults() {
-					if tr.StopTurn {
-						finishReason = message.FinishReasonEndTurn
-						break
+				lastSystemRoleInx := 0
+				systemMessageUpdated := false
+				for i, msg := range prepared.Messages {
+					// Only add cache control to the last message.
+					if msg.Role == fantasy.MessageRoleSystem {
+						lastSystemRoleInx = i
+					} else if !systemMessageUpdated {
+						prepared.Messages[lastSystemRoleInx].ProviderOptions = a.getCacheControlOptions()
+						systemMessageUpdated = true
+					}
+					// Than add cache control to the last 2 messages.
+					if i > len(prepared.Messages)-3 {
+						prepared.Messages[i].ProviderOptions = a.getCacheControlOptions()
 					}
 				}
-			}
-			currentAssistant.AddFinish(finishReason, "", "")
-			sessionLock.Lock()
-			defer sessionLock.Unlock()
 
-			updatedSession, getSessionErr := a.sessions.Get(ctx, call.SessionID)
-			if getSessionErr != nil {
-				return getSessionErr
-			}
-			usage, estimated := fallbackStepUsage(stepMessages, stepResult)
-			a.updateSessionUsage(largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
-			_, sessionErr := a.sessions.Save(ctx, updatedSession)
-			if sessionErr != nil {
-				return sessionErr
-			}
-			currentSession = updatedSession
-			// Only real provider usage is persisted on the message: estimated
-			// usage must never masquerade as a context metering anchor.
-			if !estimated {
-				currentAssistant.Usage = messageUsageFromFantasy(usage)
-			}
-			return a.messages.Update(genCtx, *currentAssistant)
-		},
-		StopWhen: []fantasy.StopCondition{
-			func(steps []fantasy.StepResult) bool {
-				return hasRepeatedToolCalls(steps, loopDetectionWindowSize, loopDetectionMaxRepeats)
+				if promptPrefix != "" {
+					prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(promptPrefix)}, prepared.Messages...)
+				}
+
+				projectionID := ""
+				projectedMessages, projection, buildErr := a.buildModelInput(callContext, ModelInputSnapshot{
+					SessionID: call.SessionID,
+					TurnID:    call.TurnID,
+					Step:      stepNumber(prepared.Messages),
+					Provider:  largeModel.ModelCfg.Provider,
+					Model:     largeModel.ModelCfg.Model,
+					Source:    "main_turn",
+					Messages:  prepared.Messages,
+				})
+				if buildErr != nil {
+					return callContext, prepared, buildErr
+				}
+				projectionID = projection.ProjectionID
+				prepared.Messages = projectedMessages
+
+				a.recordPromptAssembly(callContext, call, projectionID, largeModel, systemPrompt, systemSections, promptPrefix, mcpInstructions, prepared.Messages, prepared.Tools, selectedToolNames, omittedToolNames)
+
+				sessionLock.Lock()
+				stepMessages = cloneFantasyMessages(prepared.Messages)
+				sessionLock.Unlock()
+
+				var assistantMsg message.Message
+				assistantMsg, err = a.messages.Create(callContext, call.SessionID, message.CreateMessageParams{
+					Role:     message.Assistant,
+					Parts:    []message.ContentPart{},
+					Model:    largeModel.ModelCfg.Model,
+					Provider: largeModel.ModelCfg.Provider,
+				})
+				if err != nil {
+					return callContext, prepared, err
+				}
+				if err := a.markDeliveredToolResults(callContext, call.SessionID, prepared.Messages, stepNumber(prepared.Messages)); err != nil {
+					return callContext, prepared, err
+				}
+				callContext = context.WithValue(callContext, tools.MessageIDContextKey, assistantMsg.ID)
+				callContext = context.WithValue(callContext, tools.SupportsImagesContextKey, largeModel.CatwalkCfg.SupportsImages)
+				callContext = context.WithValue(callContext, tools.ModelNameContextKey, largeModel.CatwalkCfg.Name)
+				currentAssistant = &assistantMsg
+				return callContext, prepared, err
 			},
-		},
-	})
+			OnReasoningStart: func(id string, reasoning fantasy.ReasoningContent) error {
+				currentAssistant.AppendReasoningContent(reasoning.Text)
+				return a.messages.Update(genCtx, *currentAssistant)
+			},
+			OnReasoningDelta: func(id string, text string) error {
+				currentAssistant.AppendReasoningContent(text)
+				return a.messages.Update(genCtx, *currentAssistant)
+			},
+			OnReasoningEnd: func(id string, reasoning fantasy.ReasoningContent) error {
+				// handle anthropic signature
+				if anthropicData, ok := reasoning.ProviderMetadata[anthropic.Name]; ok {
+					if reasoning, ok := anthropicData.(*anthropic.ReasoningOptionMetadata); ok {
+						currentAssistant.AppendReasoningSignature(reasoning.Signature)
+					}
+				}
+				if googleData, ok := reasoning.ProviderMetadata[google.Name]; ok {
+					if reasoning, ok := googleData.(*google.ReasoningMetadata); ok {
+						currentAssistant.AppendThoughtSignature(reasoning.Signature, reasoning.ToolID)
+					}
+				}
+				if openaiData, ok := reasoning.ProviderMetadata[openai.Name]; ok {
+					if reasoning, ok := openaiData.(*openai.ResponsesReasoningMetadata); ok {
+						currentAssistant.SetReasoningResponsesData(reasoning)
+					}
+				}
+				currentAssistant.FinishThinking()
+				return a.messages.Update(genCtx, *currentAssistant)
+			},
+			OnTextDelta: func(id string, text string) error {
+				// Strip leading newline from initial text content. This is is
+				// particularly important in non-interactive mode where leading
+				// newlines are very visible.
+				if len(currentAssistant.Parts) == 0 {
+					text = strings.TrimPrefix(text, "\n")
+				}
+
+				currentAssistant.AppendContent(text)
+				return a.messages.Update(genCtx, *currentAssistant)
+			},
+			OnToolInputStart: func(id string, toolName string) error {
+				toolCall := message.ToolCall{
+					ID:               id,
+					Name:             toolName,
+					ProviderExecuted: false,
+					Finished:         false,
+				}
+				currentAssistant.AddToolCall(toolCall)
+				// Use parent ctx instead of genCtx to ensure the update succeeds
+				// even if the request is canceled mid-stream
+				return a.messages.Update(ctx, *currentAssistant)
+			},
+			OnRetry: func(err *fantasy.ProviderError, delay time.Duration) {
+				slog.Warn("Provider request failed, retrying", providerRetryLogFields(err, delay)...)
+			},
+			OnToolCall: func(tc fantasy.ToolCallContent) error {
+				toolCall := message.ToolCall{
+					ID:               tc.ToolCallID,
+					Name:             tc.ToolName,
+					Input:            tc.Input,
+					ProviderExecuted: false,
+					Finished:         true,
+				}
+				currentAssistant.AddToolCall(toolCall)
+				// Use parent ctx instead of genCtx to ensure the update succeeds
+				// even if the request is canceled mid-stream
+				return a.messages.Update(ctx, *currentAssistant)
+			},
+			OnToolResult: func(result fantasy.ToolResultContent) error {
+				toolResult := a.convertToToolResult(result)
+				processed := a.guard.Process(toolResult)
+				// Use parent ctx instead of genCtx to ensure the message is created
+				// even if the request is canceled mid-stream
+				_, createMsgErr := a.messages.Create(ctx, currentAssistant.SessionID, message.CreateMessageParams{
+					Role: message.Tool,
+					Parts: []message.ContentPart{
+						processed,
+					},
+				})
+				return createMsgErr
+			},
+			OnStepFinish: func(stepResult fantasy.StepResult) error {
+				finishReason := message.FinishReasonUnknown
+				switch stepResult.FinishReason {
+				case fantasy.FinishReasonLength:
+					finishReason = message.FinishReasonMaxTokens
+				case fantasy.FinishReasonStop:
+					finishReason = message.FinishReasonEndTurn
+				case fantasy.FinishReasonToolCalls:
+					finishReason = message.FinishReasonToolUse
+				}
+				// If a tool result halted the turn (e.g. a hook halt or a
+				// permission denial), the step ends on FinishReasonToolCalls but
+				// the model will not be called again. Treat it as the end of the
+				// turn so the UI can render the assistant footer.
+				if finishReason == message.FinishReasonToolUse {
+					for _, tr := range stepResult.Content.ToolResults() {
+						if tr.StopTurn {
+							finishReason = message.FinishReasonEndTurn
+							break
+						}
+					}
+				}
+				currentAssistant.AddFinish(finishReason, "", "")
+				sessionLock.Lock()
+				defer sessionLock.Unlock()
+
+				updatedSession, getSessionErr := a.sessions.Get(ctx, call.SessionID)
+				if getSessionErr != nil {
+					return getSessionErr
+				}
+				usage, estimated := fallbackStepUsage(stepMessages, stepResult)
+				a.updateSessionUsage(largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
+				_, sessionErr := a.sessions.Save(ctx, updatedSession)
+				if sessionErr != nil {
+					return sessionErr
+				}
+				currentSession = updatedSession
+				// Only real provider usage is persisted on the message: estimated
+				// usage must never masquerade as a context metering anchor.
+				if !estimated {
+					currentAssistant.Usage = messageUsageFromFantasy(usage)
+				}
+				return a.messages.Update(genCtx, *currentAssistant)
+			},
+			StopWhen: []fantasy.StopCondition{
+				func(steps []fantasy.StepResult) bool {
+					return hasRepeatedToolCalls(steps, loopDetectionWindowSize, loopDetectionMaxRepeats)
+				},
+			},
+		})
+
+		if err == nil {
+			break
+		}
+		if a.reactiveCompactor == nil || reactiveAttempts >= maxReactiveCompactAttempts || !contextmgr.IsContextLengthError(err.Error()) {
+			break
+		}
+		reactiveAttempts++
+		// Delete the placeholder assistant from the failed attempt so the
+		// retry does not send an empty assistant back into history via
+		// getSessionMessages. Context-length errors happen before the model
+		// returns any tokens, so this message is empty.
+		if currentAssistant != nil {
+			_ = a.messages.Delete(ctx, currentAssistant.ID)
+			currentAssistant = nil
+		}
+		reactiveResult, reactiveErr := a.reactiveCompactor.ReactiveCompact(ctx, ReactiveCompactSnapshot{
+			SessionID: call.SessionID,
+			TurnID:    call.TurnID,
+			Provider:  largeModel.ModelCfg.Provider,
+			Model:     largeModel.ModelCfg.Model,
+			Attempt:   reactiveAttempts,
+			Error:     err.Error(),
+			Messages:  history,
+		})
+		if reactiveErr != nil {
+			slog.Warn("Reactive compact failed", "session_id", call.SessionID, "turn_id", call.TurnID, "attempt", reactiveAttempts, "error", reactiveErr)
+			break
+		}
+		if reactiveResult.CircuitOpen {
+			slog.Warn("Reactive compact skipped: circuit breaker open", "session_id", call.SessionID, "turn_id", call.TurnID, "attempt", reactiveAttempts)
+			break
+		}
+	}
+
+	if err != nil && reactiveAttempts >= maxReactiveCompactAttempts && contextmgr.IsContextLengthError(err.Error()) {
+		err = fmt.Errorf("%s: %w", errContextTooLongAfterCompact, err)
+	}
 
 	a.eventPromptResponded(call.SessionID, time.Since(startTime).Truncate(time.Second))
 

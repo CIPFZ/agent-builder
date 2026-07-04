@@ -125,8 +125,6 @@ var Endpoints = []Endpoint{
 }
 
 const (
-	EventRuntimeStarted                = "runtime.started"
-	EventRuntimeFailed                 = "runtime.failed"
 	EventRecoveryStatusChanged         = "recovery.status.changed"
 	EventRecoveryTurnResumed           = "recovery.turn.resumed"
 	EventRecoveryTurnDiscarded         = "recovery.turn.discarded"
@@ -134,7 +132,6 @@ const (
 	EventRecoveryRetryStarted          = "recovery.retry.started"
 	EventRecoveryRetryCompleted        = "recovery.retry.completed"
 	EventRecoveryRetryFailed           = "recovery.retry.failed"
-	EventRecoveryHistoryHygieneApplied = "recovery.history_hygiene.applied"
 	EventRecoveryCompactRetryStarted   = "recovery.context.compact_retry_started"
 	EventRecoveryCompactRetryCompleted = "recovery.context.compact_retry_completed"
 	EventRecoveryCompactRetryFailed    = "recovery.context.compact_retry_failed"
@@ -142,7 +139,6 @@ const (
 	EventSessionUpdated                = "session.updated"
 	EventSessionDeleted                = "session.deleted"
 	EventTurnStarted                   = "turn.started"
-	EventTurnProgress                  = "turn.progress"
 	EventTurnCompleted                 = "turn.completed"
 	EventTurnFailed                    = "turn.failed"
 	EventTurnCancelled                 = "turn.cancelled"
@@ -212,10 +208,8 @@ const (
 	EventCapabilityLoaded              = "capability.loaded"
 	EventCapabilityFailed              = "capability.failed"
 	EventContextLoading                = "context.loading"
-	EventContextSourceDiscovered       = "context.source.discovered"
 	EventContextSourceLoaded           = "context.source.loaded"
 	EventContextSourceInjected         = "context.source.injected"
-	EventContextLoaded                 = "context.loaded"
 	EventContextFailed                 = "context.failed"
 	EventContextReinjected             = "context.reinjected"
 	EventContextSourceSkipped          = "context.source.skipped"
@@ -305,8 +299,6 @@ func IsEphemeralEventType(eventType string) bool {
 }
 
 var EventTypes = []string{
-	EventRuntimeStarted,
-	EventRuntimeFailed,
 	EventRecoveryStatusChanged,
 	EventRecoveryTurnResumed,
 	EventRecoveryTurnDiscarded,
@@ -314,7 +306,6 @@ var EventTypes = []string{
 	EventRecoveryRetryStarted,
 	EventRecoveryRetryCompleted,
 	EventRecoveryRetryFailed,
-	EventRecoveryHistoryHygieneApplied,
 	EventRecoveryCompactRetryStarted,
 	EventRecoveryCompactRetryCompleted,
 	EventRecoveryCompactRetryFailed,
@@ -322,7 +313,6 @@ var EventTypes = []string{
 	EventSessionUpdated,
 	EventSessionDeleted,
 	EventTurnStarted,
-	EventTurnProgress,
 	EventTurnCompleted,
 	EventTurnFailed,
 	EventTurnCancelled,
@@ -392,10 +382,8 @@ var EventTypes = []string{
 	EventCapabilityLoaded,
 	EventCapabilityFailed,
 	EventContextLoading,
-	EventContextSourceDiscovered,
 	EventContextSourceLoaded,
 	EventContextSourceInjected,
-	EventContextLoaded,
 	EventContextFailed,
 	EventContextReinjected,
 	EventContextSourceSkipped,

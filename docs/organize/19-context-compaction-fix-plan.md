@@ -151,3 +151,17 @@ mock provider 返回 prompt-too-long:attempt1 投影强化重试成功 / attempt
 ## 波次门禁(主控执行)
 
 每波结束:`go test ./...`(仅允许 WP6 前的两个既有失败)+ `cd client && npm run build` + 两个 conversation smoke;波内代理只留工作区改动不提交,主控 review 后按波 commit(`context-fix-w1/w2/w3`);全部完成后主控跑 /code-review 级审查 + 手工链路清单(18 号 §7),修尾差,更新文档。
+
+---
+
+## 完成状态记录
+
+以下由各 WP 代理在完工时登记,commit hash 由主控统一提交后回填;并行执行期间状态可能滞后于实际代码。
+
+| WP | 状态 | 备注 |
+|---|---|---|
+| WP1 | 完成(由 WP1 代理登记,细节见其自身报告) | 边界锚定投影、配对安全 tail、ID 序位锚点、真实 usage 门槛、事务化 ManualCompact、preTokens 区间统计、模型限额修正、覆盖语义修正等在本波次落地。 |
+| WP2 | 完成(由 WP2 代理登记,细节见其自身报告) | 模型 summarizer、重注入(read_files/todos/skills/运行中任务)、PreCompact/PostCompact hooks、filetracker stale 化;`EventContextReinjected` 在本波次获得首个真实 emitter(WP6 复查确认,见下)。 |
+| WP3 | 完成(由 WP3 代理登记,细节见其自身报告) | `contextGovernance` 配置存储、`GET/PUT /v1/settings/context-governance`、设置 UI「上下文」分区、警告条按 autoCompactEnabled 分支文案。 |
+| WP4 | 完成(主控终校 2026-07-04) | reactive 413 重试环(agent.go 包 Stream 的 for 循环:PTL 识别→删除空占位 assistant→ReactiveCompactor 回调→重启,≤3 次,超次返回引导错误);attempt1=microcompact 强化覆盖(KeepRecent=1、TokenDivisor=2,turn 级内存),attempt2+=full compact(trigger=reactive);session 级熔断器(连续 3 次失败开路,成功或手动 /compact 重置);compact.failed 的 attempt/will_retry/circuit_open 全部真实值;auto 分支熔断开路时跳过并发 circuit_open 事件。14 个新测试。 |
+| WP6 | 完成 | 详见本次报告:删除 `runtime_compact.go`/`runtime_compact_payload.go`/`runtime_compact_store.go`(功能迁移到 `runtime_compact_boundaries.go`,改读 contextmgr);`runtime_compact_test.go` 重写(保留仍覆盖真实行为的用例,删除仅测旧 store 的用例,recovery 用例改用 contextmgr 造数据);新增 drop-table migration + schema.sql 同步;`recovery`/`recordPromptAssembly`/`runtime_purge` 的旧 store 引用清理;`runtime_lifecycle.go`/`runtime_service.go`/`runtime_service_types.go` 移除旧 store 字段与初始化;`ContextDiagnosticsPanel` 头部数字改消费 `contextUsage`;`contract_test.go` 新增 `TestNoOrphanEventTypes`(AST 解析 contract.go 的事件常量 + 全仓源码扫描),移除 6 个确认孤儿的事件常量;修复 `internal/fsext` Windows 根路径分隔符 bug 与 skills 测试路径分隔符不一致问题。**偏离**:`RuntimeCompactBoundary`/`RuntimeReinjectedRef`/`RuntimeCompactToolCallRef` 三个 DTO 未删除,因为 `runtime_output.go`(WP5)与重注入路径(WP2)已将其复用为活跃类型,不再是死代码;仅其 SQL 存储层被删除。`go test ./...` 全绿,`cd client && npm run build` 通过。 |

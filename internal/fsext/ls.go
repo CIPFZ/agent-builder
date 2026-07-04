@@ -281,6 +281,15 @@ func ListDirectory(initialPath string, ignorePatterns []string, depth, limit int
 		MaxDepth: depth,
 	}
 
+	// fastwalk normalizes walked paths to forward slashes when conf.ToSlash is
+	// set (always true on Windows via fastwalk.DefaultToSlash()), but
+	// initialPath keeps whatever separator style the caller passed in
+	// (typically OS-native, e.g. backslashes on Windows). Comparing the two
+	// with a raw string comparison then never matches on Windows, so the root
+	// directory itself leaks into the results as a spurious entry. Compare
+	// slash-normalized forms instead.
+	normalizedInitialPath := filepath.ToSlash(initialPath)
+
 	err := fastwalk.Walk(&conf, initialPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // Skip files we don't have permission to access
@@ -294,7 +303,7 @@ func ListDirectory(initialPath string, ignorePatterns []string, depth, limit int
 			return nil
 		}
 
-		if path != initialPath {
+		if filepath.ToSlash(path) != normalizedInitialPath {
 			if isDir {
 				path = path + string(filepath.Separator)
 			}
