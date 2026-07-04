@@ -450,7 +450,11 @@ export function Workspace({
     async (prompt: string) => {
       const compactMatch = prompt.trim().match(/^\/compact(?:\s+([\s\S]*))?$/);
       if (compactMatch) {
-        await onManualCompact?.(compactMatch[1]?.trim());
+        try {
+          await onManualCompact?.(compactMatch[1]?.trim());
+        } catch (error) {
+          void messageApi.error(runtimePanelErrorMessage(error, '当前没有可压缩的对话轮次'));
+        }
         return;
       }
       pinAndScrollToBottom('auto');

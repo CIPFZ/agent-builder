@@ -92,7 +92,7 @@ func NewWithSchedulerRecorder(ctx context.Context, conn *sql.DB, store *config.C
 		Messages:    messages,
 		History:     files,
 		Permissions: permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools),
-		FileTracker: filetracker.NewService(q),
+		FileTracker: filetracker.NewServiceWithConn(q, conn),
 		LSPManager:  lsp.NewManager(store),
 		Skills:      skillsMgr,
 

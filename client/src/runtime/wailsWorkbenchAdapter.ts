@@ -6,6 +6,8 @@ import type {
   ConfiguredProviderViewModel,
   CompactBoundaryViewModel,
   ContextDiagnosticsViewModel,
+  ContextGovernanceProviderOverrideViewModel,
+  ContextGovernanceSettingsViewModel,
   ContextUsageViewModel,
   ConversationMessageViewModel,
   ConversationTimelineItemViewModel,
@@ -857,6 +859,68 @@ interface RuntimePolicyResponseDTO {
   policy: RuntimePolicyDTO;
 }
 
+interface RuntimeContextGovernanceModelOverrideDTO {
+  autoCompactPercent?: number;
+}
+
+interface RuntimeContextGovernanceProviderOverrideDTO {
+  autoCompactPercent?: number;
+  models?: Record<string, RuntimeContextGovernanceModelOverrideDTO>;
+}
+
+interface RuntimeContextGovernanceSettingsDTO {
+  autoCompactEnabled?: boolean;
+  autoCompactPercent?: number;
+  microcompactEnabled?: boolean;
+  microcompactKeepRecent?: number;
+  summaryModel?: string;
+  providerOverrides?: Record<string, RuntimeContextGovernanceProviderOverrideDTO>;
+}
+
+interface RuntimeContextGovernanceSettingsResponseDTO {
+  settings: RuntimeContextGovernanceSettingsDTO;
+}
+
+function mapContextGovernanceProviderOverride(
+  override: RuntimeContextGovernanceProviderOverrideDTO,
+): ContextGovernanceProviderOverrideViewModel {
+  const models = override.models;
+  return {
+    autoCompactPercent: override.autoCompactPercent,
+    models: models
+      ? Object.fromEntries(Object.entries(models).map(([modelID, modelOverride]) => [modelID, { autoCompactPercent: modelOverride.autoCompactPercent }]))
+      : undefined,
+  };
+}
+
+function mapContextGovernanceSettings(dto?: RuntimeContextGovernanceSettingsDTO): ContextGovernanceSettingsViewModel {
+  if (!dto) {
+    return {};
+  }
+  const providerOverrides = dto.providerOverrides;
+  return {
+    autoCompactEnabled: dto.autoCompactEnabled,
+    autoCompactPercent: dto.autoCompactPercent,
+    microcompactEnabled: dto.microcompactEnabled,
+    microcompactKeepRecent: dto.microcompactKeepRecent,
+    summaryModel: dto.summaryModel,
+    providerOverrides: providerOverrides
+      ? Object.fromEntries(Object.entries(providerOverrides).map(([providerID, override]) => [providerID, mapContextGovernanceProviderOverride(override)]))
+      : undefined,
+  };
+}
+
+function toContextGovernanceSettingsRequest(settings: ContextGovernanceSettingsViewModel): RuntimeContextGovernanceSettingsDTO {
+  return {
+    autoCompactEnabled: settings.autoCompactEnabled,
+    autoCompactPercent: settings.autoCompactPercent,
+    microcompactEnabled: settings.microcompactEnabled,
+    microcompactKeepRecent: settings.microcompactKeepRecent,
+    summaryModel: settings.summaryModel,
+    providerOverrides: settings.providerOverrides,
+  };
+}
+
 interface RuntimeSessionActivityDTO {
   sessionId: string;
   messages: RuntimeMessageDTO[];
@@ -1151,6 +1215,7 @@ interface RuntimeContextUsageDTO {
   percentLeft?: number;
   level?: string;
   estimated?: boolean;
+  autoCompactEnabled?: boolean;
   outputReserve?: number;
   autoCompactBuffer?: number;
   breakdown?: RuntimeContextCategoryDTO[];
@@ -1688,6 +1753,8 @@ interface RuntimeBridgeModule {
   Permissions?: () => Promise<{ permissions: RuntimePermissionDTO[] }>;
   GetPolicy?: () => Promise<RuntimePolicyResponseDTO>;
   UpdatePolicy?: (req: { mode: string }) => Promise<RuntimePolicyResponseDTO>;
+  ContextGovernanceSettings?: () => Promise<RuntimeContextGovernanceSettingsResponseDTO>;
+  SaveContextGovernanceSettings?: (req: RuntimeContextGovernanceSettingsDTO) => Promise<RuntimeContextGovernanceSettingsResponseDTO>;
   DecidePermission?: (req: { permissionId: string; action: string; guidance?: string }) => Promise<RuntimeStatusDTO>;
   Skills?: () => Promise<RuntimeSkillsResponseDTO>;
   Plugins?: () => Promise<RuntimePluginsResponseDTO>;
@@ -1948,9 +2015,13 @@ function promptToUserInput(prompt: string, clientRequestId?: string): RuntimeUse
   };
 }
 
+function resolveContextActionTurnId(current: WorkbenchViewModel): string | undefined {
+  return current.contextDiagnostics?.turnId || current.composer.activeTurnId || current.turnDiagnostics?.turnId;
+}
+
 function contextActionRequest(current: WorkbenchViewModel, reason: string): RuntimeContextActionRequestDTO {
   const sessionId = current.contextDiagnostics?.sessionId || current.sessions.find((session) => session.active)?.id;
-  const turnId = current.contextDiagnostics?.turnId || current.composer.activeTurnId || current.turnDiagnostics?.turnId;
+  const turnId = resolveContextActionTurnId(current);
   if (!turnId) {
     throw new Error('No turn is available for context governance action');
   }
@@ -3192,6 +3263,7 @@ function mapContextUsage(usage?: RuntimeContextUsageDTO): ContextUsageViewModel 
     percentLeft: usage.percentLeft ?? 0,
     level: usage.level ?? 'ok',
     estimated: Boolean(usage.estimated),
+    autoCompactEnabled: usage.autoCompactEnabled ?? true,
     outputReserve: usage.outputReserve ?? 0,
     autoCompactBuffer: usage.autoCompactBuffer ?? 0,
     compactCount: usage.compactCount ?? 0,
@@ -4197,6 +4269,18 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     }
     return staticWorkbenchAdapter.selectProjectDirectory();
   },
+  async fetchContextUsage(sessionID) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.SessionContextUsage) {
+      return undefined;
+    }
+    try {
+      return mapContextUsage(await bridge.SessionContextUsage(sessionID));
+    } catch (error) {
+      console.warn('[runtime] fetchContextUsage failed', error);
+      return undefined;
+    }
+  },
   async subscribeRuntimeEvents(onEvent) {
     const bridge = await loadRuntimeBridge();
     if (bridge?.Events || bridge?.EventsEndpoint) {
@@ -4511,6 +4595,16 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     );
   },
   async manualCompact(current, instructions) {
+    // B12: when there is no active/known turn, reject up front with a
+    // friendly message instead of letting contextActionRequest's throw fall
+    // into withBridge's generic catch — that path swallows the real error
+    // and replaces it with the static adapter's "runtime unavailable", which
+    // is meaningless to the user here (see runtime unavailable() fallback
+    // below for other bridge failures, which is the case that message is
+    // actually meant for).
+    if (!resolveContextActionTurnId(current)) {
+      return Promise.reject(new Error('当前没有可压缩的对话轮次'));
+    }
     return withBridge(
       async (bridge) => {
         if (!bridge.ManualCompact) {
@@ -4937,6 +5031,21 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       throw new Error('project memory runtime binding is unavailable');
     }
     return mapProjectMemoryIndex(await bridge.RefreshProjectMemoryIndex(projectID));
+  },
+  async getContextGovernanceSettings() {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.ContextGovernanceSettings) {
+      throw new Error('context governance runtime binding is unavailable');
+    }
+    return mapContextGovernanceSettings((await bridge.ContextGovernanceSettings()).settings);
+  },
+  async saveContextGovernanceSettings(settings) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.SaveContextGovernanceSettings) {
+      throw new Error('context governance runtime binding is unavailable');
+    }
+    const response = await bridge.SaveContextGovernanceSettings(toContextGovernanceSettingsRequest(settings));
+    return mapContextGovernanceSettings(response.settings);
   },
 };
 

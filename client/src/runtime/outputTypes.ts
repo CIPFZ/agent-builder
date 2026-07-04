@@ -203,8 +203,24 @@ export interface RuntimeConversationItem {
   clientRequestId?: string;
   display?: RuntimeConversationDisplay;
   exploration?: RuntimeExplorationSummary;
+  compact?: RuntimeCompactInfo;
   createdAt?: number;
   updatedAt?: number;
+}
+
+// RuntimeCompactInfo mirrors internal/runtime.RuntimeCompactInfo (WP5): the
+// compact_boundary item's trigger/status/token-delta meta plus the full
+// summary text, so CompactDivider can render its expanded detail without a
+// second round trip.
+export interface RuntimeCompactInfo {
+  trigger?: string;
+  status?: string;
+  preTokens?: number;
+  postTokens?: number;
+  summarizedCount?: number;
+  summaryMessageId?: string;
+  summaryText?: string;
+  error?: string;
 }
 
 export interface RuntimeAgentTaskOutput {

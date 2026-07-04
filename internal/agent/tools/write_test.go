@@ -26,6 +26,10 @@ func (m mockFileTrackerService) ListReadFiles(ctx context.Context, sessionID str
 	return nil, nil
 }
 
+func (m mockFileTrackerService) MarkSessionStale(ctx context.Context, sessionID, reason string) error {
+	return nil
+}
+
 func TestWriteToolWritesEmptyNewFile(t *testing.T) {
 	t.Parallel()
 

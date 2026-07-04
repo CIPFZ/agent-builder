@@ -616,6 +616,12 @@ func (c *phase25RuntimeWorkbenchCoordinator) QueuedPrompts(string) int          
 func (c *phase25RuntimeWorkbenchCoordinator) QueuedPromptsList(string) []string       { return nil }
 func (c *phase25RuntimeWorkbenchCoordinator) ClearQueue(string)                       {}
 func (c *phase25RuntimeWorkbenchCoordinator) Summarize(context.Context, string) error { return nil }
+func (c *phase25RuntimeWorkbenchCoordinator) GenerateCompactSummary(context.Context, agent.CompactSummaryRequest) (agent.CompactSummaryResult, error) {
+	return agent.CompactSummaryResult{}, nil
+}
+func (c *phase25RuntimeWorkbenchCoordinator) RunCompactHooks(context.Context, string, string, string, string) (agent.CompactHookResult, error) {
+	return agent.CompactHookResult{}, nil
+}
 func (c *phase25RuntimeWorkbenchCoordinator) Model() agent.Model                      { return agent.Model{} }
 func (c *phase25RuntimeWorkbenchCoordinator) UpdateModels(context.Context) error      { return nil }
 func (c *phase25RuntimeWorkbenchCoordinator) RefreshSkills(context.Context) error     { return nil }

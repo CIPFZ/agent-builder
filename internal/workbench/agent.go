@@ -120,6 +120,49 @@ func (b *Service) CancelSession(workspaceID, sessionID string) error {
 	return nil
 }
 
+// GenerateCompactSummary drives the model summarizer for a compact
+// operation. Returns the summary text on success; the caller falls back to
+// the heuristic summarizer on error.
+func (b *Service) GenerateCompactSummary(ctx context.Context, workspaceID string, req agent.CompactSummaryRequest) (agent.CompactSummaryResult, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return agent.CompactSummaryResult{}, err
+	}
+	if ws.AgentCoordinator == nil {
+		return agent.CompactSummaryResult{}, ErrAgentNotInitialized
+	}
+	return ws.AgentCoordinator.GenerateCompactSummary(ctx, req)
+}
+
+// RunCompactHooks executes matching PreCompact / PostCompact hooks. Errors
+// from the runner are returned so the caller can slog.Warn without failing
+// the compact.
+func (b *Service) RunCompactHooks(ctx context.Context, workspaceID, event, sessionID, turnID, payloadJSON string) (agent.CompactHookResult, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return agent.CompactHookResult{}, err
+	}
+	if ws.AgentCoordinator == nil {
+		return agent.CompactHookResult{}, ErrAgentNotInitialized
+	}
+	return ws.AgentCoordinator.RunCompactHooks(ctx, event, sessionID, turnID, payloadJSON)
+}
+
+// MarkSessionReadFilesStale marks every recorded read for the session as
+// stale, forcing the model to re-read files it wants to work with. This is
+// called after a successful compact so we do not carry cached file state
+// past the boundary.
+func (b *Service) MarkSessionReadFilesStale(ctx context.Context, workspaceID, sessionID, reason string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	if ws.FileTracker == nil {
+		return nil
+	}
+	return ws.FileTracker.MarkSessionStale(ctx, sessionID, reason)
+}
+
 // SummarizeSession triggers a session summarization.
 func (b *Service) SummarizeSession(ctx context.Context, workspaceID, sessionID string) error {
 	ws, err := b.GetWorkspace(workspaceID)

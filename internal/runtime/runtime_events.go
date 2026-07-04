@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"log/slog"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
@@ -327,6 +329,16 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 		if payload.Payload.Role == message.Assistant {
 			r.eventStats.assistantEvents++
 		}
+		// WP5 "事件时机": a completed assistant message with real (non-
+		// estimated) usage is a new anchor for computeContextUsage, so
+		// schedule a debounced context.usage.updated recompute. message.
+		// Message (unlike the apitypes.Message case below) still carries
+		// Usage, which is the only reliable "was this estimated" signal —
+		// agent.go's OnStepFinish only ever persists Usage for real provider
+		// responses (see runtime_context_usage.go's anchor selection).
+		if runtimeEvent.Type == runtimeapi.EventMessageCompleted && payload.Payload.Role == message.Assistant && !payload.Payload.Usage.IsZero() {
+			r.scheduleContextUsageUpdate(msg.SessionID, turnID)
+		}
 	case pubsub.Event[apitypes.Message]:
 		r.eventStats.messageEvents++
 		turnID := r.sessionTurns[payload.Payload.SessionID]
@@ -485,6 +497,44 @@ func (r *runtimeService) publishRuntimeEvent(event RuntimeEvent) {
 		return
 	}
 	r.eventStream.Publish(event)
+}
+
+// runtimeContextUsageUpdateDebounce bounds how often a real-usage assistant
+// step retriggers context.usage.updated. A multi-step turn can complete
+// several assistant steps in quick succession; debouncing collapses that
+// burst into a single recompute (18号 doc §4.1 coalesced update cadence).
+const runtimeContextUsageUpdateDebounce = 500 * time.Millisecond
+
+// contextUsageDebounceState holds the per-session pending timers for a given
+// runtimeService instance. It lives outside the runtimeService struct
+// (keyed by the service pointer in a package-level registry) because this
+// work package's file ownership for the fix-round covers runtime_events.go
+// only, not runtime_service_types.go where the struct is declared.
+type contextUsageDebounceState struct {
+	mu     sync.Mutex
+	timers map[string]*time.Timer
+}
+
+var contextUsageDebounceRegistry sync.Map // map[*runtimeService]*contextUsageDebounceState
+
+// scheduleContextUsageUpdate debounces a context.usage.updated recompute for
+// sessionID: a call within the debounce window of a previous one resets the
+// timer, so only the last call in a burst actually publishes.
+func (r *runtimeService) scheduleContextUsageUpdate(sessionID, turnID string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	stateAny, _ := contextUsageDebounceRegistry.LoadOrStore(r, &contextUsageDebounceState{timers: map[string]*time.Timer{}})
+	state := stateAny.(*contextUsageDebounceState)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if existing, ok := state.timers[sessionID]; ok {
+		existing.Stop()
+	}
+	state.timers[sessionID] = time.AfterFunc(runtimeContextUsageUpdateDebounce, func() {
+		r.publishContextUsageUpdated(context.Background(), sessionID, turnID, "", 0, nil)
+	})
 }
 
 func newSnapshotRequiredEvent(after, firstSequence, lastSequence int64) RuntimeEvent {

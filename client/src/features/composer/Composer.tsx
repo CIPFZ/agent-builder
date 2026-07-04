@@ -200,10 +200,19 @@ export function Composer({
     <div ref={composerRef} className={styles.composerWrap} data-testid="composer">
       {messageContextHolder}
       {showContextWarning && (
-        <div className={`${styles.contextWarningBar} ${contextUsage.level === 'error' ? styles.contextWarningError : ''}`} data-testid="composer-context-warning">
-          {contextUsage.level === 'warning'
+        <div
+          className={`${styles.contextWarningBar} ${
+            contextUsage.autoCompactEnabled
+              ? ''
+              : contextUsage.level === 'error'
+                ? styles.contextWarningError
+                : styles.contextWarningWarn
+          }`}
+          data-testid="composer-context-warning"
+        >
+          {contextUsage.autoCompactEnabled
             ? `距自动压缩还剩 ${contextUsage.percentLeft}%`
-            : `上下文即将用尽（剩余 ${contextUsage.percentLeft}%），请手动压缩`}
+            : `上下文即将用尽（剩余 ${contextUsage.percentLeft}%），请使用 /compact 手动压缩`}
         </div>
       )}
       <div className={styles.composerShell}>

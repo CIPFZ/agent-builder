@@ -92,6 +92,8 @@ var Endpoints = []Endpoint{
 	{Method: MethodPost, Path: "/v1/permissions/{permission_id}/decision"},
 	{Method: MethodGet, Path: "/v1/policy"},
 	{Method: MethodPut, Path: "/v1/policy"},
+	{Method: MethodGet, Path: "/v1/settings/context-governance"},
+	{Method: MethodPut, Path: "/v1/settings/context-governance"},
 	{Method: MethodGet, Path: "/v1/capabilities"},
 	{Method: MethodPost, Path: "/v1/capabilities/{capability_id}/refresh"},
 	{Method: MethodPost, Path: "/v1/tools/search"},
@@ -226,49 +228,54 @@ const (
 	EventCompactStarted                = "compact.started"
 	EventCompactCompleted              = "compact.completed"
 	EventCompactFailed                 = "compact.failed"
-	EventSkillDiscoveryStarted         = "skill.discovery.started"
-	EventSkillDiscoveryCompleted       = "skill.discovery.completed"
-	EventSkillDiscoveryFailed          = "skill.discovery.failed"
-	EventSkillEnabled                  = "skill.enabled"
-	EventSkillDisabled                 = "skill.disabled"
-	EventSkillActivated                = "skill.activated"
-	EventSkillActivationFailed         = "skill.activation.failed"
-	EventSkillActivationAllowed        = "skill.activation.allowed"
-	EventSkillActivationDenied         = "skill.activation.denied"
-	EventSkillContextInjected          = "skill.context.injected"
-	EventSkillContextOmitted           = "skill.context.omitted"
-	EventMCPCapabilityAllowed          = "mcp.capability.allowed"
-	EventMCPCapabilityDenied           = "mcp.capability.denied"
-	EventMCPServerLazyStarted          = "mcp.server.lazy_started"
-	EventMCPServerLazyFailed           = "mcp.server.lazy_failed"
-	EventMCPServerStarting             = "mcp.server.starting"
-	EventMCPServerConnected            = "mcp.server.connected"
-	EventMCPServerFailed               = "mcp.server.failed"
-	EventMCPServerBlocked              = "mcp.server.blocked"
-	EventMCPServerDisabled             = "mcp.server.disabled"
-	EventMCPToolsUpdated               = "mcp.tools.updated"
-	EventMCPResourcesUpdated           = "mcp.resources.updated"
-	EventMCPPromptsUpdated             = "mcp.prompts.updated"
-	EventMCPAuthRequested              = "mcp.auth.requested"
-	EventMCPAuthCompleted              = "mcp.auth.completed"
-	EventMCPAuthDenied                 = "mcp.auth.denied"
-	EventMCPAuthFailed                 = "mcp.auth.failed"
-	EventMCPElicitationRequested       = "mcp.elicitation.requested"
-	EventMCPElicitationCompleted       = "mcp.elicitation.completed"
-	EventMCPElicitationDenied          = "mcp.elicitation.denied"
-	EventMCPElicitationFailed          = "mcp.elicitation.failed"
-	EventUsageUpdated                  = "usage.updated"
-	EventAuditRecorded                 = "audit.recorded"
-	EventSnapshotRequired              = "snapshot_required"
-	EventMemoryIndexStarted            = "memory.index.started"
-	EventMemoryIndexCompleted          = "memory.index.completed"
-	EventMemoryIndexFailed             = "memory.index.failed"
-	EventMemoryRecordCreated           = "memory.record.created"
-	EventMemoryRecordUpdated           = "memory.record.updated"
-	EventMemoryRecordDisabled          = "memory.record.disabled"
-	EventMemoryRecordDeleted           = "memory.record.deleted"
-	EventMemoryRecordInjected          = "memory.record.injected"
-	EventMemoryRecordSkipped           = "memory.record.skipped"
+	// EventCompactProgress is an ephemeral progress ping emitted every 30s
+	// while the model summarizer is running so the UI can distinguish "still
+	// working" from "stalled". Payload: {boundary_id, phase, elapsed_ms}.
+	// Never persisted.
+	EventCompactProgress         = "compact.progress"
+	EventSkillDiscoveryStarted   = "skill.discovery.started"
+	EventSkillDiscoveryCompleted = "skill.discovery.completed"
+	EventSkillDiscoveryFailed    = "skill.discovery.failed"
+	EventSkillEnabled            = "skill.enabled"
+	EventSkillDisabled           = "skill.disabled"
+	EventSkillActivated          = "skill.activated"
+	EventSkillActivationFailed   = "skill.activation.failed"
+	EventSkillActivationAllowed  = "skill.activation.allowed"
+	EventSkillActivationDenied   = "skill.activation.denied"
+	EventSkillContextInjected    = "skill.context.injected"
+	EventSkillContextOmitted     = "skill.context.omitted"
+	EventMCPCapabilityAllowed    = "mcp.capability.allowed"
+	EventMCPCapabilityDenied     = "mcp.capability.denied"
+	EventMCPServerLazyStarted    = "mcp.server.lazy_started"
+	EventMCPServerLazyFailed     = "mcp.server.lazy_failed"
+	EventMCPServerStarting       = "mcp.server.starting"
+	EventMCPServerConnected      = "mcp.server.connected"
+	EventMCPServerFailed         = "mcp.server.failed"
+	EventMCPServerBlocked        = "mcp.server.blocked"
+	EventMCPServerDisabled       = "mcp.server.disabled"
+	EventMCPToolsUpdated         = "mcp.tools.updated"
+	EventMCPResourcesUpdated     = "mcp.resources.updated"
+	EventMCPPromptsUpdated       = "mcp.prompts.updated"
+	EventMCPAuthRequested        = "mcp.auth.requested"
+	EventMCPAuthCompleted        = "mcp.auth.completed"
+	EventMCPAuthDenied           = "mcp.auth.denied"
+	EventMCPAuthFailed           = "mcp.auth.failed"
+	EventMCPElicitationRequested = "mcp.elicitation.requested"
+	EventMCPElicitationCompleted = "mcp.elicitation.completed"
+	EventMCPElicitationDenied    = "mcp.elicitation.denied"
+	EventMCPElicitationFailed    = "mcp.elicitation.failed"
+	EventUsageUpdated            = "usage.updated"
+	EventAuditRecorded           = "audit.recorded"
+	EventSnapshotRequired        = "snapshot_required"
+	EventMemoryIndexStarted      = "memory.index.started"
+	EventMemoryIndexCompleted    = "memory.index.completed"
+	EventMemoryIndexFailed       = "memory.index.failed"
+	EventMemoryRecordCreated     = "memory.record.created"
+	EventMemoryRecordUpdated     = "memory.record.updated"
+	EventMemoryRecordDisabled    = "memory.record.disabled"
+	EventMemoryRecordDeleted     = "memory.record.deleted"
+	EventMemoryRecordInjected    = "memory.record.injected"
+	EventMemoryRecordSkipped     = "memory.record.skipped"
 	// EventOutputTextDelta is an ephemeral runtime event that streams the
 	// suffix a token added to an assistant message's text or reasoning part.
 	// It is never persisted to the event store nor written to the ring
@@ -283,6 +290,7 @@ const (
 // == snapshot(cN) is defined only over non-ephemeral events.
 var EphemeralEventTypes = []string{
 	EventOutputTextDelta,
+	EventCompactProgress,
 }
 
 // IsEphemeralEventType returns true if the given event type is streaming-only
@@ -400,6 +408,7 @@ var EventTypes = []string{
 	EventCompactStarted,
 	EventCompactCompleted,
 	EventCompactFailed,
+	EventCompactProgress,
 	EventSkillDiscoveryStarted,
 	EventSkillDiscoveryCompleted,
 	EventSkillDiscoveryFailed,

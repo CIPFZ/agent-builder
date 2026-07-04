@@ -34,7 +34,7 @@ func TestContextThresholdSnapshots(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := contextThresholds(tt.window, tt.maxOutput)
+			got := contextThresholds(tt.window, tt.maxOutput, nil)
 			if got.AutoCompactAt != tt.autoCompactAt || got.WarningAt != tt.warningAt || got.BlockingAt != tt.blockingAt {
 				t.Fatalf("thresholds = %#v", got)
 			}

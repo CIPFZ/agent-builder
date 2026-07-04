@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { OutputStore, RuntimeExplorationCount, RuntimeExplorationSummary } from './outputTypes.ts';
+import type { OutputStore, RuntimeCompactInfo, RuntimeExplorationCount, RuntimeExplorationSummary } from './outputTypes.ts';
 
 export type WorkbenchMode = 'project' | 'new-chat' | 'settings' | 'plugins';
 
@@ -139,6 +139,7 @@ export interface ContextUsageViewModel {
   percentLeft: number;
   level: 'ok' | 'warning' | 'error' | string;
   estimated: boolean;
+  autoCompactEnabled: boolean;
   outputReserve: number;
   autoCompactBuffer: number;
   breakdown: ContextUsageCategoryViewModel[];
@@ -253,6 +254,7 @@ export interface ConversationTimelineItemViewModel {
   permission?: PermissionRequestViewModel;
   agentTask?: AgentTaskViewModel;
   diagnostics?: TurnDiagnosticsViewModel;
+  compact?: RuntimeCompactInfo;
 }
 
 export interface TurnDiagnosticsViewModel {
@@ -1215,7 +1217,6 @@ export interface SettingsViewModel {
   permissionOptions: PermissionModeOptionViewModel[];
   defaultEditor: string;
   terminalProfile: string;
-  contextGovernance: ContextGovernanceSettingsViewModel;
   editorOptions: SettingsOptionViewModel[];
   terminalOptions: SettingsOptionViewModel[];
   providerTypes: ProviderTypeViewModel[];
@@ -1229,14 +1230,27 @@ export interface SettingsViewModel {
   mcpPromptsByServer: Record<string, RuntimeMCPPromptViewModel[]>;
 }
 
+// ContextGovernanceSettingsViewModel mirrors the runtime's
+// RuntimeContextGovernanceSettings DTO (GET/PUT /v1/settings/context-governance).
+// Every field is optional; an absent field means "use the documented
+// default" (autoCompactEnabled=true, autoCompactPercent=auto,
+// microcompactEnabled=true, microcompactKeepRecent=5, summaryModel=session).
+export interface ContextGovernanceModelOverrideViewModel {
+  autoCompactPercent?: number;
+}
+
+export interface ContextGovernanceProviderOverrideViewModel {
+  autoCompactPercent?: number;
+  models?: Record<string, ContextGovernanceModelOverrideViewModel>;
+}
+
 export interface ContextGovernanceSettingsViewModel {
-  autoCompactEnabled: boolean;
-  toolResultBudgetChars: number;
-  maxSingleToolResultChars: number;
-  microcompactKeepRecent: number;
-  snipEnabled: boolean;
-  reactiveRetryLimit: number;
-  manualActions: boolean;
+  autoCompactEnabled?: boolean;
+  autoCompactPercent?: number;
+  microcompactEnabled?: boolean;
+  microcompactKeepRecent?: number;
+  summaryModel?: 'session' | 'small' | string;
+  providerOverrides?: Record<string, ContextGovernanceProviderOverrideViewModel>;
 }
 
 export interface WorkbenchViewModel {
@@ -1276,6 +1290,11 @@ export interface RuntimeEventViewModel {
 export interface WorkbenchAdapter {
   loadInitialViewModel: (mode?: WorkbenchMode) => Promise<WorkbenchViewModel>;
   refresh: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
+  // fetchContextUsage is a single-field fast path used by the composer's
+  // refreshNonce wiring (WP5): when compactCount changes the shell forces an
+  // immediate SessionContextUsage read instead of waiting for the general
+  // 350ms-coalesced refresh cycle to catch up.
+  fetchContextUsage?: (sessionID: string) => Promise<ContextUsageViewModel | undefined>;
   subscribeRuntimeEvents?: (onEvent: (event: RuntimeEventViewModel) => void) => Promise<() => void> | (() => void);
   subscribeSessionOutput?: (
     sessionID: string,
@@ -1348,4 +1367,6 @@ export interface WorkbenchAdapter {
   setProjectMemoryEnabled?: (memoryID: string, enabled: boolean) => Promise<ProjectMemoryRecordViewModel>;
   deleteProjectMemory?: (memoryID: string, reason?: string) => Promise<ProjectMemoryRecordViewModel>;
   refreshProjectMemoryIndex?: (projectID: string) => Promise<ProjectMemoryIndexViewModel>;
+  getContextGovernanceSettings?: () => Promise<ContextGovernanceSettingsViewModel>;
+  saveContextGovernanceSettings?: (settings: ContextGovernanceSettingsViewModel) => Promise<ContextGovernanceSettingsViewModel>;
 }

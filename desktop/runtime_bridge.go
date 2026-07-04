@@ -185,6 +185,10 @@ type RuntimePermissionDecision = runtime.RuntimePermissionDecision
 type RuntimePolicy = runtime.RuntimePolicy
 type RuntimePolicyResponse = runtime.RuntimePolicyResponse
 type RuntimePolicyUpdateRequest = runtime.RuntimePolicyUpdateRequest
+type RuntimeContextGovernanceSettings = runtime.RuntimeContextGovernanceSettings
+type RuntimeContextGovernanceSettingsResponse = runtime.RuntimeContextGovernanceSettingsResponse
+type RuntimeContextGovernanceModelOverride = runtime.RuntimeContextGovernanceModelOverride
+type RuntimeContextGovernanceProviderOverride = runtime.RuntimeContextGovernanceProviderOverride
 type RuntimeRequests = runtime.RuntimeRequests
 type RuntimeUsage = runtime.RuntimeUsage
 type RuntimeContextUsage = runtime.RuntimeContextUsage
@@ -1234,6 +1238,18 @@ func (r *RuntimeBridge) GetPolicy(ctx context.Context) (RuntimePolicyResponse, e
 func (r *RuntimeBridge) UpdatePolicy(ctx context.Context, req RuntimePolicyUpdateRequest) (RuntimePolicyResponse, error) {
 
 	return r.service.UpdatePolicy(ctx, req)
+
+}
+
+func (r *RuntimeBridge) ContextGovernanceSettings(ctx context.Context) (RuntimeContextGovernanceSettingsResponse, error) {
+
+	return r.service.ContextGovernanceSettings(ctx)
+
+}
+
+func (r *RuntimeBridge) SaveContextGovernanceSettings(ctx context.Context, req RuntimeContextGovernanceSettings) (RuntimeContextGovernanceSettingsResponse, error) {
+
+	return r.service.SaveContextGovernanceSettings(ctx, req)
 
 }
 

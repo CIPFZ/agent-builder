@@ -77,6 +77,12 @@ func (c *recordingStartedTaskCoordinator) QueuedPrompts(string) int             
 func (c *recordingStartedTaskCoordinator) QueuedPromptsList(string) []string       { return nil }
 func (c *recordingStartedTaskCoordinator) ClearQueue(string)                       {}
 func (c *recordingStartedTaskCoordinator) Summarize(context.Context, string) error { return nil }
+func (c *recordingStartedTaskCoordinator) GenerateCompactSummary(context.Context, agent.CompactSummaryRequest) (agent.CompactSummaryResult, error) {
+	return agent.CompactSummaryResult{}, nil
+}
+func (c *recordingStartedTaskCoordinator) RunCompactHooks(context.Context, string, string, string, string) (agent.CompactHookResult, error) {
+	return agent.CompactHookResult{}, nil
+}
 func (c *recordingStartedTaskCoordinator) Model() agent.Model                      { return agent.Model{} }
 func (c *recordingStartedTaskCoordinator) UpdateModels(context.Context) error      { return nil }
 func (c *recordingStartedTaskCoordinator) RefreshSkills(context.Context) error     { return nil }

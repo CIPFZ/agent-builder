@@ -132,6 +132,8 @@ type RuntimeService interface {
 	Permissions(context.Context) (RuntimePermissionsResponse, error)
 	GetPolicy(context.Context) (RuntimePolicyResponse, error)
 	UpdatePolicy(context.Context, RuntimePolicyUpdateRequest) (RuntimePolicyResponse, error)
+	ContextGovernanceSettings(context.Context) (RuntimeContextGovernanceSettingsResponse, error)
+	SaveContextGovernanceSettings(context.Context, RuntimeContextGovernanceSettings) (RuntimeContextGovernanceSettingsResponse, error)
 	Events(context.Context, ...int64) (RuntimeEventsResponse, error)
 	EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error)
 	SubscribeEvents(context.Context, ...int64) (<-chan RuntimeEvent, func())

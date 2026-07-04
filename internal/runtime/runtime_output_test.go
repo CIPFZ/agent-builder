@@ -1,8 +1,12 @@
 package runtime
 
 import (
+	"context"
 	"testing"
 
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/message"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
@@ -287,6 +291,174 @@ func TestRuntimeConversationProjectionGovernanceItems(t *testing.T) {
 	tool := findConversationItemByTool(t, snapshot.Items, "tool-agent")
 	if tool.Status != "interrupted" {
 		t.Fatalf("unfinished tool after terminal turn = %#v", tool)
+	}
+}
+
+// TestRuntimeConversationProjectionCompactItemPayload covers WP5 B10: the
+// compact_boundary item's Compact payload must carry trigger/token deltas/
+// summarized count/summary message id, and the full summary text looked up
+// via SummaryTexts (populated separately since summary messages are
+// filtered out of the regular session message list).
+func TestRuntimeConversationProjectionCompactItemPayload(t *testing.T) {
+	snapshot := buildRuntimeOutputProjectionFromInput(runtimeConversationProjectionInput{
+		Activity: RuntimeSessionActivityWindowResponse{
+			SessionID: "session-1",
+			Messages:  []RuntimeMessage{{ID: "user-1", SessionID: "session-1", Role: "user", Content: "hi", CreatedAt: 10}},
+			Turns:     []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "completed", UserMessageID: "user-1", StartedAt: 1, FinishedAt: 100}},
+		},
+		Compact: []RuntimeCompactBoundary{{
+			ID:               "compact-1",
+			SessionID:        "session-1",
+			TurnID:           "turn-1",
+			Kind:             compactKindFull,
+			Status:           compactStatusCompleted,
+			Trigger:          "manual",
+			SummaryMessageID: "summary-1",
+			MessageRefs:      []string{"m1", "m2", "m3"},
+			BudgetBefore:     &RuntimeBudgetReport{TotalEstimatedTokens: 5000},
+			BudgetAfter:      &RuntimeBudgetReport{TotalEstimatedTokens: 800},
+			CreatedAt:        40,
+			CompletedAt:      41,
+		}},
+		SummaryTexts: map[string]string{"summary-1": "the compacted summary text"},
+	}).snapshot("session-1", "1")
+	compact := findConversationItem(t, snapshot.Items, "compact_boundary")
+	if compact.Compact == nil {
+		t.Fatalf("compact info missing: %#v", compact)
+	}
+	info := compact.Compact
+	if info.Trigger != "manual" || info.Status != compactStatusCompleted || info.PreTokens != 5000 || info.PostTokens != 800 ||
+		info.SummarizedCount != 3 || info.SummaryMessageID != "summary-1" || info.SummaryText != "the compacted summary text" {
+		t.Fatalf("compact info = %#v", info)
+	}
+}
+
+// TestRuntimeConversationProjectionCompactSummaryTextTruncated covers the
+// ≤4000 rune truncation in summaryMessageTexts.
+func TestRuntimeConversationProjectionCompactSummaryTextTruncated(t *testing.T) {
+	long := make([]rune, runtimeCompactSummaryTextLimit+100)
+	for i := range long {
+		long[i] = 'a'
+	}
+	truncated := truncateRunes(string(long), runtimeCompactSummaryTextLimit)
+	runes := []rune(truncated)
+	if len(runes) != runtimeCompactSummaryTextLimit+1 || runes[len(runes)-1] != '…' {
+		t.Fatalf("truncateRunes did not clip to the limit with an ellipsis: len=%d last=%q", len(runes), string(runes[len(runes)-1]))
+	}
+}
+
+// TestRuntimeConversationProjectionAutoFailedCompactProducesNoItem covers B8:
+// an auto-triggered compact that failed must not produce a timeline item —
+// auto retries silently, the user is never bothered.
+func TestRuntimeConversationProjectionAutoFailedCompactProducesNoItem(t *testing.T) {
+	snapshot := buildRuntimeOutputProjectionFromInput(runtimeConversationProjectionInput{
+		Activity: RuntimeSessionActivityWindowResponse{
+			SessionID: "session-1",
+			Messages:  []RuntimeMessage{{ID: "user-1", SessionID: "session-1", Role: "user", Content: "hi", CreatedAt: 10}},
+			Turns:     []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "running", UserMessageID: "user-1", StartedAt: 1}},
+		},
+		Compact: []RuntimeCompactBoundary{{
+			ID: "compact-auto-fail", SessionID: "session-1", TurnID: "turn-1", Kind: compactKindFull,
+			Status: compactStatusFailed, Trigger: "auto", Error: "prompt too long", CreatedAt: 40, CompletedAt: 41,
+		}},
+	}).snapshot("session-1", "1")
+	if item := findConversationItem(t, snapshot.Items, "compact_boundary"); item.ID != "" {
+		t.Fatalf("auto-failed compact must not produce a timeline item: %#v", item)
+	}
+}
+
+// TestRuntimeConversationProjectionManualFailedCompactProducesItem covers the
+// counterpart of B8: manual (and, later, circuit_open) failures still show a
+// failed divider so the user knows their /compact did not go through.
+func TestRuntimeConversationProjectionManualFailedCompactProducesItem(t *testing.T) {
+	snapshot := buildRuntimeOutputProjectionFromInput(runtimeConversationProjectionInput{
+		Activity: RuntimeSessionActivityWindowResponse{
+			SessionID: "session-1",
+			Messages:  []RuntimeMessage{{ID: "user-1", SessionID: "session-1", Role: "user", Content: "hi", CreatedAt: 10}},
+			Turns:     []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "running", UserMessageID: "user-1", StartedAt: 1}},
+		},
+		Compact: []RuntimeCompactBoundary{{
+			ID: "compact-manual-fail", SessionID: "session-1", TurnID: "turn-1", Kind: compactKindFull,
+			Status: compactStatusFailed, Trigger: "manual", Error: "boom", CreatedAt: 40, CompletedAt: 41,
+		}},
+	}).snapshot("session-1", "1")
+	item := findConversationItem(t, snapshot.Items, "compact_boundary")
+	if item.ID == "" || item.Status != compactStatusFailed || item.Compact == nil || item.Compact.Error != "boom" {
+		t.Fatalf("manual-failed compact item = %#v", item)
+	}
+}
+
+// TestCompactEventsAlwaysPairStartedWithTerminal is the integration
+// assertion from WP5's test plan: every compact.started event must
+// eventually be matched by a compact.completed or compact.failed event for
+// the same boundary_id, across both a successful and a failed manual
+// compact.
+func TestCompactEventsAlwaysPairStartedWithTerminal(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service := newRuntimeService()
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
+	conn, err := db.Connect(ctx, workspace.Config.Options.DataDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Release(workspace.Config.Options.DataDirectory) })
+	service.turns = newRuntimeTurnStore(conn)
+
+	session, err := runtimeWorkbench.CreateSession(ctx, workspace.ID, "compact pairing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.sessionID = session.ID
+
+	// Induce a failed boundary: an empty session makes runManualFullCompact
+	// fail right after it has already emitted compact.started.
+	if _, err := service.ManualCompact(ctx, RuntimeContextActionRequest{SessionID: session.ID, TurnID: "turn-fail"}); err == nil {
+		t.Fatal("expected manual compact on an empty session to fail")
+	}
+
+	ws, err := runtimeWorkbench.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ws.Messages.Create(ctx, session.ID, message.CreateMessageParams{
+		Role:  message.User,
+		Parts: []message.ContentPart{message.TextContent{Text: "hello"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ManualCompact(ctx, RuntimeContextActionRequest{SessionID: session.ID, TurnID: "turn-ok"}); err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := service.Events(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := map[string]bool{}
+	terminal := map[string]bool{}
+	for _, event := range events.Events {
+		boundaryID, _ := event.Payload["boundary_id"].(string)
+		if boundaryID == "" {
+			continue
+		}
+		switch event.Type {
+		case runtimeapi.EventCompactStarted:
+			started[boundaryID] = true
+		case runtimeapi.EventCompactCompleted, runtimeapi.EventCompactFailed:
+			terminal[boundaryID] = true
+		}
+	}
+	if len(started) < 2 {
+		t.Fatalf("expected at least 2 distinct started boundaries (one failed, one completed), got %d: %#v", len(started), events.Events)
+	}
+	for id := range started {
+		if !terminal[id] {
+			t.Fatalf("boundary %s emitted compact.started without a matching completed/failed event", id)
+		}
 	}
 }
 

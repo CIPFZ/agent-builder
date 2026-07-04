@@ -80,6 +80,8 @@ func TestEndpointsFreezePhase2MinimalAPI(t *testing.T) {
 		{Method: MethodPost, Path: "/v1/permissions/{permission_id}/decision"},
 		{Method: MethodGet, Path: "/v1/policy"},
 		{Method: MethodPut, Path: "/v1/policy"},
+		{Method: MethodGet, Path: "/v1/settings/context-governance"},
+		{Method: MethodPut, Path: "/v1/settings/context-governance"},
 		{Method: MethodGet, Path: "/v1/capabilities"},
 		{Method: MethodPost, Path: "/v1/capabilities/{capability_id}/refresh"},
 		{Method: MethodPost, Path: "/v1/tools/search"},

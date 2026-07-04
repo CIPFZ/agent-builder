@@ -2,10 +2,16 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/fantasy"
@@ -14,6 +20,7 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/db"
 	"github.com/CIPFZ/agent-builder/internal/message"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/session"
 )
 
 func (r *runtimeSchedulerRecorder) RecordPromptAssembly(ctx context.Context, snapshot agent.PromptAssemblySnapshot) error {
@@ -189,10 +196,28 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 			}
 		}
 	}
-	summaryText, err := r.generateCompactSummary(ctx, req, summaryInput)
-	if err != nil {
-		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
+
+	// PreCompact hook: may inject additionalInstructions into the summarizer
+	// prompt. Failures are logged but never block the compact.
+	instructions := req.Instructions
+	if extra := r.runCompactHook(ctx, wsID, "PreCompact", req.SessionID, req.TurnID, boundaryID, trigger); extra != "" {
+		if strings.TrimSpace(instructions) == "" {
+			instructions = extra
+		} else {
+			instructions = instructions + "\n\n" + extra
+		}
 	}
+
+	// Model summarizer with heuristic fallback. The progress ticker fires an
+	// ephemeral compact.progress event every 30s while the model call is in
+	// flight so the UI can distinguish "still working" from "stalled".
+	progressStop := r.startCompactProgress(req.SessionID, req.TurnID, boundaryID)
+	summaryText, summaryMode, summaryErr := r.generateCompactSummary(ctx, req, summaryInput, instructions)
+	progressStop()
+	if summaryErr != nil {
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, summaryErr)
+	}
+
 	wrappedSummary := compactSummaryMessageText(summaryText, trigger)
 	sess, err := r.runtime.GetSession(ctx, wsID, req.SessionID)
 	if err != nil {
@@ -207,10 +232,26 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 		messageRefs = append(messageRefs, msg.ID)
 		preTokens += estimateRuntimeMessageTokens(msg)
 	}
+
+	// Reinjection: read_files, todos, loaded skills, running agent tasks.
+	// Query failures degrade to "no reinjection" with slog.Warn so the
+	// compact itself always succeeds. Refs are recorded on the boundary.
+	reinjection := r.buildCompactReinjection(ctx, wsID, req.SessionID, sess)
+
+	summaryParts := []message.ContentPart{message.TextContent{Text: wrappedSummary}}
+	summaryParts = append(summaryParts, reinjection.parts...)
+
 	postTokens := estimateRuntimeTokens(wrappedSummary)
+	for _, part := range reinjection.parts {
+		if text, ok := part.(message.TextContent); ok {
+			postTokens += estimateRuntimeTokens(text.Text)
+		}
+	}
+
 	completed := started
 	completed.Status = contextmgr.ProjectionStatusCompleted
 	completed.MessageRefs = messageRefs
+	completed.ReinjectedRefs = reinjection.refs
 	completed.BudgetBefore = &contextmgr.BudgetReport{TotalEstimatedTokens: preTokens}
 	completed.BudgetAfter = &contextmgr.BudgetReport{TotalEstimatedTokens: postTokens}
 
@@ -221,14 +262,14 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
 	}
 	summaryMessage, err := message.NewService(db.New(tx)).Create(ctx, req.SessionID, message.CreateMessageParams{
-		Role: message.User,
-		Parts: []message.ContentPart{
-			message.TextContent{Text: wrappedSummary},
-		},
+		Role:             message.User,
+		Parts:            summaryParts,
 		IsSummaryMessage: true,
 		Metadata: map[string]string{
 			"synthetic":       "true",
 			"compactBoundary": boundaryID,
+			"summary_mode":    summaryMode,
+			"reinjected":      strconvItoa(len(reinjection.refs)),
 		},
 	})
 	if err != nil {
@@ -253,6 +294,37 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 	if _, err := r.runtime.SaveSession(ctx, wsID, sess); err != nil {
 		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err)
 	}
+
+	// filetracker stale: after a successful compact the next turn should
+	// re-read anything it cares about because the model can no longer see
+	// the earlier tool results.
+	if err := r.runtime.MarkSessionReadFilesStale(ctx, wsID, req.SessionID, "compact_boundary"); err != nil {
+		slog.Warn("Compact: failed to mark read files stale (non-fatal)",
+			"session_id", req.SessionID, "boundary_id", completed.ID, "error", err)
+	}
+
+	// Fire EventContextReinjected once per successful compact so the front
+	// end can flag "these refs came back from history". This is the first
+	// real emitter of the event (previously orphaned).
+	if len(reinjection.refs) > 0 {
+		r.storeRuntimeEvent(runtimeapi.Event{
+			ID:        newRuntimeEventID(),
+			Type:      runtimeapi.EventContextReinjected,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			SessionID: req.SessionID,
+			TurnID:    req.TurnID,
+			Payload: map[string]any{
+				"boundary_id":        completed.ID,
+				"summary_message_id": summaryMessage.ID,
+				"reinjected_refs":    reinjection.refs,
+				"summary":            fmt.Sprintf("reinjected %d refs after compact", len(reinjection.refs)),
+			},
+		})
+	}
+
+	// PostCompact hook: fire-and-log. Failures do not roll back the compact.
+	r.runCompactHook(ctx, wsID, "PostCompact", req.SessionID, req.TurnID, completed.ID, trigger)
+
 	r.emitCompactEvent(runtimeapi.EventCompactCompleted, req.SessionID, req.TurnID, map[string]any{
 		"boundary_id":        completed.ID,
 		"kind":               completed.Kind,
@@ -261,17 +333,391 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 		"post_tokens":        postTokens,
 		"summarized_count":   len(messageRefs),
 		"summary_message_id": summaryMessage.ID,
+		"summary_mode":       summaryMode,
+		"reinjected_count":   len(reinjection.refs),
 		"summary":            "context compact completed",
 	})
 	r.publishContextUsageUpdated(ctx, req.SessionID, req.TurnID, "", 0, nil)
 	return contextmgr.CompactResult{Boundary: completed}, summaryMessage, nil
 }
 
-// generateCompactSummary produces the compact summary text. It currently uses
-// the deterministic heuristic summarizer; the model-backed summarizer (WP2)
-// plugs in here without touching the compact transaction flow.
-func (r *runtimeService) generateCompactSummary(ctx context.Context, req RuntimeContextActionRequest, messages []message.Message) (string, error) {
-	return buildManualCompactSummary(messages, req.Instructions, r.recentReadFilePaths(ctx, req.SessionID, 10)), nil
+// generateCompactSummary drives the model summarizer first, falling back to
+// the deterministic heuristic when the model path is unavailable or fails.
+// The returned mode is "model" for a model-produced summary and
+// "heuristic_fallback" for the heuristic path; callers persist it on the
+// boundary so we can distinguish quality-of-summary at diagnostics time.
+func (r *runtimeService) generateCompactSummary(ctx context.Context, req RuntimeContextActionRequest, messages []message.Message, instructions string) (string, string, error) {
+	if len(messages) == 0 {
+		return "", "", errors.New("no messages to summarize")
+	}
+	// The model summarizer is optional: when it is not wired (tests without
+	// coordinator, misconfigured workspace) we go straight to the heuristic
+	// so the compact still succeeds.
+	if r.runtime != nil {
+		wsID, wsErr := r.currentWorkspaceID()
+		if wsErr == nil {
+			modelReq := agent.CompactSummaryRequest{
+				SessionID:    req.SessionID,
+				TurnID:       req.TurnID,
+				Messages:     messages,
+				Instructions: instructions,
+			}
+			result, modelErr := r.runtime.GenerateCompactSummary(ctx, wsID, modelReq)
+			if modelErr == nil && strings.TrimSpace(result.Summary) != "" {
+				return result.Summary, "model", nil
+			}
+			if modelErr != nil {
+				slog.Warn("Compact: model summarizer failed; falling back to heuristic",
+					"session_id", req.SessionID,
+					"turn_id", req.TurnID,
+					"error", modelErr,
+				)
+			}
+		}
+	}
+	// Heuristic fallback: never fails on well-formed input.
+	summary := buildManualCompactSummary(messages, instructions, r.recentReadFilePaths(ctx, req.SessionID, 10))
+	return summary, "heuristic_fallback", nil
+}
+
+// startCompactProgress fires an ephemeral compact.progress event every 30s
+// until the returned cancel func is invoked. The event is never persisted
+// (registered in EphemeralEventTypes).
+func (r *runtimeService) startCompactProgress(sessionID, turnID, boundaryID string) func() {
+	start := time.Now()
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case now := <-ticker.C:
+				r.storeRuntimeEvent(runtimeapi.Event{
+					ID:        newRuntimeEventID(),
+					Type:      runtimeapi.EventCompactProgress,
+					CreatedAt: now.UTC().Format(time.RFC3339Nano),
+					SessionID: sessionID,
+					TurnID:    turnID,
+					Payload: map[string]any{
+						"boundary_id": boundaryID,
+						"phase":       "summarizing",
+						"elapsed_ms":  now.Sub(start).Milliseconds(),
+					},
+				})
+			}
+		}
+	}()
+	return func() {
+		close(stop)
+		wg.Wait()
+	}
+}
+
+// compactReinjectionResult carries the content parts we append to the
+// summary message (the visible "read this back" bundle) and the boundary
+// refs recorded for audit.
+type compactReinjectionResult struct {
+	parts []message.ContentPart
+	refs  []string
+}
+
+// Budgets follow the plan (§WP2 design 3): 5 files, 5k tok/file, 50k
+// total; skills: 5k/each, 25k total.
+const (
+	compactMaxReinjectedFiles  = 5
+	compactMaxTokensPerFile    = 5_000
+	compactMaxFileTokensTotal  = 50_000
+	compactMaxTokensPerSkill   = 5_000
+	compactMaxSkillTokensTotal = 25_000
+	compactMaxReinjectedSkills = 8
+)
+
+// buildCompactReinjection assembles the "re-injected context bundle" that
+// rides along with the summary message. Individual sources fail silently
+// (slog.Warn) so a broken read_files table or a missing filesystem entry
+// never blocks the compact.
+func (r *runtimeService) buildCompactReinjection(ctx context.Context, wsID, sessionID string, sess session.Session) compactReinjectionResult {
+	var res compactReinjectionResult
+
+	// read_files: fetch recent, exclude CLAUDE.md/plan by suffix, respect
+	// per-file/total token budgets, and re-read from disk so the model sees
+	// current content. If the on-disk hash differs from what we recorded,
+	// tag the entry stale so the model knows to Read it again.
+	fileEntries := r.recentReadFileEntries(ctx, sessionID, compactMaxReinjectedFiles*3)
+	var (
+		filesUsed  int
+		fileTokens int
+	)
+	for _, entry := range fileEntries {
+		if filesUsed >= compactMaxReinjectedFiles || fileTokens >= compactMaxFileTokensTotal {
+			break
+		}
+		lowered := strings.ToLower(entry.Path)
+		if strings.HasSuffix(lowered, "claude.md") || strings.Contains(lowered, "/plan/") || strings.HasSuffix(lowered, ".plan.md") {
+			continue
+		}
+		data, readErr := os.ReadFile(entry.Path)
+		if readErr != nil {
+			slog.Warn("Compact reinjection: cannot read file (skipping)",
+				"session_id", sessionID, "path", entry.Path, "error", readErr)
+			continue
+		}
+		text := string(data)
+		stale := false
+		if entry.ContentHash != "" {
+			sum := sha256.Sum256(data)
+			cur := "sha256:" + hex.EncodeToString(sum[:])
+			if cur != entry.ContentHash {
+				stale = true
+			}
+		}
+		toks := estimateRuntimeTokens(text)
+		if toks > compactMaxTokensPerFile {
+			// Truncate lightly: keep the head, tell the model there's
+			// more to Read.
+			rounded := compactMaxTokensPerFile * 4
+			if rounded > len(text) {
+				rounded = len(text)
+			}
+			text = text[:rounded] + "\n\n[truncated; use view/read tool to see the rest]"
+			toks = estimateRuntimeTokens(text)
+		}
+		if fileTokens+toks > compactMaxFileTokensTotal {
+			continue
+		}
+		staleTag := ""
+		if stale {
+			staleTag = " (contents changed since last read — re-read for latest)"
+		}
+		block := fmt.Sprintf("<reinjected-file path=\"%s\"%s>\n%s\n</reinjected-file>", entry.Path, staleTag, text)
+		res.parts = append(res.parts, message.TextContent{Text: block})
+		res.refs = append(res.refs, "file://"+filepath.ToSlash(entry.Path))
+		fileTokens += toks
+		filesUsed++
+	}
+
+	// todos: only surface incomplete items so the reinjected block matches
+	// the "what's still pending" contract.
+	if len(sess.Todos) > 0 {
+		if todoBlock := formatCompactTodosBlock(sess.Todos); todoBlock != "" {
+			res.parts = append(res.parts, message.TextContent{Text: todoBlock})
+			res.refs = append(res.refs, "todos")
+		}
+	}
+
+	// skills: load the head of every currently-active skill so the model
+	// remembers the tools it has after the compact boundary.
+	if skillsBlock, skillNames := r.compactSkillsBlock(); skillsBlock != "" {
+		res.parts = append(res.parts, message.TextContent{Text: skillsBlock})
+		for _, name := range skillNames {
+			res.refs = append(res.refs, "skill://"+name)
+		}
+	}
+
+	// agent tasks: list any active/queued runners so the model does not
+	// double-schedule the same work.
+	if taskBlock := r.compactAgentTaskBlock(ctx, sessionID); taskBlock != "" {
+		res.parts = append(res.parts, message.TextContent{Text: taskBlock})
+		res.refs = append(res.refs, "agent-tasks://"+sessionID)
+	}
+
+	return res
+}
+
+// runCompactHook invokes PreCompact or PostCompact hooks via the workbench
+// coordinator adapter, logs failures, and returns the aggregate
+// additionalInstructions text (empty for PostCompact which doesn't feed
+// back into the prompt).
+func (r *runtimeService) runCompactHook(ctx context.Context, wsID, event, sessionID, turnID, boundaryID, trigger string) string {
+	if r.runtime == nil {
+		return ""
+	}
+	payload := map[string]any{
+		"session_id":  sessionID,
+		"turn_id":     turnID,
+		"boundary_id": boundaryID,
+		"trigger":     trigger,
+	}
+	payloadJSON, _ := json.Marshal(payload)
+	result, err := r.runtime.RunCompactHooks(ctx, wsID, event, sessionID, turnID, string(payloadJSON))
+	if err != nil {
+		slog.Warn("Compact hook execution failed (non-fatal)",
+			"event", event, "session_id", sessionID, "turn_id", turnID, "error", err)
+		return ""
+	}
+	if result.Blocked {
+		slog.Warn("Compact hook returned block/halt but compact is proceeding",
+			"event", event, "reason", result.Reason,
+			"session_id", sessionID, "turn_id", turnID)
+	}
+	return result.AdditionalInstructions
+}
+
+// compactSkillsBlock returns a text block previewing every currently loaded
+// skill's header content plus the ref list for boundary.ReinjectedRefs.
+func (r *runtimeService) compactSkillsBlock() (string, []string) {
+	if r.runtime == nil || r.workspace == nil {
+		return "", nil
+	}
+	ws, err := r.runtime.GetWorkspace(r.workspace.ID)
+	if err != nil || ws == nil || ws.Skills == nil {
+		return "", nil
+	}
+	activeSkills := ws.Skills.ActiveSkills()
+	if len(activeSkills) == 0 {
+		return "", nil
+	}
+	var (
+		b       strings.Builder
+		names   []string
+		total   int
+		emitted int
+	)
+	b.WriteString("<reinjected-skills>\n")
+	for _, sk := range activeSkills {
+		if emitted >= compactMaxReinjectedSkills || total >= compactMaxSkillTokensTotal {
+			break
+		}
+		body := strings.TrimSpace(sk.Instructions)
+		if body == "" {
+			continue
+		}
+		toks := estimateRuntimeTokens(body)
+		if toks > compactMaxTokensPerSkill {
+			rounded := compactMaxTokensPerSkill * 4
+			if rounded > len(body) {
+				rounded = len(body)
+			}
+			body = body[:rounded] + "\n[skill body truncated; use skill loader for full content]"
+			toks = estimateRuntimeTokens(body)
+		}
+		if total+toks > compactMaxSkillTokensTotal {
+			continue
+		}
+		fmt.Fprintf(&b, "## %s\n%s\n\n", sk.Name, body)
+		names = append(names, sk.Name)
+		total += toks
+		emitted++
+	}
+	b.WriteString("</reinjected-skills>")
+	if emitted == 0 {
+		return "", nil
+	}
+	return b.String(), names
+}
+
+// compactAgentTaskBlock is a placeholder text summary of running/queued
+// agent tasks for the session. Query failures degrade to empty.
+func (r *runtimeService) compactAgentTaskBlock(ctx context.Context, sessionID string) string {
+	if r.agentTasks.db == nil {
+		return ""
+	}
+	tasks, err := r.agentTasks.ListBySession(ctx, sessionID)
+	if err != nil {
+		slog.Warn("Compact reinjection: cannot list agent tasks", "session_id", sessionID, "error", err)
+		return ""
+	}
+	if len(tasks) == 0 {
+		return ""
+	}
+	var live []string
+	for _, task := range tasks {
+		switch strings.ToLower(task.Status) {
+		case "running", "queued", "in_progress", "pending":
+			live = append(live, fmt.Sprintf("- %s (status=%s)", task.Name, task.Status))
+		}
+	}
+	if len(live) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("<reinjected-agent-tasks>\n")
+	for _, line := range live {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString("</reinjected-agent-tasks>")
+	return b.String()
+}
+
+// recentReadFileEntry is a slim view over the read_files row used by the
+// reinjection budget accounting.
+type recentReadFileEntry struct {
+	Path        string
+	ContentHash string
+}
+
+// recentReadFileEntries returns absolute paths + stored content hashes for
+// the most recent reads in the session. It uses the workspace working dir
+// to reconstruct absolute paths (mirroring filetracker.ListReadFiles).
+func (r *runtimeService) recentReadFileEntries(ctx context.Context, sessionID string, limit int) []recentReadFileEntry {
+	if limit <= 0 {
+		return nil
+	}
+	conn := r.turns.db
+	if conn == nil {
+		var err error
+		if conn, err = r.workspaceDB(ctx); err != nil {
+			return nil
+		}
+	}
+	files, err := db.New(conn).ListSessionReadFiles(ctx, sessionID)
+	if err != nil {
+		return nil
+	}
+	base := ""
+	if r.workspace != nil {
+		base = r.workspace.Path
+	}
+	if base == "" {
+		base, _ = os.Getwd()
+	}
+	out := make([]recentReadFileEntry, 0, minInt(len(files), limit))
+	for _, file := range files {
+		path := strings.TrimSpace(file.Path)
+		if path == "" {
+			continue
+		}
+		if !filepath.IsAbs(path) && base != "" {
+			path = filepath.Join(base, path)
+		}
+		out = append(out, recentReadFileEntry{
+			Path:        path,
+			ContentHash: file.ContentHash,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func formatCompactTodosBlock(todos []session.Todo) string {
+	var live []session.Todo
+	for _, t := range todos {
+		if t.Status != session.TodoStatusCompleted {
+			live = append(live, t)
+		}
+	}
+	if len(live) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("<reinjected-todos>\n")
+	for _, t := range live {
+		fmt.Fprintf(&b, "- [%s] %s\n", t.Status, t.Content)
+	}
+	b.WriteString("</reinjected-todos>")
+	return b.String()
+}
+
+func strconvItoa(v int) string {
+	return fmt.Sprintf("%d", v)
 }
 
 // recentReadFilePaths returns up to limit most recently read file paths for
@@ -566,10 +1012,11 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 		case hasState && state.AutoCompactAttempted:
 			// At most one auto compact per turn.
 		default:
-			if usage, usageErr := r.computeContextUsage(ctx, snapshot.SessionID, snapshot.TurnID, snapshot.Model, 0, nil); usageErr == nil && usage.AutoCompactAt > 0 && usage.UsedTokens >= usage.AutoCompactAt {
+			if usage, usageErr := r.computeContextUsage(ctx, snapshot.SessionID, snapshot.TurnID, snapshot.Model, 0, nil); usageErr == nil && usage.AutoCompactEnabled && usage.AutoCompactAt > 0 && usage.UsedTokens >= usage.AutoCompactAt {
 				r.markAutoCompactAttempted(snapshot.SessionID, snapshot.TurnID)
 				limits := r.currentRuntimeModelLimits(ctx, snapshot.SessionID, snapshot.Model)
-				thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens)
+				gov := r.contextGovernanceFor(ctx, snapshot.SessionID, snapshot.Model)
+				thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens, gov.AutoCompactPercent)
 				compactReq := RuntimeContextActionRequest{
 					SessionID:    snapshot.SessionID,
 					TurnID:       snapshot.TurnID,
@@ -605,7 +1052,8 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 		snapshot.Messages = messages
 	}
 	limits := r.currentRuntimeModelLimits(ctx, snapshot.SessionID, snapshot.Model)
-	thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens)
+	gov := r.contextGovernanceFor(ctx, snapshot.SessionID, snapshot.Model)
+	thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens, gov.AutoCompactPercent)
 	result, err := r.contextManager.BuildModelInput(ctx, contextmgr.BuildInputRequest{
 		SessionID:     snapshot.SessionID,
 		TurnID:        snapshot.TurnID,
@@ -615,8 +1063,8 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 		Source:        firstNonEmpty(snapshot.Source, contextmgr.ProjectionSourceMainTurn),
 		ModelMessages: snapshot.Messages,
 		Microcompact: contextmgr.MicrocompactConfig{
-			Enabled:              true,
-			KeepRecent:           5,
+			Enabled:              gov.MicrocompactEnabled,
+			KeepRecent:           gov.MicrocompactKeepRecent,
 			ToolResultTokenLimit: maxInt(1, thresholds.EffectiveWindow/4),
 		},
 	})

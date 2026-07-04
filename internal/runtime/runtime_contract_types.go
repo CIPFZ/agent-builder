@@ -1795,8 +1795,26 @@ type RuntimeConversationItem struct {
 	ClientRequestID string                     `json:"clientRequestId,omitempty"`
 	Display         RuntimeConversationDisplay `json:"display,omitempty"`
 	Exploration     *RuntimeExplorationSummary `json:"exploration,omitempty"`
+	Compact         *RuntimeCompactInfo        `json:"compact,omitempty"`
 	CreatedAt       int64                      `json:"createdAt,omitempty"`
 	UpdatedAt       int64                      `json:"updatedAt,omitempty"`
+}
+
+// RuntimeCompactInfo is the compact_boundary conversation item payload (see
+// docs/organize/19-context-compaction-fix-plan.md WP5). It carries the
+// boundary's trigger/status/token deltas and the full summary text (read
+// separately from the filtered session message list, since summary messages
+// are excluded from every other read path) so the frontend divider can
+// render its expanded detail without a second round trip.
+type RuntimeCompactInfo struct {
+	Trigger          string `json:"trigger,omitempty"`
+	Status           string `json:"status,omitempty"`
+	PreTokens        int    `json:"preTokens,omitempty"`
+	PostTokens       int    `json:"postTokens,omitempty"`
+	SummarizedCount  int    `json:"summarizedCount,omitempty"`
+	SummaryMessageID string `json:"summaryMessageId,omitempty"`
+	SummaryText      string `json:"summaryText,omitempty"`
+	Error            string `json:"error,omitempty"`
 }
 
 type RuntimeOutputSnapshot struct {
@@ -2104,20 +2122,21 @@ type RuntimeUsage struct {
 }
 
 type RuntimeContextUsage struct {
-	SessionID         string                   `json:"sessionId"`
-	Model             string                   `json:"model"`
-	ContextWindow     int                      `json:"contextWindow"`
-	UsedTokens        int                      `json:"usedTokens"`
-	PercentUsed       int                      `json:"percentUsed"`
-	AutoCompactAt     int                      `json:"autoCompactAt"`
-	PercentLeft       int                      `json:"percentLeft"`
-	Level             string                   `json:"level"`
-	Estimated         bool                     `json:"estimated"`
-	OutputReserve     int                      `json:"outputReserve"`
-	AutoCompactBuffer int                      `json:"autoCompactBuffer"`
-	Breakdown         []RuntimeContextCategory `json:"breakdown"`
-	CompactCount      int                      `json:"compactCount"`
-	UpdatedAt         int64                    `json:"updatedAt"`
+	SessionID          string                   `json:"sessionId"`
+	Model              string                   `json:"model"`
+	ContextWindow      int                      `json:"contextWindow"`
+	UsedTokens         int                      `json:"usedTokens"`
+	PercentUsed        int                      `json:"percentUsed"`
+	AutoCompactAt      int                      `json:"autoCompactAt"`
+	PercentLeft        int                      `json:"percentLeft"`
+	Level              string                   `json:"level"`
+	Estimated          bool                     `json:"estimated"`
+	AutoCompactEnabled bool                     `json:"autoCompactEnabled"`
+	OutputReserve      int                      `json:"outputReserve"`
+	AutoCompactBuffer  int                      `json:"autoCompactBuffer"`
+	Breakdown          []RuntimeContextCategory `json:"breakdown"`
+	CompactCount       int                      `json:"compactCount"`
+	UpdatedAt          int64                    `json:"updatedAt"`
 }
 
 type RuntimeContextCategory struct {

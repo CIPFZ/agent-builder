@@ -59,7 +59,8 @@ func (r *runtimeService) computeContextUsage(ctx context.Context, sessionID, tur
 		}
 	}
 	limits := r.currentRuntimeModelLimits(ctx, sessionID, model)
-	thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens)
+	gov := r.contextGovernanceFor(ctx, sessionID, model)
+	thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens, gov.AutoCompactPercent)
 	budget := r.computeRuntimeBudget(ctx, sessionID, turnID, model, promptLength, contextSummary)
 
 	messages, err := r.runtime.ListSessionMessages(ctx, wsID, sessionID)
@@ -135,20 +136,21 @@ func (r *runtimeService) computeContextUsage(ctx context.Context, sessionID, tur
 	memoryTokens := budget.ContextSources.EstimatedTokens + r.memoryInjectionTokensForTurn(ctx, sessionID, turnID)
 
 	return RuntimeContextUsage{
-		SessionID:         sessionID,
-		Model:             model,
-		ContextWindow:     limits.ContextWindow,
-		UsedTokens:        used,
-		PercentUsed:       percentUsed,
-		AutoCompactAt:     thresholds.AutoCompactAt,
-		PercentLeft:       percentLeft,
-		Level:             level,
-		Estimated:         estimated,
-		OutputReserve:     thresholds.OutputReserve,
-		AutoCompactBuffer: thresholds.AutoCompactBuffer,
-		Breakdown:         contextUsageBreakdown(used, limits.ContextWindow, thresholds, budget, systemPromptTokens, memoryTokens),
-		CompactCount:      compactCount,
-		UpdatedAt:         time.Now().UTC().UnixMilli(),
+		SessionID:          sessionID,
+		Model:              model,
+		ContextWindow:      limits.ContextWindow,
+		UsedTokens:         used,
+		PercentUsed:        percentUsed,
+		AutoCompactAt:      thresholds.AutoCompactAt,
+		PercentLeft:        percentLeft,
+		Level:              level,
+		Estimated:          estimated,
+		AutoCompactEnabled: gov.AutoCompactEnabled,
+		OutputReserve:      thresholds.OutputReserve,
+		AutoCompactBuffer:  thresholds.AutoCompactBuffer,
+		Breakdown:          contextUsageBreakdown(used, limits.ContextWindow, thresholds, budget, systemPromptTokens, memoryTokens),
+		CompactCount:       compactCount,
+		UpdatedAt:          time.Now().UTC().UnixMilli(),
 	}, nil
 }
 
@@ -182,7 +184,15 @@ func (r *runtimeService) publishContextUsageUpdated(ctx context.Context, session
 	})
 }
 
-func contextThresholds(contextWindow, modelMaxOutputTokens int) runtimeContextThresholds {
+// contextThresholds derives the auto-compact/warning/blocking token
+// thresholds for a model. percentOverride, when non-nil, is the
+// contextGovernance autoCompactPercent setting (clamped to
+// [config.MinContextGovernanceAutoCompactPercent,
+// config.MaxContextGovernanceAutoCompactPercent]); the effective
+// autoCompactAt becomes min(formula-derived value, contextWindow*pct) so an
+// explicit override can only pull the trigger earlier, never later than the
+// safety formula allows.
+func contextThresholds(contextWindow, modelMaxOutputTokens int, percentOverride *float64) runtimeContextThresholds {
 	if contextWindow <= 0 {
 		contextWindow = modelmeta.FallbackContextWindow
 	}
@@ -195,6 +205,12 @@ func contextThresholds(contextWindow, modelMaxOutputTokens int) runtimeContextTh
 	warningBuffer := minInt(20000, contextWindow/10)
 	blockingBuffer := minInt(3000, int(math.Round(float64(contextWindow)*0.02)))
 	autoCompactAt := maxInt(effectiveWindow-autoBuffer, 1)
+	if percentOverride != nil {
+		pct := clampFloat(*percentOverride, 0.05, 0.95)
+		if derived := int(math.Round(float64(contextWindow) * pct)); derived > 0 && derived < autoCompactAt {
+			autoCompactAt = derived
+		}
+	}
 	warningAt := maxInt(autoCompactAt-warningBuffer, 0)
 	blockingAt := maxInt(effectiveWindow-blockingBuffer, 1)
 	return runtimeContextThresholds{
@@ -315,6 +331,16 @@ func percentRounded(value, total int) int {
 		return 0
 	}
 	return clampInt(int(math.Round(float64(value)*100/float64(total))), 0, 100)
+}
+
+func clampFloat(value, minValue, maxValue float64) float64 {
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
 }
 
 func clampInt(value, minValue, maxValue int) int {

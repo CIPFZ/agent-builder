@@ -4,11 +4,13 @@ package filetracker
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/CIPFZ/agent-builder/internal/db"
@@ -26,6 +28,12 @@ type Service interface {
 
 	// ListReadFiles returns the paths of all files read in a session.
 	ListReadFiles(ctx context.Context, sessionID string) ([]string, error)
+
+	// MarkSessionStale sets every recorded read for the session to the
+	// "stale" state so a subsequent read will refresh disk contents. It
+	// is called after a compact so the model does not carry a cached view
+	// of files across the boundary.
+	MarkSessionStale(ctx context.Context, sessionID, reason string) error
 }
 
 type ReadState struct {
@@ -42,12 +50,20 @@ type ReadState struct {
 }
 
 type service struct {
-	q *db.Queries
+	q    *db.Queries
+	conn *sql.DB
 }
 
 // NewService creates a new file tracker service.
 func NewService(q *db.Queries) Service {
 	return &service{q: q}
+}
+
+// NewServiceWithConn creates a file tracker service that can also run raw
+// SQL updates against the underlying connection (currently used only by
+// MarkSessionStale, which sqlc does not have a query for).
+func NewServiceWithConn(q *db.Queries, conn *sql.DB) Service {
+	return &service{q: q, conn: conn}
 }
 
 // RecordRead records when a file was read.
@@ -138,6 +154,40 @@ func relpath(path string) string {
 		return path
 	}
 	return relpath
+}
+
+// MarkSessionStale marks every read for the given session as "stale". The
+// reason is stored in the reason column so tools can surface why the
+// entry is stale (compact_boundary, model_reset, etc.). If the service
+// was created without an underlying *sql.DB, this is a silent no-op —
+// stale marking is best-effort auxiliary state.
+func (s *service) MarkSessionStale(ctx context.Context, sessionID, reason string) error {
+	if s == nil {
+		return nil
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return fmt.Errorf("filetracker: session id is required to mark stale")
+	}
+	if s.conn == nil {
+		// No connection available (test wiring or a caller that only
+		// needs read-only tracking). Callers already log if they care;
+		// staying silent here keeps the compact path from failing when
+		// stale marking is unavailable.
+		return nil
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "compact_boundary"
+	}
+	_, err := s.conn.ExecContext(ctx,
+		`UPDATE read_files SET state = 'stale', reason = ? WHERE session_id = ?`,
+		reason, sessionID,
+	)
+	if err != nil {
+		return fmt.Errorf("marking session read files stale: %w", err)
+	}
+	return nil
 }
 
 // ListReadFiles returns the paths of all files read in a session.

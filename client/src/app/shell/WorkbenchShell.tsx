@@ -255,6 +255,41 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   // without a full refresh cycle. Snapshot_required signals fall back to
   // the refresh path via requestFullRefresh.
   const activeSessionID = viewModel.sessions.find((session) => session.active)?.id;
+
+  // WP5 refreshNonce: contextUsage.compactCount is only known once a
+  // refresh has already delivered it, so the general event-driven refresh
+  // (350ms-coalesced for compact.* events) is what first surfaces a bump.
+  // Once observed, force one more *immediate* SessionContextUsage read
+  // instead of waiting for the next coalesced cycle — a compact just
+  // finished, so the composer indicator should reflect the post-compact
+  // numbers as soon as possible. contextUsageRefreshSeqRef discards a
+  // slower, still in-flight forced fetch if a newer compact bumps the
+  // count again before the first one resolves.
+  const contextUsageRefreshSeqRef = useRef(0);
+  const lastCompactCountRef = useRef<{ sessionId: string; count: number } | undefined>(undefined);
+  useEffect(() => {
+    const usage = viewModel.composer.contextUsage;
+    if (!usage || !adapter.fetchContextUsage) {
+      return;
+    }
+    const previous = lastCompactCountRef.current;
+    lastCompactCountRef.current = { sessionId: usage.sessionId, count: usage.compactCount };
+    if (!previous || previous.sessionId !== usage.sessionId || previous.count === usage.compactCount) {
+      return;
+    }
+    const seq = ++contextUsageRefreshSeqRef.current;
+    void adapter.fetchContextUsage(usage.sessionId).then((fresh) => {
+      if (!fresh || contextUsageRefreshSeqRef.current !== seq) {
+        return;
+      }
+      setViewModel((current) => (
+        current.composer.contextUsage?.sessionId === fresh.sessionId
+          ? { ...current, composer: { ...current.composer, contextUsage: fresh } }
+          : current
+      ));
+    }).catch(() => undefined);
+  }, [adapter, viewModel.composer.contextUsage]);
+
   useEffect(() => {
     if (!adapter.subscribeSessionOutput || !activeSessionID) {
       return undefined;
@@ -923,6 +958,20 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     return nextViewModel.settings;
   };
 
+  const getContextGovernanceSettings = () => {
+    if (!adapter.getContextGovernanceSettings) {
+      throw new Error('Context governance settings are unavailable');
+    }
+    return adapter.getContextGovernanceSettings();
+  };
+
+  const saveContextGovernanceSettings = (settings: Parameters<NonNullable<WorkbenchAdapter['saveContextGovernanceSettings']>>[0]) => {
+    if (!adapter.saveContextGovernanceSettings) {
+      throw new Error('Context governance settings are unavailable');
+    }
+    return adapter.saveContextGovernanceSettings(settings);
+  };
+
   const listProjectMemories = (projectID: string) => {
     if (!adapter.listProjectMemories) {
       throw new Error('Project memory is unavailable');
@@ -1025,8 +1074,11 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onProviderSave={saveConfiguredProvider}
           onProviderTest={testConfiguredProvider}
           selectedModel={workbenchViewModel.composer.selectedModel}
+          contextUsage={workbenchViewModel.composer.contextUsage}
           onModelSelect={selectModel}
           onTerminalProfileSelect={selectTerminalProfile}
+          onContextGovernanceLoad={getContextGovernanceSettings}
+          onContextGovernanceSave={saveContextGovernanceSettings}
           onMCPServerDetailsLoad={loadMCPServerDetails}
           onMCPServerRefresh={refreshMCPServer}
           onMCPServerSave={saveMCPServer}

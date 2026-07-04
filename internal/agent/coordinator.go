@@ -86,10 +86,20 @@ type Coordinator interface {
 	QueuedPromptsList(sessionID string) []string
 	ClearQueue(sessionID string)
 	Summarize(context.Context, string) error
+	// GenerateCompactSummary drives the model-backed compact summarizer for
+	// the active agent. It returns pure text with no side effects; the
+	// caller decides where to persist the result. Errors let the caller
+	// fall back to a heuristic summarizer.
+	GenerateCompactSummary(context.Context, CompactSummaryRequest) (CompactSummaryResult, error)
 	Model() Model
 	UpdateModels(ctx context.Context) error
 	RefreshSkills(ctx context.Context) error
 	ExecuteConfiguredStartedAgentTask(context.Context, StartedAgentTaskExecutionRequest) (StartedAgentTaskExecutionResult, error)
+	// RunCompactHooks invokes the configured PreCompact / PostCompact
+	// hooks for a session/turn and returns the aggregate result. Callers
+	// use additionalInstructions from PreCompact hook stdout to enrich the
+	// summarizer prompt; hooks failing does not block compaction.
+	RunCompactHooks(ctx context.Context, event, sessionID, turnID, payloadJSON string) (CompactHookResult, error)
 }
 
 type coordinator struct {
@@ -1545,6 +1555,105 @@ func (c *coordinator) QueuedPrompts(sessionID string) int {
 
 func (c *coordinator) QueuedPromptsList(sessionID string) []string {
 	return c.currentAgent.QueuedPromptsList(sessionID)
+}
+
+// GenerateCompactSummary drives the model summarizer on the coordinator's
+// current session agent. It is transport for CompactSummarizer at the
+// coordinator boundary — runtime callers reach it via workbench.
+func (c *coordinator) GenerateCompactSummary(ctx context.Context, req CompactSummaryRequest) (CompactSummaryResult, error) {
+	if c == nil || c.currentAgent == nil {
+		return CompactSummaryResult{}, errCoderAgentNotConfigured
+	}
+	summarizer, ok := c.currentAgent.(CompactSummarizer)
+	if !ok {
+		return CompactSummaryResult{}, errors.New("current agent does not implement CompactSummarizer")
+	}
+	return summarizer.GenerateCompactSummary(ctx, req)
+}
+
+// CompactHookResult is the subset of an aggregate hook execution we surface
+// to the compact caller. The runtime never blocks compaction on hooks; it
+// only merges AdditionalInstructions into the summarizer prompt when the
+// PreCompact hook returns them (Claude Code parity).
+type CompactHookResult struct {
+	HookCount              int
+	Blocked                bool
+	AdditionalInstructions string
+	Reason                 string
+}
+
+// RunCompactHooks executes matching hooks for a compact lifecycle event and
+// returns the aggregate outcome. Errors from the underlying runner are
+// returned so the caller can log them; the runner failing does not by
+// itself block the compact — the caller decides.
+func (c *coordinator) RunCompactHooks(ctx context.Context, event, sessionID, turnID, payloadJSON string) (CompactHookResult, error) {
+	if c == nil {
+		return CompactHookResult{}, errCoderAgentNotConfigured
+	}
+	cfgHooks := c.cfg.Config().Hooks
+	if len(cfgHooks) == 0 {
+		return CompactHookResult{}, nil
+	}
+	if _, ok := cfgHooks[event]; !ok {
+		return CompactHookResult{}, nil
+	}
+	runner := hooks.NewRunnerForEvents(cfgHooks, c.cfg.WorkingDir(), c.cfg.WorkingDir())
+	if runner == nil {
+		return CompactHookResult{}, nil
+	}
+	// The "tool name" slot for compact hooks is the event itself so users
+	// can match on it if they choose. CC uses `.` matchers by default.
+	if !runner.HasMatchingHooks(event, event) {
+		return CompactHookResult{}, nil
+	}
+	agg, err := runner.Run(ctx, event, sessionID, event, payloadJSON)
+	if err != nil {
+		return CompactHookResult{}, err
+	}
+	result := CompactHookResult{
+		HookCount:              agg.HookCount,
+		Blocked:                agg.Decision == hooks.DecisionDeny || agg.Halt,
+		AdditionalInstructions: compactHookAdditionalInstructions(agg),
+		Reason:                 agg.Reason,
+	}
+	return result, nil
+}
+
+// compactHookAdditionalInstructions extracts additionalInstructions from the
+// aggregate hook output. Hooks that inject prompt context via the
+// updated_input / context channels can also populate this field; CC parses
+// `additionalInstructions` as a top-level JSON key in hook stdout, which
+// the runner surfaces via UpdatedInput / Context depending on the hook.
+func compactHookAdditionalInstructions(agg hooks.AggregateResult) string {
+	// Preference order: dedicated updated_input JSON with an
+	// `additionalInstructions` field, then the Context text block. This
+	// matches the CC contract (PreCompact hooks output JSON with
+	// additionalInstructions, PostCompact hooks output free-form text).
+	if agg.UpdatedInput != "" {
+		if instr := extractAdditionalInstructionsJSON(agg.UpdatedInput); instr != "" {
+			return instr
+		}
+	}
+	if instr := strings.TrimSpace(agg.Context); instr != "" {
+		return instr
+	}
+	return ""
+}
+
+// extractAdditionalInstructionsJSON pulls the `additionalInstructions` key
+// out of a JSON object. Returns "" when the payload is malformed or the
+// key is missing so the caller can silently fall through.
+func extractAdditionalInstructionsJSON(payload string) string {
+	if strings.TrimSpace(payload) == "" {
+		return ""
+	}
+	var raw struct {
+		AdditionalInstructions string `json:"additionalInstructions"`
+	}
+	if err := json.Unmarshal([]byte(payload), &raw); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(raw.AdditionalInstructions)
 }
 
 func (c *coordinator) Summarize(ctx context.Context, sessionID string) error {

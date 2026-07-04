@@ -201,4 +201,46 @@ const nearBottomShouldFollow = (distanceToBottom, pinned) => pinned || distanceT
 assert.equal(nearBottomShouldFollow(40, false), true, 'new output follows near bottom');
 assert.equal(nearBottomShouldFollow(900, false), false, 'history browsing does not force jump to bottom');
 
+// ── 6. WP5: compact_boundary item's Compact payload (trigger/tokens/summary)
+// survives the runtime snapshot -> outputStore -> selector round trip so
+// CompactDivider can render its expanded meta line + summary text.
+
+let compactStore = createOutputStore('session-compact');
+compactStore = hydrateOutputStore({
+  sessionId: 'session-compact',
+  cursor: '1',
+  version: 1,
+  items: [
+    {
+      id: 'compact-1',
+      kind: 'compact_boundary',
+      sessionId: 'session-compact',
+      turnId: 'turn-compact',
+      sequence: 5200,
+      status: 'completed',
+      title: 'manual',
+      summary: '3 messages, 0 tool outputs',
+      compact: {
+        trigger: 'manual',
+        status: 'completed',
+        preTokens: 5000,
+        postTokens: 800,
+        summarizedCount: 3,
+        summaryMessageId: 'summary-1',
+        summaryText: 'the compacted summary text',
+      },
+      createdAt: 40,
+      updatedAt: 41,
+    },
+  ],
+  messages: [],
+}, compactStore);
+const compactTimeline = selectConversationTimeline(compactStore);
+const compactItem = compactTimeline.find((item) => item.kind === 'compact_boundary');
+assert.equal(compactItem?.compact?.trigger, 'manual', 'compact item carries trigger');
+assert.equal(compactItem?.compact?.preTokens, 5000, 'compact item carries preTokens');
+assert.equal(compactItem?.compact?.postTokens, 800, 'compact item carries postTokens');
+assert.equal(compactItem?.compact?.summarizedCount, 3, 'compact item carries summarizedCount');
+assert.equal(compactItem?.compact?.summaryText, 'the compacted summary text', 'compact item carries the full summary text');
+
 console.log('conversation output store smoke passed');

@@ -122,6 +122,62 @@ func TestService_RecordRead_DifferentPaths(t *testing.T) {
 	require.True(t, lastRead2.IsZero(), "path2 should not be recorded")
 }
 
+func TestService_MarkSessionStale(t *testing.T) {
+	t.Parallel()
+
+	conn, err := db.Connect(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+
+	q := db.New(conn)
+	svc := NewServiceWithConn(q, conn)
+
+	sessionID := "stale-test"
+	_, err = q.CreateSession(t.Context(), db.CreateSessionParams{
+		ID:               sessionID,
+		Title:            "Test",
+		Scope:            "standalone",
+		Workdir:          sql.NullString{String: ".", Valid: true},
+		CanonicalWorkdir: sql.NullString{String: ".", Valid: true},
+		WorkdirExists:    1,
+	})
+	require.NoError(t, err)
+
+	path := filepath.Join(t.TempDir(), "hello.go")
+	require.NoError(t, os.WriteFile(path, []byte("package hello"), 0o644))
+
+	svc.RecordRead(t.Context(), sessionID, path)
+
+	// Baseline: the row exists with state=recorded.
+	got, err := q.GetFileRead(t.Context(), db.GetFileReadParams{
+		SessionID: sessionID,
+		Path:      relpath(path),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "recorded", got.State)
+
+	// After MarkSessionStale, state flips to "stale" and reason is set.
+	require.NoError(t, svc.MarkSessionStale(t.Context(), sessionID, "compact_boundary"))
+
+	got2, err := q.GetFileRead(t.Context(), db.GetFileReadParams{
+		SessionID: sessionID,
+		Path:      relpath(path),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "stale", got2.State)
+	require.Equal(t, "compact_boundary", got2.Reason)
+}
+
+func TestService_MarkSessionStale_NoConnIsNoop(t *testing.T) {
+	t.Parallel()
+
+	env := setupTest(t)
+	// NewService (without conn) makes MarkSessionStale a silent no-op —
+	// callers of the compact path still succeed even when the DB path is
+	// unavailable in tests.
+	require.NoError(t, env.svc.MarkSessionStale(env.ctx, "any-session", "compact_boundary"))
+}
+
 func TestService_RecordReadStateRecordsMetadata(t *testing.T) {
 	env := setupTest(t)
 

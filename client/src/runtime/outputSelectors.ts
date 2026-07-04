@@ -144,6 +144,7 @@ function runtimeConversationItemViewModel(item: RuntimeConversationItem, store: 
     clientRequestId: item.clientRequestId,
     streaming: streaming || item.status === 'streaming' ? true : undefined,
     exploration: item.exploration,
+    compact: item.compact,
     displayCounts: item.display?.counts,
     toolCall: toolCall ? toolCallViewModel(toolCall, toolCall.result ?? latestToolResult(toolCall, store), store) : item.toolCallIds?.length ? toolGroupViewModel(item, store) : undefined,
     permission: permission ? runtimePermissionViewModel(permission) : undefined,

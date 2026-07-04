@@ -100,6 +100,11 @@ type runtimeConversationProjectionInput struct {
 	Tasks    []RuntimeAgentTask
 	Todos    *RuntimeTodoSummary
 	Compact  []RuntimeCompactBoundary
+	// SummaryTexts maps a compact summary message ID to its (already
+	// truncated) text. Summary messages are filtered out of every other
+	// session message read path (e.g. sessionMessages), so this is populated
+	// via a dedicated read in runtimeConversationProjectionInput.
+	SummaryTexts map[string]string
 }
 
 func (r *runtimeService) runtimeConversationProjectionInput(ctx context.Context, sessionID string, activity RuntimeSessionActivityWindowResponse) runtimeConversationProjectionInput {
@@ -124,9 +129,65 @@ func (r *runtimeService) runtimeConversationProjectionInput(ctx context.Context,
 			for _, boundary := range boundaries {
 				input.Compact = append(input.Compact, runtimeCompactBoundaryFromContextBoundary(boundary))
 			}
+			input.SummaryTexts = r.summaryMessageTexts(ctx, sessionID, input.Compact)
 		}
 	}
 	return input
+}
+
+// runtimeCompactSummaryTextLimit bounds RuntimeCompactInfo.SummaryText (WP5
+// §"压缩 item 载荷"): the divider shows the full summary in a scrollable
+// panel, not an unbounded blob.
+const runtimeCompactSummaryTextLimit = 4000
+
+// summaryMessageTexts reads the session's compact summary messages (by ID)
+// and returns their text, truncated to runtimeCompactSummaryTextLimit runes.
+// It is a no-op (nil) when no boundary references a summary message, which
+// keeps the extra read off the hot path for sessions that never compacted.
+// Summary messages are filtered out of every other session message read path
+// (see runtime_sessions.go's sessionMessages), so this reads the unfiltered
+// list directly via r.runtime.ListSessionMessages — the same accessor
+// computeContextUsage uses to locate the summary anchor.
+func (r *runtimeService) summaryMessageTexts(ctx context.Context, sessionID string, boundaries []RuntimeCompactBoundary) map[string]string {
+	needed := false
+	for _, boundary := range boundaries {
+		if strings.TrimSpace(boundary.SummaryMessageID) != "" {
+			needed = true
+			break
+		}
+	}
+	if !needed {
+		return nil
+	}
+	wsID, err := r.currentWorkspaceID()
+	if err != nil {
+		return nil
+	}
+	messages, err := r.runtime.ListSessionMessages(ctx, wsID, sessionID)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]string, len(boundaries))
+	for _, msg := range messages {
+		if !msg.IsSummaryMessage {
+			continue
+		}
+		out[msg.ID] = truncateRunes(compactMessageText(msg), runtimeCompactSummaryTextLimit)
+	}
+	return out
+}
+
+// truncateRunes clips s to at most limit runes, appending an ellipsis when
+// truncated. limit <= 0 disables truncation.
+func truncateRunes(s string, limit int) string {
+	if limit <= 0 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	return string(runes[:limit]) + "…"
 }
 
 type runtimeOutputProjection struct {
@@ -141,6 +202,7 @@ type runtimeOutputProjection struct {
 	tasks        map[string]RuntimeAgentTask
 	todos        *RuntimeTodoSummary
 	compact      map[string]RuntimeCompactBoundary
+	summaryTexts map[string]string
 	events       []RuntimeEvent
 	stepByCallID map[string]string
 }
@@ -162,6 +224,7 @@ func buildRuntimeOutputProjectionFromInput(input runtimeConversationProjectionIn
 		hooks:        map[string]RuntimeHookExecution{},
 		tasks:        map[string]RuntimeAgentTask{},
 		compact:      map[string]RuntimeCompactBoundary{},
+		summaryTexts: input.SummaryTexts,
 		stepByCallID: map[string]string{},
 	}
 	for _, msg := range activity.Messages {
@@ -709,6 +772,14 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 		if status == contextmgr.ProjectionStatusStarted {
 			status = "compacting"
 		}
+		if status == contextmgr.ProjectionStatusFailed && boundary.Trigger == "auto" {
+			// B8/WP5: auto-triggered compacts fail silently — the turn keeps
+			// working off the pre-compact history and the next eligible step
+			// retries on its own, so no divider/notice is produced. TODO(WP4):
+			// once the circuit breaker lands, a failed auto boundary with
+			// circuit_open=true should still surface here.
+			continue
+		}
 		appendEntry(RuntimeConversationItem{
 			ID:        "compact-" + boundary.ID,
 			Kind:      "compact_boundary",
@@ -719,6 +790,7 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 			Summary:   runtimeCompactBoundarySummary(boundary),
 			Error:     boundary.Error,
 			ContextID: boundary.ID,
+			Compact:   runtimeCompactInfoFromBoundary(boundary, status, p.summaryTexts),
 			CreatedAt: boundary.CreatedAt,
 			UpdatedAt: firstPositiveInt64(boundary.CompletedAt, boundary.CreatedAt),
 		}, 5200)
@@ -1361,6 +1433,31 @@ func runtimeExplorationKindLabel(kind string, count int) string {
 		}
 		return fmt.Sprintf("%d tools", count)
 	}
+}
+
+// runtimeCompactInfoFromBoundary builds the compact_boundary item's Display
+// payload (WP5 B10): trigger/status/token deltas plus the full summary text
+// looked up by SummaryMessageID. normalizedStatus is the already-mapped item
+// status ("compacting" instead of the raw "started") so RuntimeCompactInfo.
+// Status matches item.Status.
+func runtimeCompactInfoFromBoundary(boundary RuntimeCompactBoundary, normalizedStatus string, summaryTexts map[string]string) *RuntimeCompactInfo {
+	info := &RuntimeCompactInfo{
+		Trigger:          boundary.Trigger,
+		Status:           normalizedStatus,
+		SummarizedCount:  len(boundary.MessageRefs),
+		SummaryMessageID: boundary.SummaryMessageID,
+		Error:            boundary.Error,
+	}
+	if boundary.BudgetBefore != nil {
+		info.PreTokens = boundary.BudgetBefore.TotalEstimatedTokens
+	}
+	if boundary.BudgetAfter != nil {
+		info.PostTokens = boundary.BudgetAfter.TotalEstimatedTokens
+	}
+	if boundary.SummaryMessageID != "" {
+		info.SummaryText = summaryTexts[boundary.SummaryMessageID]
+	}
+	return info
 }
 
 func runtimeCompactBoundarySummary(boundary RuntimeCompactBoundary) string {

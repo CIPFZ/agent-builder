@@ -19,6 +19,7 @@ export function ContextUsageIndicator({ usage, compacting, onManualCompact }: Co
     '--context-usage-percent': `${usage.percentUsed}%`,
   } as CSSProperties;
   const reserved = usage.breakdown.find((category) => category.key === 'reserved');
+  const categories = rankedBreakdown(usage.breakdown);
   return (
     <Popover
       trigger="click"
@@ -36,17 +37,15 @@ export function ContextUsageIndicator({ usage, compacting, onManualCompact }: Co
           </div>
           <div className={styles.leftText}>距自动压缩还剩 {usage.percentLeft}%</div>
           <div className={styles.breakdown}>
-            {usage.breakdown
-              .filter((category) => category.tokens > 0)
-              .map((category) => (
-                <div className={styles.category} key={category.key}>
-                  <div className={styles.categoryMeta}>
-                    <span>{category.label}</span>
-                    <span>{formatTokens(category.tokens)}</span>
-                  </div>
-                  <meter className={styles.meter} min={0} max={usage.contextWindow} value={category.tokens} />
+            {categories.map((category) => (
+              <div className={styles.category} key={category.key}>
+                <div className={styles.categoryMeta}>
+                  <span>{category.label}</span>
+                  <span>{formatTokens(category.tokens)}</span>
                 </div>
-              ))}
+                <meter className={styles.meter} min={0} max={usage.contextWindow} value={category.tokens} />
+              </div>
+            ))}
           </div>
           {reserved && <div className={styles.reserved}>预留用于输出与压缩缓冲：{formatTokens(reserved.tokens)}</div>}
           <div className={styles.footer}>
@@ -66,6 +65,26 @@ export function ContextUsageIndicator({ usage, compacting, onManualCompact }: Co
       </button>
     </Popover>
   );
+}
+
+// rankedBreakdown collapses the popover's category list to its top 5 (by
+// token count, largest first) plus a single "其他" row summing the rest.
+// 'reserved' is rendered on its own explanatory line (below the list) and
+// 'free' is remaining headroom rather than "usage", so neither competes for
+// a top-5 slot.
+function rankedBreakdown(categories: ContextUsageViewModel['breakdown']) {
+  const ranked = categories
+    .filter((category) => category.key !== 'reserved' && category.key !== 'free' && category.tokens > 0)
+    .sort((left, right) => right.tokens - left.tokens);
+  if (ranked.length <= 5) {
+    return ranked;
+  }
+  const rest = ranked.slice(5);
+  const otherTokens = rest.reduce((sum, category) => sum + category.tokens, 0);
+  return [
+    ...ranked.slice(0, 5),
+    { key: 'other', label: '其他', tokens: otherTokens, estimated: rest.some((category) => category.estimated) },
+  ];
 }
 
 function formatTokens(tokens: number) {

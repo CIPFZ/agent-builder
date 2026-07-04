@@ -80,6 +80,41 @@ func TestRuntimeBridgeForwardsSessionContextUsage(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsContextGovernanceSettings(t *testing.T) {
+	t.Parallel()
+
+	pct := 0.7
+	service := &recordingRuntimeService{
+		contextGovernanceSettings: RuntimeContextGovernanceSettings{AutoCompactPercent: &pct},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	got, err := bridge.ContextGovernanceSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Settings.AutoCompactPercent == nil || *got.Settings.AutoCompactPercent != 0.7 {
+		t.Fatalf("settings = %#v", got.Settings)
+	}
+
+	disabled := false
+	saved, err := bridge.SaveContextGovernanceSettings(context.Background(), RuntimeContextGovernanceSettings{
+		AutoCompactEnabled: &disabled,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.contextGovernanceSaveCalls != 1 {
+		t.Fatalf("save calls = %d, want 1", service.contextGovernanceSaveCalls)
+	}
+	if service.contextGovernanceSaveReq.AutoCompactEnabled == nil || *service.contextGovernanceSaveReq.AutoCompactEnabled != false {
+		t.Fatalf("save request = %#v", service.contextGovernanceSaveReq)
+	}
+	if saved.Settings.AutoCompactEnabled == nil || *saved.Settings.AutoCompactEnabled != false {
+		t.Fatalf("save response = %#v", saved.Settings)
+	}
+}
+
 func TestRuntimeBridgeForwardsReactCallchain(t *testing.T) {
 	t.Parallel()
 
@@ -1095,6 +1130,9 @@ type recordingRuntimeService struct {
 	outputStreamEvents          []runtime.RuntimeOutputEvent
 	contextUsage                RuntimeContextUsage
 	contextUsageSessionID       string
+	contextGovernanceSettings   RuntimeContextGovernanceSettings
+	contextGovernanceSaveReq    RuntimeContextGovernanceSettings
+	contextGovernanceSaveCalls  int
 	activityWindow              RuntimeSessionActivityWindowResponse
 	turnActivity                RuntimeTurnActivityResponse
 	reactCallchain              RuntimeReactCallchainResponse
@@ -1713,6 +1751,17 @@ func (s *recordingRuntimeService) GetPolicy(context.Context) (RuntimePolicyRespo
 
 func (s *recordingRuntimeService) UpdatePolicy(context.Context, RuntimePolicyUpdateRequest) (RuntimePolicyResponse, error) {
 	return RuntimePolicyResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ContextGovernanceSettings(context.Context) (RuntimeContextGovernanceSettingsResponse, error) {
+	return RuntimeContextGovernanceSettingsResponse{Settings: s.contextGovernanceSettings}, nil
+}
+
+func (s *recordingRuntimeService) SaveContextGovernanceSettings(_ context.Context, req RuntimeContextGovernanceSettings) (RuntimeContextGovernanceSettingsResponse, error) {
+	s.contextGovernanceSaveCalls++
+	s.contextGovernanceSaveReq = req
+	s.contextGovernanceSettings = req
+	return RuntimeContextGovernanceSettingsResponse{Settings: req}, nil
 }
 
 func (s *recordingRuntimeService) Events(_ context.Context, afterValues ...int64) (RuntimeEventsResponse, error) {

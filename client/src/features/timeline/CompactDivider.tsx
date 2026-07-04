@@ -10,6 +10,7 @@ interface CompactDividerProps {
 
 export function CompactDivider({ item }: CompactDividerProps) {
   const [open, setOpen] = useState(false);
+  const compact = item.compact;
   const failed = item.status === 'failed' || Boolean(item.error);
   const compacting = item.status === 'compacting' || item.status === 'started';
   const title = compactTitle(item, compacting, failed);
@@ -29,14 +30,30 @@ export function CompactDivider({ item }: CompactDividerProps) {
       {open && (
         <div className={styles.details}>
           <div className={styles.meta}>
-            {item.title && <Tag>{triggerLabel(item.title)}</Tag>}
+            {(compact?.trigger || item.title) && <Tag>{triggerLabel(compact?.trigger || item.title || '')}</Tag>}
             {item.status && <Tag color={failed ? 'error' : compacting ? 'processing' : 'success'}>{item.status}</Tag>}
+            {!failed && !compacting && typeof compact?.preTokens === 'number' && typeof compact?.postTokens === 'number' && (
+              <Tag>{formatTokenCount(compact.preTokens)} → {formatTokenCount(compact.postTokens)} tokens</Tag>
+            )}
+            {!failed && !compacting && typeof compact?.summarizedCount === 'number' && compact.summarizedCount > 0 && (
+              <Tag>覆盖 {compact.summarizedCount} 条消息</Tag>
+            )}
           </div>
-          {(item.error || item.summary || item.content) && <div className={styles.summary}>{item.error || item.summary || item.content}</div>}
+          {(item.error || compact?.error) && <div className={styles.summary}>{item.error || compact?.error}</div>}
+          {!failed && (compact?.summaryText || item.summary || item.content) && (
+            <div className={styles.summary}>{compact?.summaryText || item.summary || item.content}</div>
+          )}
         </div>
       )}
     </div>
   );
+}
+
+function formatTokenCount(tokens: number) {
+  if (tokens >= 1000) {
+    return `${(tokens / 1000).toFixed(tokens >= 100000 ? 0 : 1)}k`;
+  }
+  return `${tokens}`;
 }
 
 function compactTitle(item: ConversationTimelineItemViewModel, compacting: boolean, failed: boolean) {

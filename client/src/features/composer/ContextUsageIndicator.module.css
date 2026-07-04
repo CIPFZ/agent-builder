@@ -22,7 +22,7 @@
   flex: 0 0 18px;
   border-radius: 50%;
   background:
-    radial-gradient(circle at center, #fff 48%, transparent 50%),
+    radial-gradient(circle at center, var(--ant-color-bg-container) 48%, transparent 50%),
     conic-gradient(currentColor var(--context-usage-percent), rgb(0 0 0 / 10%) 0);
 }
 

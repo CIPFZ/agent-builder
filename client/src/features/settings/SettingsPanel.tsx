@@ -16,6 +16,7 @@ import {
 import {
   Button,
   Card,
+  Collapse,
   ConfigProvider,
   Flex,
   Form,
@@ -35,6 +36,8 @@ import {
 import type { MenuProps } from 'antd';
 import type {
   ConfiguredProviderViewModel,
+  ContextGovernanceSettingsViewModel,
+  ContextUsageViewModel,
   HookExecutionSummaryViewModel,
   HookViewModel,
   ProjectMemoryCreateViewModel,
@@ -89,8 +92,11 @@ interface SettingsPanelProps {
   onProviderDraftLatency: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
   onProviderLatency: (providerID: string) => Promise<ProviderTestViewModel>;
   selectedModel?: RuntimeModelOptionViewModel;
+  contextUsage?: ContextUsageViewModel;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
   onTerminalProfileSelect: (profileID: string) => Promise<SettingsViewModel>;
+  onContextGovernanceLoad: () => Promise<ContextGovernanceSettingsViewModel>;
+  onContextGovernanceSave: (settings: ContextGovernanceSettingsViewModel) => Promise<ContextGovernanceSettingsViewModel>;
   onSkillRefresh: () => Promise<SettingsViewModel>;
   onSkillToggle: (name: string, enabled: boolean) => Promise<SettingsViewModel>;
   onMCPServerRefresh: (name: string) => Promise<SettingsViewModel>;
@@ -123,8 +129,11 @@ export function SettingsPanel({
   onProviderDraftLatency,
   onProviderLatency,
   selectedModel,
+  contextUsage,
   onModelSelect,
   onTerminalProfileSelect,
+  onContextGovernanceLoad,
+  onContextGovernanceSave,
   onSkillRefresh,
   onSkillToggle,
   onMCPServerRefresh,
@@ -197,6 +206,15 @@ export function SettingsPanel({
         );
       case 'common':
         return <CommonSettings settings={settings} onTerminalProfileSelect={onTerminalProfileSelect} />;
+      case 'context':
+        return (
+          <ContextGovernanceSettings
+            contextUsage={contextUsage}
+            selectedModel={selectedModel}
+            onLoad={onContextGovernanceLoad}
+            onSave={onContextGovernanceSave}
+          />
+        );
       default:
         return <GeneralSettings />;
     }
@@ -1762,21 +1780,175 @@ function CommonSettings({
                 onChange={(value) => void saveTerminalProfile(value)}
               />
             </Flex>
+          </Flex>
+        </Card>
+      </section>
+    </>
+  );
+}
+
+function formatContextTokens(tokens: number) {
+  if (tokens >= 1000) {
+    return `${(tokens / 1000).toFixed(tokens >= 100000 ? 0 : 1)}k`;
+  }
+  return `${tokens}`;
+}
+
+const summaryModelOptions = [
+  { label: '跟随会话模型', value: 'session' },
+  { label: '小模型', value: 'small' },
+];
+
+function ContextGovernanceSettings({
+  contextUsage,
+  selectedModel,
+  onLoad,
+  onSave,
+}: {
+  contextUsage?: ContextUsageViewModel;
+  selectedModel?: RuntimeModelOptionViewModel;
+  onLoad: () => Promise<ContextGovernanceSettingsViewModel>;
+  onSave: (settings: ContextGovernanceSettingsViewModel) => Promise<ContextGovernanceSettingsViewModel>;
+}) {
+  const [settings, setSettings] = useState<ContextGovernanceSettingsViewModel>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [percentInput, setPercentInput] = useState<number | null>(null);
+  const [messageApi, messageContextHolder] = message.useMessage();
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    onLoad()
+      .then((loaded) => {
+        if (cancelled) return;
+        setSettings(loaded);
+        setPercentInput(loaded.autoCompactPercent != null ? Math.round(loaded.autoCompactPercent * 100) : null);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          messageApi.error(error instanceof Error ? error.message : '加载上下文设置失败');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const autoCompactEnabled = settings.autoCompactEnabled ?? true;
+  const microcompactEnabled = settings.microcompactEnabled ?? true;
+  const microcompactKeepRecent = settings.microcompactKeepRecent ?? 5;
+  const summaryModel = settings.summaryModel || 'session';
+
+  const persist = async (next: ContextGovernanceSettingsViewModel) => {
+    setSaving(true);
+    try {
+      const saved = await onSave(next);
+      setSettings(saved);
+      setPercentInput(saved.autoCompactPercent != null ? Math.round(saved.autoCompactPercent * 100) : null);
+      messageApi.success('上下文设置已保存');
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : '上下文设置保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const triggerDescription = contextUsage
+    ? `当前模型${selectedModel?.name ? `「${selectedModel.name}」` : ''}窗口 ${formatContextTokens(contextUsage.contextWindow)} tokens，触发点约 ${formatContextTokens(contextUsage.autoCompactAt)} tokens（剩余 ${contextUsage.percentLeft}%）`
+    : '上下文接近上限时自动生成摘要并压缩较早的历史消息，让对话可以无限延续下去';
+
+  return (
+    <>
+      {messageContextHolder}
+      <Title level={2}>上下文</Title>
+      <section className={styles.section}>
+        <Card loading={loading} styles={{ body: { padding: 0 } }}>
+          <Flex vertical>
             <Flex align="center" className={styles.listItem} gap={16} justify="space-between">
-              <Flex vertical>
-                <Text>Context governance</Text>
-                <Text type="secondary">Runtime-owned projection, compact, snip, and retry policy</Text>
+              <Flex vertical style={{ maxWidth: 480 }}>
+                <Text>自动压缩</Text>
+                <Text type="secondary">{triggerDescription}</Text>
               </Flex>
-              <Flex wrap gap={6} justify="flex-end">
-                <Tag color={settings.contextGovernance.autoCompactEnabled ? 'green' : 'default'}>auto compact</Tag>
-                <Tag color={settings.contextGovernance.snipEnabled ? 'blue' : 'default'}>snip</Tag>
-                <Tag>keep {settings.contextGovernance.microcompactKeepRecent}</Tag>
-                <Tag>retry {settings.contextGovernance.reactiveRetryLimit}</Tag>
-                <Tag color={settings.contextGovernance.manualActions ? 'purple' : 'default'}>manual</Tag>
-              </Flex>
+              <Switch
+                checked={autoCompactEnabled}
+                loading={saving}
+                onChange={(checked) => void persist({ ...settings, autoCompactEnabled: checked })}
+              />
             </Flex>
           </Flex>
         </Card>
+      </section>
+      <section className={styles.section}>
+        <Collapse
+          items={[
+            {
+              key: 'advanced',
+              label: '高级设置',
+              children: (
+                <Flex vertical gap={16}>
+                  <Flex align="center" gap={16} justify="space-between">
+                    <Flex vertical>
+                      <Text>触发百分比覆盖</Text>
+                      <Text type="secondary">留空为自动计算；范围 5% ~ 95%，数值越小触发越早</Text>
+                    </Flex>
+                    <InputNumber
+                      max={95}
+                      min={5}
+                      style={{ minWidth: 120 }}
+                      suffix="%"
+                      value={percentInput ?? undefined}
+                      onBlur={() => void persist({ ...settings, autoCompactPercent: percentInput == null ? undefined : percentInput / 100 })}
+                      onChange={(value) => setPercentInput(value == null ? null : Number(value))}
+                    />
+                  </Flex>
+                  <Flex align="center" justify="space-between">
+                    <Flex vertical>
+                      <Text>Microcompact</Text>
+                      <Text type="secondary">单个 step 内自动裁剪较早的工具结果，减少无谓的上下文占用</Text>
+                    </Flex>
+                    <Switch
+                      checked={microcompactEnabled}
+                      loading={saving}
+                      onChange={(checked) => void persist({ ...settings, microcompactEnabled: checked })}
+                    />
+                  </Flex>
+                  <Flex align="center" justify="space-between">
+                    <Flex vertical>
+                      <Text>保留最近消息数</Text>
+                      <Text type="secondary">microcompact 始终保留的最近消息条数</Text>
+                    </Flex>
+                    <InputNumber
+                      max={50}
+                      min={0}
+                      style={{ minWidth: 120 }}
+                      value={microcompactKeepRecent}
+                      onChange={(value) => void persist({ ...settings, microcompactKeepRecent: value ?? 5 })}
+                    />
+                  </Flex>
+                  <Flex align="center" justify="space-between">
+                    <Flex vertical>
+                      <Text>摘要模型</Text>
+                      <Text type="secondary">手动/自动压缩时用于生成摘要的模型</Text>
+                    </Flex>
+                    <Select
+                      options={summaryModelOptions}
+                      style={{ minWidth: 160 }}
+                      value={summaryModel}
+                      onChange={(value) => void persist({ ...settings, summaryModel: value })}
+                    />
+                  </Flex>
+                </Flex>
+              ),
+            },
+          ]}
+        />
       </section>
     </>
   );

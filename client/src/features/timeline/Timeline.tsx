@@ -666,17 +666,17 @@ function isActiveTurnStatus(status?: string) {
   return status === 'running' || status === 'queued' || status === 'waiting_permission';
 }
 
+// compact_boundary is intentionally excluded here (B11/WP5): it is handled
+// as its own full-width CompactDivider branch before this check is ever
+// reached (see the render dispatch above), and it must NOT count as a
+// process item — the divider is a standalone timeline element, not part of
+// a turn's collapsible exploration trace.
 function isContextGovernanceItem(item: ConversationTimelineItemViewModel) {
-	return (
-		item.kind === 'compact_boundary' ||
-		item.kind === 'context_source'
-	);
+	return item.kind === 'context_source';
 }
 
 function contextGovernanceTitle(item: ConversationTimelineItemViewModel) {
 	switch (item.kind) {
-		case 'compact_boundary':
-			return `Context compact${item.title ? `: ${item.title}` : ''}`;
 		case 'context_source':
 			return `Context source${item.title ? `: ${item.title}` : ''}`;
     default:
