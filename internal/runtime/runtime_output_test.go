@@ -367,6 +367,33 @@ func TestRuntimeConversationProjectionAutoFailedCompactProducesNoItem(t *testing
 	}
 }
 
+// TestRuntimeConversationProjectionCircuitOpenAutoFailureProducesItem covers
+// the circuit-breaker exception to B8: the auto failure that opened the
+// circuit is marked on the boundary error and must surface as a divider (the
+// marker itself is stripped from the user-visible error).
+func TestRuntimeConversationProjectionCircuitOpenAutoFailureProducesItem(t *testing.T) {
+	snapshot := buildRuntimeOutputProjectionFromInput(runtimeConversationProjectionInput{
+		Activity: RuntimeSessionActivityWindowResponse{
+			SessionID: "session-1",
+			Messages:  []RuntimeMessage{{ID: "user-1", SessionID: "session-1", Role: "user", Content: "hi", CreatedAt: 10}},
+			Turns:     []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "running", UserMessageID: "user-1", StartedAt: 1}},
+		},
+		Compact: []RuntimeCompactBoundary{{
+			ID: "compact-circuit-open", SessionID: "session-1", TurnID: "turn-1", Kind: compactKindFull,
+			Status: compactStatusFailed, Trigger: "auto",
+			Error:     compactCircuitOpenMarker + "prompt too long",
+			CreatedAt: 40, CompletedAt: 41,
+		}},
+	}).snapshot("session-1", "1")
+	item := findConversationItem(t, snapshot.Items, "compact_boundary")
+	if item.ID == "" || item.Status != compactStatusFailed {
+		t.Fatalf("circuit-opening auto failure must produce a timeline item: %#v", item)
+	}
+	if item.Error != "prompt too long" || item.Compact == nil || item.Compact.Error != "prompt too long" {
+		t.Fatalf("circuit-open marker must be stripped from user-visible error: %#v", item)
+	}
+}
+
 // TestRuntimeConversationProjectionManualFailedCompactProducesItem covers the
 // counterpart of B8: manual (and, later, circuit_open) failures still show a
 // failed divider so the user knows their /compact did not go through.

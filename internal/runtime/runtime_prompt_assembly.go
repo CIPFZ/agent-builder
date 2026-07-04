@@ -794,6 +794,12 @@ func (r *runtimeService) recentReadFilePaths(ctx context.Context, sessionID stri
 // (or manual) compact resets the counter.
 const compactCircuitBreakerThreshold = 3
 
+// compactCircuitOpenMarker prefixes a failed boundary's Error when that
+// failure opened the circuit breaker. Silent auto failures produce no
+// conversation item; the circuit-opening one must surface as a divider so
+// the user learns automatic compaction has stopped (runtime_output.go).
+const compactCircuitOpenMarker = "[circuit-open] "
+
 // isCompactCircuitOpen reports whether the session's consecutive
 // full-compact failure counter has reached the configured threshold.
 func (r *runtimeService) isCompactCircuitOpen(sessionID string) bool {
@@ -823,17 +829,14 @@ func (r *runtimeService) resetCompactFailures(sessionID string) {
 }
 
 func (r *runtimeService) failManualFullCompact(ctx context.Context, boundary contextmgr.Boundary, compactErr error, callCtx manualFullCompactCallContext) error {
-	failed := boundary
-	failed.Status = contextmgr.ProjectionStatusFailed
-	failed.Error = compactErr.Error()
-	failed.CompletedAt = time.Now().UTC().UnixMilli()
-	_, _ = r.contextStore.UpsertBoundary(ctx, failed)
-
 	// Circuit-breaker accounting. Manual failures do NOT increment the
 	// counter (the user explicitly asked for it and gets an immediate error
 	// they can act on). Auto and reactive failures count toward the
 	// threshold so a broken provider or a summarizer stuck in a loop stops
-	// burning tokens indefinitely.
+	// burning tokens indefinitely. Counted before the boundary is persisted
+	// so a circuit-opening failure can be marked on the row itself: silent
+	// auto failures produce no conversation item, but the one that opened
+	// the circuit must surface as a divider (see runtime_output.go).
 	trigger := strings.ToLower(strings.TrimSpace(boundary.Trigger))
 	circuitOpen := false
 	switch trigger {
@@ -843,6 +846,15 @@ func (r *runtimeService) failManualFullCompact(ctx context.Context, boundary con
 	default:
 		circuitOpen = r.isCompactCircuitOpen(boundary.SessionID)
 	}
+
+	failed := boundary
+	failed.Status = contextmgr.ProjectionStatusFailed
+	failed.Error = compactErr.Error()
+	if circuitOpen {
+		failed.Error = compactCircuitOpenMarker + compactErr.Error()
+	}
+	failed.CompletedAt = time.Now().UTC().UnixMilli()
+	_, _ = r.contextStore.UpsertBoundary(ctx, failed)
 
 	attempt := callCtx.Attempt
 	if attempt <= 0 {
@@ -1139,6 +1151,14 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 							HasProjection:        true,
 							AutoCompactAttempted: true,
 						}
+						// Keep any reactive attempt-1 microcompact override
+						// installed earlier in this turn: an auto compact must
+						// merge with, not clobber, the recovery state (mirrors
+						// the attempt-2 merge in runReactiveCompact).
+						if prev, ok := r.compactStateForTurn(snapshot.SessionID, snapshot.TurnID); ok {
+							compactState.ReactiveMicroKeepRecent = prev.ReactiveMicroKeepRecent
+							compactState.ReactiveMicroTokenDivisor = prev.ReactiveMicroTokenDivisor
+						}
 						r.setCompactTurnState(snapshot.SessionID, snapshot.TurnID, compactState)
 						snapshot.Messages = applyCompactTurnProjection(snapshot.SessionID, snapshot.TurnID, snapshot.Messages, compactState)
 						r.warnIfAutoCompactIneffective(ctx, snapshot, compact.Boundary.ID)
@@ -1168,12 +1188,18 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 	// installation.
 	microKeep := gov.MicrocompactKeepRecent
 	microTokenLimit := maxInt(1, thresholds.EffectiveWindow/4)
+	// Reactive recovery must be able to shrink the projection even when the
+	// user disabled microcompact in governance: attempt-1's whole strategy is
+	// "clear old tool results and retry", so the override forces it on.
+	reactiveMicroOverride := false
 	if state, hasState := r.compactStateForTurn(snapshot.SessionID, snapshot.TurnID); hasState {
 		if state.ReactiveMicroKeepRecent > 0 {
 			microKeep = state.ReactiveMicroKeepRecent
+			reactiveMicroOverride = true
 		}
 		if state.ReactiveMicroTokenDivisor > 1 {
 			microTokenLimit = maxInt(1, microTokenLimit/state.ReactiveMicroTokenDivisor)
+			reactiveMicroOverride = true
 		}
 	}
 	result, err := r.contextManager.BuildModelInput(ctx, contextmgr.BuildInputRequest{
@@ -1185,7 +1211,7 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 		Source:        firstNonEmpty(snapshot.Source, contextmgr.ProjectionSourceMainTurn),
 		ModelMessages: snapshot.Messages,
 		Microcompact: contextmgr.MicrocompactConfig{
-			Enabled:              gov.MicrocompactEnabled,
+			Enabled:              gov.MicrocompactEnabled || reactiveMicroOverride,
 			KeepRecent:           microKeep,
 			ToolResultTokenLimit: microTokenLimit,
 		},

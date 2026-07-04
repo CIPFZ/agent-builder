@@ -129,8 +129,8 @@ type runtimeSessionOutputSubscriber struct {
 	events    chan RuntimeOutputEvent
 	// dirty is set whenever a persisted event arrives; the flush loop
 	// consults it every debounce tick.
-	dirty       chan struct{}
-	cancel      chan struct{}
+	dirty        chan struct{}
+	cancel       chan struct{}
 	rejectedOnce sync.Once
 }
 
@@ -228,6 +228,27 @@ func (r *runtimeService) publishSessionOutputEventFromRuntime(event RuntimeEvent
 			Operation: "delta",
 			CreatedAt: runtimeOutputEventTime(event),
 			TextDelta: delta,
+		}
+		for _, sub := range subs {
+			sendOrOverflow(sub, output)
+		}
+		return
+	}
+	if event.Type == runtimeapi.EventCompactProgress {
+		// compact.progress is ephemeral (never persisted, never part of the
+		// flush loop's diff), so this direct fan-out is the only way it can
+		// reach subscribers. It carries no state the reducer must apply — it
+		// is a keep-alive letting the UI distinguish "still summarizing"
+		// from "stalled" during long compactions.
+		boundaryID, _ := event.Payload["boundary_id"].(string)
+		output := RuntimeOutputEvent{
+			ID:        event.ID,
+			SessionID: event.SessionID,
+			TurnID:    event.TurnID,
+			Kind:      runtimeapi.EventCompactProgress,
+			EntityID:  boundaryID,
+			Operation: "progress",
+			CreatedAt: runtimeOutputEventTime(event),
 		}
 		for _, sub := range subs {
 			sendOrOverflow(sub, output)

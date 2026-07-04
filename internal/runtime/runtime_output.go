@@ -772,12 +772,14 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 		if status == contextmgr.ProjectionStatusStarted {
 			status = "compacting"
 		}
-		if status == contextmgr.ProjectionStatusFailed && boundary.Trigger == "auto" {
+		if status == contextmgr.ProjectionStatusFailed && boundary.Trigger == "auto" &&
+			!strings.HasPrefix(boundary.Error, compactCircuitOpenMarker) {
 			// B8/WP5: auto-triggered compacts fail silently — the turn keeps
 			// working off the pre-compact history and the next eligible step
-			// retries on its own, so no divider/notice is produced. TODO(WP4):
-			// once the circuit breaker lands, a failed auto boundary with
-			// circuit_open=true should still surface here.
+			// retries on its own, so no divider/notice is produced. The one
+			// exception is the failure that opened the circuit breaker (marked
+			// on the boundary by failManualFullCompact): automatic compaction
+			// has stopped for this session and the user must see that.
 			continue
 		}
 		appendEntry(RuntimeConversationItem{
@@ -788,7 +790,7 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 			Status:    status,
 			Title:     firstNonEmpty(boundary.Trigger, boundary.Kind),
 			Summary:   runtimeCompactBoundarySummary(boundary),
-			Error:     boundary.Error,
+			Error:     strings.TrimPrefix(boundary.Error, compactCircuitOpenMarker),
 			ContextID: boundary.ID,
 			Compact:   runtimeCompactInfoFromBoundary(boundary, status, p.summaryTexts),
 			CreatedAt: boundary.CreatedAt,
@@ -1446,7 +1448,7 @@ func runtimeCompactInfoFromBoundary(boundary RuntimeCompactBoundary, normalizedS
 		Status:           normalizedStatus,
 		SummarizedCount:  len(boundary.MessageRefs),
 		SummaryMessageID: boundary.SummaryMessageID,
-		Error:            boundary.Error,
+		Error:            strings.TrimPrefix(boundary.Error, compactCircuitOpenMarker),
 	}
 	if boundary.BudgetBefore != nil {
 		info.PreTokens = boundary.BudgetBefore.TotalEstimatedTokens

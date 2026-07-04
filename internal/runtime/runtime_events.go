@@ -312,6 +312,20 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 	r.eventStats.lastEventAt = now.UnixMilli()
 	switch payload := event.Payload.(type) {
 	case pubsub.Event[message.Message]:
+		if payload.Type == pubsub.DeletedEvent {
+			// A deleted message (e.g. the empty assistant placeholder removed
+			// before a reactive-compact retry) must never be replayed as
+			// message.created — newMessageRuntimeEvent cannot tell a deleted
+			// row from a fresh one. Persist nothing; just nudge the session
+			// output stream so subscribers drop the ghost item on the next
+			// flush-loop diff against the DB.
+			sessionID := payload.Payload.SessionID
+			r.mu.Unlock()
+			if sessionID != "" {
+				r.publishSessionOutputEventFromRuntime(RuntimeEvent{SessionID: sessionID})
+			}
+			return
+		}
 		r.eventStats.messageEvents++
 		msg := toAPITypeMessage(payload.Payload)
 		turnID := r.sessionTurns[msg.SessionID]
