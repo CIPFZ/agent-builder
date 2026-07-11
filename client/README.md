@@ -1,13 +1,12 @@
 # Agent Builder Client
 
-This directory contains the React client for Agent Builder. The next frontend
-phase is a clean runtime-first rewrite backed by the Go runtime and rendered
-with Ant Design plus Ant Design X.
+This directory contains the React client for Agent Builder. It is backed by the
+Go runtime and rendered with Ant Design plus Ant Design X.
 
-The active technical plan is:
+The current frontend and desktop architecture is documented at:
 
 ```text
-../docs/frontend-runtime-ui-technical-plan.md
+../docs/frontend-and-desktop.md
 ```
 
 ## Stack

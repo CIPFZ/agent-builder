@@ -1,73 +1,23 @@
-# Agent Builder Docs
+# Agent Builder 文档
 
-This directory contains current architecture docs plus historical reference
-material. Use this index to avoid following superseded phase plans.
+本目录只描述当前代码库的真实状态，不保存历史任务、阶段计划或外部产品对比。
 
-## Current Entry Points
+## 阅读顺序
 
-- `claude-code-runtime-parity-audit.md`: current full runtime parity audit
-  against the local Claude Code source snapshot.
-- `claude-code-alignment-next-roadmap.md`: current execution roadmap. This is
-  the next-planning source of truth.
-- `claude-code-alignment-module-priority.md`: short pointer to the current
-  roadmap and parity audit.
-- `client-runtime-architecture-review.md`: current architecture boundary review.
-- `frontend-runtime-integration-notes.md`: active frontend/runtime integration
-  notes, including Wails vs Vite/browser transport constraints.
-- `frontend-runtime-ui-technical-plan.md`: active frontend rewrite technology,
-  UI/runtime integration, reference analysis, and client recovery plan.
-- `workbench-runtime-feature-roadmap.md`: active handoff roadmap for main chat,
-  sessions, model switching, timeline rendering, permissions, skills, MCP, and
-  projects.
-- `tool-thinking-permission-integration-plan.md`: completed frontend/runtime
-  integration milestone for runtime tool calls, thinking, and permissions.
-- `runtime-parity-closure-stabilization-plan.md`: completed 2026-06-03 runtime
-  closure scenario coverage and contract hardening record.
-- `workbench-skills-mcp-management-plan.md`: active Phase 6 implementation
-  record for runtime-backed Skills and MCP management surfaces.
-- `plugin-skills-runtime-integration-plan.md`: active follow-up phase for
-  runtime-backed plugin capability-bundle DTOs and plugin-center integration.
-- `react-agent-architecture-audit.md`: current runtime-first ReAct architecture
-  audit after the project/session/terminal ownership work.
-- `react-agent-implementation-roadmap.md`: staged implementation roadmap for
-  runtime input normalization, callchain observability, tool/permission/result
-  hardening, context/compact/memory, hooks/recovery, tasks/subagents, and
-  React rendering.
-  - `react-agent-phase-01-callchain-observability.md`
-  - `react-agent-phase-02-input-normalization.md`
-  - `react-agent-phase-03-tool-permission-result-loop.md`
-  - `react-agent-phase-04-context-prompt-compact-memory.md`
-  - `react-agent-phase-05-hooks-error-recovery.md`
-  - `react-agent-phase-06-tasks-subagents-background.md`
-  - `react-agent-phase-07-frontend-react-workbench.md`
+1. [项目概览](project-overview.md)：产品定位、技术栈、核心边界和目录概览。
+2. [系统架构](architecture.md)：进程、分层、依赖方向和主要运行链路。
+3. [运行时](runtime.md)：会话、Turn、Run、工具、权限、上下文和事件模型。
+4. [前端与桌面端](frontend-and-desktop.md)：React、Wails 桥接、传输适配和状态边界。
+5. [数据与能力](data-and-capabilities.md)：SQLite、配置、项目记忆、Skills、MCP、Hooks、LSP。
+6. [开发指南](development.md)：构建、测试、调试和改动约束。
+7. [目录索引](repository-map.md)：按目录快速定位代码职责。
 
-## Active Design Baselines
+## 文档维护规则
 
-These documents describe runtime/client contracts that still matter, but many
-items are already partially implemented. Read their status blocks before using
-their checklists.
+- 以源码、测试、迁移和构建脚本为准；文档与实现冲突时先核对实现。
+- 文档记录已经存在的能力。尚未实现的设想应进入 issue，不在此目录维护长期任务清单。
+- 架构变化应同时更新对应文档和入口链接。
+- 不以 React 状态、Wails binding 或某个 UI 组件作为运行时事实来源。
+- 外部产品只能作为研究输入，不能把其品牌、文案、资产或专有交互写成本项目规范。
 
-- `client-architecture-and-core-flow.md`
-- `desktop-runtime-boundary.md`
-- `turn-task-run-model.md`
-- `tool-scheduler-design.md`
-- `permission-policy-model.md`
-- `client-first-runtime-refactor.md`
-- `client-information-architecture.md`
-- `frontend-runtime-ui-technical-plan.md`
-- `agentic-operations-client.md`
-- `architecture-decisions.md`
-- `legacy-agent-builder-inventory.md`
-
-## Historical Material
-
-Historical docs live under `archive/`. They are useful for background only and
-must not override the current roadmap.
-
-Notable archived baselines:
-
-- `archive/phase-2-runtime-api-boundary.md`
-- `archive/dev-baseline.md`
-- `archive/agent-builder-claude-code-gap-analysis.md`
-- `archive/reference-analysis/`
-- `archive/tui-removal-plan.md`
+最后一次基于源码梳理：2026-07-11。

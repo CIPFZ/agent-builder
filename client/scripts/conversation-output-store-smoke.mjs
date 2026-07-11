@@ -203,7 +203,7 @@ assert.equal(nearBottomShouldFollow(900, false), false, 'history browsing does n
 
 // ── 6. WP5: compact_boundary item's Compact payload (trigger/tokens/summary)
 // survives the runtime snapshot -> outputStore -> selector round trip so
-// CompactDivider can render its expanded meta line + summary text.
+// the timeline compact trace row can render its meta line + summary text.
 
 let compactStore = createOutputStore('session-compact');
 compactStore = hydrateOutputStore({

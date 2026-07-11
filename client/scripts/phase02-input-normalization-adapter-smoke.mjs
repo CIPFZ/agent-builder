@@ -32,7 +32,7 @@ assertNotIncludes(adapter, 'action.metadata.normalized', 'React must not infer n
 // mapActivityTimeline / mergeActivityTimeline / compareActivityTimelineItems
 // were removed with the two-phase conversation refactor — the runtime-owned
 // SessionOutput projection is now the only conversation timeline source.
-// See docs/organize/12-conversation-two-phase-and-streaming-refactor-plan.md.
+// Covers the two-phase input normalization adapter contract.
 assertNotIncludes(adapter, 'function mapActivityTimeline(', 'legacy SessionActivity-derived timeline path must be removed');
 assertNotIncludes(adapter, 'function mergeActivityTimeline(', 'legacy SessionActivity-derived timeline merge must be removed');
 assertNotIncludes(adapter, 'function compareActivityTimelineItems(', 'legacy SessionActivity-derived comparator must be removed');

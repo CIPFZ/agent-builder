@@ -280,6 +280,32 @@
   overflow-wrap: anywhere;
 }
 
+.compactSummaryPanel {
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 8px;
+  background: var(--ant-color-fill-quaternary);
+  scrollbar-color: #d9d9d9 transparent;
+  scrollbar-width: thin;
+}
+
+.compactSummaryLabel {
+  margin-bottom: 8px;
+  color: rgb(13 13 13 / 45%);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.compactSummaryText {
+  color: rgb(13 13 13 / 72%);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 720px) {
   .timeline {
     padding-inline: 18px;

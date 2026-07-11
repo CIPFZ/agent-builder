@@ -64,6 +64,7 @@ import type {
 import { runtimeActionRefreshTargets, type RuntimeActionRefreshTarget, type RuntimeWriteActionResponseDTO } from './actionRefreshSelector.ts';
 import { hydrateOutputStore } from './outputReducer.ts';
 import { selectConversationMessages, selectConversationTimeline, selectPendingPermissions } from './outputSelectors.ts';
+import { createOutputStore } from './outputStore.ts';
 import type { RuntimeOutputEventsResponse, RuntimeOutputSnapshot } from './outputTypes.ts';
 import { getInitialWorkbenchViewModel, staticWorkbenchAdapter } from './staticWorkbenchAdapter.tsx';
 
@@ -4320,18 +4321,13 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
   },
   async createSession(current, target) {
     forceDraftChatSubmit = false;
-    return withBridge(
-      async (bridge) => {
-        await bridge.NewChat('');
-        const draft = target ?? current.newConversationDraft ?? defaultDraftTarget(current);
-        const hydrated = await hydrateWorkbench(
-          resetConversationRuntimeState({ ...current, mode: 'new-chat', newConversationDraft: draft }),
-          bridge,
-        );
-        return { ...hydrated, mode: 'new-chat', newConversationDraft: draft };
-      },
-      () => staticWorkbenchAdapter.createSession(current),
-    );
+    const draft = target ?? current.newConversationDraft ?? defaultDraftTarget(current);
+    return resetConversationRuntimeState({
+      ...current,
+      mode: 'new-chat',
+      newConversationDraft: draft,
+      sessions: current.sessions.map((session) => ({ ...session, active: false })),
+    });
   },
   async selectSession(current, sessionID) {
     forceDraftChatSubmit = false;
@@ -4474,11 +4470,16 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
           const normalizedConversation = mapNormalizedInputConversation(response, prompt);
           const normalizedTimeline = mapNormalizedInputTimeline(response, prompt);
           const normalizedOnly = !response.turnId && response.normalizedInput;
+          const nextOutputStore =
+            responseSessionID && current.outputStore?.sessionId !== responseSessionID
+              ? createOutputStore(responseSessionID)
+              : current.outputStore;
           return {
             ...optimistic,
             mode: 'new-chat',
             newConversationDraft: undefined,
             sessions: sessionsAfterDraftSubmit(current, responseSessionID, prompt, draftTarget, response.turnId),
+            outputStore: nextOutputStore,
             conversation:
               normalizedOnly
                 ? mergeNormalizedConversation(current.conversation, normalizedConversation)

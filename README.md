@@ -49,23 +49,9 @@ task --list
 
 ## Architecture Documents
 
-Start here:
-
-- `docs/README.md`
-- `docs/claude-code-runtime-parity-audit.md`
-- `docs/claude-code-alignment-next-roadmap.md`
-- `docs/client-runtime-architecture-review.md`
-- `docs/client-architecture-and-core-flow.md`
-- `docs/desktop-runtime-boundary.md`
-- `docs/tool-scheduler-design.md`
-- `docs/permission-policy-model.md`
-- `docs/turn-task-run-model.md`
-- `docs/frontend-runtime-ui-technical-plan.md`
-
-Historical baselines that are still useful for context:
-
-- `docs/archive/phase-2-runtime-api-boundary.md`
-- `docs/archive/dev-baseline.md`
+Start with `docs/README.md`. The documentation now describes the current
+implementation only; historical task plans and comparison notes are not kept in
+the repository.
 
 ## Current Status
 

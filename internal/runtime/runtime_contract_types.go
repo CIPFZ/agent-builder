@@ -1801,7 +1801,7 @@ type RuntimeConversationItem struct {
 }
 
 // RuntimeCompactInfo is the compact_boundary conversation item payload (see
-// docs/organize/19-context-compaction-fix-plan.md WP5). It carries the
+// context compaction contract. It carries the
 // boundary's trigger/status/token deltas and the full summary text (read
 // separately from the filtered session message list, since summary messages
 // are excluded from every other read path) so the frontend divider can

@@ -1,46 +1,52 @@
-import { useState } from 'react';
-import { CheckCircleOutlined, DownOutlined, LoadingOutlined, UnorderedListOutlined } from '@ant-design/icons';
-import { Button, Progress, Tag, Tooltip } from 'antd';
+import { CheckCircleOutlined, LoadingOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { Popover, Progress } from 'antd';
 import type { TodoItemViewModel, TodoSummaryViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './TodoTaskBar.module.css';
 
 export function TodoTaskBar({ todos }: { todos?: TodoSummaryViewModel }) {
-  const [expanded, setExpanded] = useState(false);
-  if (!todos?.items.length) {
+  const total = todos?.total || todos?.items.length || 0;
+  const completed = Math.min(todos?.completed || 0, total);
+  const allComplete = total > 0 && completed >= total;
+  if (!todos?.items.length || total <= 0 || allComplete) {
     return null;
   }
   const active = todos.items.find((todo) => todo.status === 'in_progress');
-  const percent = todos.total > 0 ? Math.round((todos.completed / todos.total) * 100) : 0;
+  const activeIndex = todos.items.findIndex((todo) => todo.status === 'in_progress');
+  const nextIndex = todos.items.findIndex((todo) => todo.status !== 'completed');
+  const currentIndex = activeIndex >= 0 ? activeIndex : nextIndex >= 0 ? nextIndex : completed;
+  const currentStep = Math.min(total, Math.max(1, currentIndex + 1));
+  const percent = Math.round((completed / total) * 100);
+  const currentText = active?.activeForm || active?.content || todos.items[currentIndex]?.content || '任务进行中';
 
   return (
-    <section className={styles.taskBar} data-testid="todo-task-bar">
-      <div className={styles.summary}>
-        <div className={styles.current}>
+    <div className={styles.taskDock} data-testid="todo-task-bar">
+      <Popover
+        trigger={['hover', 'click']}
+        placement="top"
+        content={
+          <div className={styles.popover} data-testid="todo-task-popover">
+            <div className={styles.popoverHeader}>
+              <div>
+                <div className={styles.popoverTitle}>任务进度</div>
+                <div className={styles.popoverSubtitle}>{currentText}</div>
+              </div>
+              <span className={styles.count}>{completed}/{total}</span>
+            </div>
+            <Progress className={styles.progress} percent={percent} size="small" showInfo={false} />
+            <div className={styles.list}>
+              {todos.items.map((todo) => (
+                <TodoTaskBarItem key={todo.id} todo={todo} />
+              ))}
+            </div>
+          </div>
+        }
+      >
+        <button className={styles.taskChip} type="button" aria-label={`查看任务进度：第 ${currentStep} / ${total} 步`}>
           <span className={styles.icon}>{active ? <LoadingOutlined spin /> : <UnorderedListOutlined />}</span>
-          <span className={styles.currentText}>{active ? active.activeForm || active.content : todos.completed === todos.total ? 'All tasks complete' : 'Tasks pending'}</span>
-        </div>
-        <div className={styles.meta}>
-          <Tag>{todos.completed}/{todos.total}</Tag>
-          <Progress className={styles.progress} percent={percent} size="small" showInfo={false} />
-          <Tooltip title={expanded ? 'Collapse tasks' : 'Show tasks'}>
-            <Button
-              aria-label={expanded ? 'Collapse tasks' : 'Show tasks'}
-              icon={<DownOutlined rotate={expanded ? 180 : 0} />}
-              size="small"
-              type="text"
-              onClick={() => setExpanded((value) => !value)}
-            />
-          </Tooltip>
-        </div>
-      </div>
-      {expanded ? (
-        <div className={styles.list}>
-          {todos.items.map((todo) => (
-            <TodoTaskBarItem key={todo.id} todo={todo} />
-          ))}
-        </div>
-      ) : null}
-    </section>
+          <span className={styles.currentText}>第 {currentStep} / {total} 步</span>
+        </button>
+      </Popover>
+    </div>
   );
 }
 
@@ -51,7 +57,20 @@ function TodoTaskBarItem({ todo }: { todo: TodoItemViewModel }) {
     <div className={styles.item} data-status={todo.status}>
       <span className={styles.itemIcon}>{completed ? <CheckCircleOutlined /> : running ? <LoadingOutlined spin /> : <span />}</span>
       <span className={styles.itemText}>{running ? todo.activeForm || todo.content : todo.content}</span>
-      <Tag color={completed ? 'success' : running ? 'processing' : 'default'}>{todo.status}</Tag>
+      <span className={styles.status}>{formatStatus(todo.status)}</span>
     </div>
   );
+}
+
+function formatStatus(status: TodoItemViewModel['status']) {
+  if (status === 'completed') {
+    return '已完成';
+  }
+  if (status === 'in_progress') {
+    return '进行中';
+  }
+  if (status === 'pending') {
+    return '待处理';
+  }
+  return status;
 }

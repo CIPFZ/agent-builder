@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import {
   BranchesOutlined,
   CheckOutlined,
+  CompressOutlined,
   CopyOutlined,
   DownOutlined,
+  LoadingOutlined,
   MessageOutlined,
   SafetyCertificateOutlined,
   WarningOutlined,
@@ -12,13 +14,12 @@ import { Button, Collapse, Progress, Tag, Tooltip, message } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
 import type { ConversationTimelineItemViewModel, HookExecutionSummaryViewModel, HookExecutionViewModel, ToolCallViewModel } from '../../runtime/workbenchTypes.ts';
 import { ThinkingItem } from './ThinkingItem.tsx';
-import { ToolCallCard, QuietToolRowList } from '../tools/ToolCallCard.tsx';
+import { QuietToolRowList } from '../tools/ToolCallCard.tsx';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import { HookExecutionDetailDrawer } from '../hooks/HookExecutionDetailDrawer.tsx';
 import { HookTimelineRow } from '../hooks/HookTimelineRow.tsx';
 import { InlineExpandable, TraceRow } from './TraceRow.tsx';
-import { CompactDivider } from './CompactDivider.tsx';
-import { useLatchedOpen, useMinDisplay, useRatchetCounts } from './hooks.ts';
+import { useLatchedOpen, useMinDisplay } from './hooks.ts';
 import styles from './Timeline.module.css';
 
 interface TimelineProps {
@@ -188,28 +189,24 @@ function isFailedStatus(status?: string) {
 function ProcessTraceLabel({ block }: { block: TimelineTurnBlock }) {
   const exploration = block.explorationSummary;
   const summary = exploration?.exploration;
-  const rawCounts = summary?.toolCounts ?? exploration?.displayCounts;
   const status = summary?.status ?? block.status;
-  const counts = useRatchetCounts(rawCounts, block.turnId);
   const verb = useMinDisplay(explorationStatusVerb(status, summary?.failedCount), 700);
-  if (counts && counts.length > 0) {
+  const duration = summary?.elapsedMs ? formatElapsed(summary.elapsedMs) : blockDuration(block);
+  const subagentCount = summary?.subagentCount;
+  if (summary) {
     return (
       <span className={styles.processTraceLabel} data-testid="process-trace-label" data-exploration-status={status}>
         <span>{verb}</span>
-        {counts.map((count) => (
-          <span key={count.kind}>{explorationCountLabel(count)}</span>
-        ))}
-        {summary?.subagentCount ? <span>· {summary.subagentCount} 个子任务</span> : null}
-        {summary?.elapsedMs ? <span>{formatElapsed(summary.elapsedMs)}</span> : null}
+        {duration ? <span>{duration}</span> : null}
+        {subagentCount ? <span>{subagentCount} 个子任务</span> : null}
       </span>
     );
   }
-  const { duration, label, toolCount } = processTraceSummaryParts(block);
+  const { duration: fallbackDuration, label } = processTraceSummaryParts(block);
   return (
     <span className={styles.processTraceLabel}>
       <span>{label}</span>
-      {duration && <span>{duration}</span>}
-      {toolCount > 0 && <span>{toolCount} 个工具</span>}
+      {fallbackDuration && <span>{fallbackDuration}</span>}
     </span>
   );
 }
@@ -230,34 +227,6 @@ function explorationStatusVerb(status?: string, failedCount?: number) {
     default:
       return '探索';
   }
-}
-
-function explorationCountLabel(count: { kind: string; count: number; failed?: number }) {
-  const base = (() => {
-    switch (count.kind) {
-      case 'file_read':
-        return count.count === 1 ? '读取 1 个文件' : `读取 ${count.count} 个文件`;
-      case 'file_search':
-        return count.count === 1 ? '搜索 1 次' : `搜索 ${count.count} 次`;
-      case 'shell':
-        return count.count === 1 ? '运行 1 条命令' : `运行 ${count.count} 条命令`;
-      case 'file_edit':
-        return count.count === 1 ? '编辑 1 个文件' : `编辑 ${count.count} 个文件`;
-      case 'file_write':
-        return count.count === 1 ? '写入 1 个文件' : `写入 ${count.count} 个文件`;
-      case 'agent_task':
-        return count.count === 1 ? '1 个子任务' : `${count.count} 个子任务`;
-      default:
-        return count.count === 1 ? '1 个工具' : `${count.count} 个工具`;
-    }
-  })();
-  if (count.failed && count.failed > 0 && count.failed < count.count) {
-    return `${base}(${count.failed} 失败)`;
-  }
-  if (count.failed && count.failed === count.count) {
-    return `${base}(失败)`;
-  }
-  return base;
 }
 
 function formatElapsed(ms: number) {
@@ -284,12 +253,12 @@ function TimelineProcessItem({
   onHookOpen?: (execution: HookExecutionViewModel) => void;
 }) {
   if (item.kind === 'tool_call_summary') {
-    return <ToolRunSummary item={item} onAgentTaskOpen={onAgentTaskOpen} />;
+    return <ToolTraceGroup toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />;
   }
   if (item.kind === 'tool_call_group') {
     return (
       <>
-        <ToolCallCard toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />
+        <ToolTraceGroup toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />
         {item.toolCalls.flatMap((toolCall) => highSignalHooks(hookExecutions, item.turnId, toolCall.id)).map((execution) => (
           <HookTimelineRow key={execution.id} execution={execution} onOpen={onHookOpen} />
         ))}
@@ -299,7 +268,7 @@ function TimelineProcessItem({
   if ((item.kind === 'tool_call' || item.kind === 'tool_group') && item.toolCall) {
     return (
       <>
-        <ToolCallCard toolCall={item.toolCall} onAgentTaskOpen={onAgentTaskOpen} />
+        <ToolTraceGroup toolCalls={[item.toolCall]} onAgentTaskOpen={onAgentTaskOpen} />
         {highSignalHooks(hookExecutions, item.turnId, item.toolCall.id).map((execution) => (
           <HookTimelineRow key={execution.id} execution={execution} onOpen={onHookOpen} />
         ))}
@@ -331,7 +300,7 @@ function TimelineProcessItem({
     return <WorkflowNoticeRow item={item} />;
   }
   if (item.kind === 'compact_boundary') {
-    return <CompactDivider item={item} />;
+    return <CompactTraceRow item={item} />;
   }
   if (isContextGovernanceItem(item)) {
     return <ContextGovernanceRow item={item} />;
@@ -358,6 +327,86 @@ function WorkflowNoticeRow({ item }: { item: ConversationTimelineItemViewModel }
       tone={failed ? 'error' : 'default'}
     />
   );
+}
+
+function CompactTraceRow({ item }: { item: ConversationTimelineItemViewModel }) {
+  const compact = item.compact;
+  const failed = item.status === 'failed' || Boolean(item.error || compact?.error);
+  const compacting = item.status === 'compacting' || item.status === 'started';
+  const summary = compact?.summaryText || item.summary || item.content;
+  const error = item.error || compact?.error;
+  const meta = (
+    <>
+      {(compact?.trigger || item.title) && <Tag>{compactTriggerLabel(compact?.trigger || item.title || '')}</Tag>}
+      {item.status && <Tag color={failed ? 'error' : compacting ? 'processing' : 'success'}>{compactStatusLabel(item.status)}</Tag>}
+      {!failed && !compacting && typeof compact?.preTokens === 'number' && typeof compact?.postTokens === 'number' && (
+        <span>{formatTokenCount(compact.preTokens)} -&gt; {formatTokenCount(compact.postTokens)} tokens</span>
+      )}
+      {!failed && !compacting && typeof compact?.summarizedCount === 'number' && compact.summarizedCount > 0 && (
+        <span>{compact.summarizedCount} messages</span>
+      )}
+    </>
+  );
+  return (
+    <TraceRow
+      expandable={Boolean(summary)}
+      icon={failed ? <WarningOutlined /> : compacting ? <LoadingOutlined spin /> : <CompressOutlined />}
+      meta={meta}
+      testId="timeline-compact-row"
+      title={compactTraceTitle(item, compacting, failed)}
+      tone={failed ? 'error' : 'default'}
+      extra={error ? <span>{error}</span> : null}
+    >
+      {summary ? (
+        <div className={styles.compactSummaryPanel}>
+          <div className={styles.compactSummaryLabel}>Summary retained for future turns</div>
+          <div className={styles.compactSummaryText}>{summary}</div>
+        </div>
+      ) : null}
+    </TraceRow>
+  );
+}
+
+function compactTraceTitle(item: ConversationTimelineItemViewModel, compacting: boolean, failed: boolean) {
+  const trigger = compactTriggerLabel(item.compact?.trigger || item.title || '');
+  if (failed) {
+    return trigger ? `${trigger} context compact failed` : 'Context compact failed';
+  }
+  if (compacting) {
+    return trigger ? `${trigger} context compacting` : 'Compacting context';
+  }
+  return trigger ? `${trigger} context compacted` : 'Context compacted';
+}
+
+function compactStatusLabel(status: string) {
+  switch (status) {
+    case 'started':
+      return 'running';
+    case 'completed':
+      return 'done';
+    default:
+      return status;
+  }
+}
+
+function compactTriggerLabel(trigger: string) {
+  switch (trigger) {
+    case 'auto':
+      return 'Auto';
+    case 'manual':
+      return 'Manual';
+    case 'reactive':
+      return 'Reactive';
+    default:
+      return trigger;
+  }
+}
+
+function formatTokenCount(tokens: number) {
+  if (tokens >= 1000) {
+    return `${(tokens / 1000).toFixed(tokens >= 100000 ? 0 : 1)}k`;
+  }
+  return `${tokens}`;
 }
 
 function workflowNoticeTitle(kind: string) {
@@ -390,25 +439,70 @@ function ContextGovernanceRow({ item }: { item: ConversationTimelineItemViewMode
   );
 }
 
-function ToolRunSummary({ item, onAgentTaskOpen }: { item: ToolCallSummaryRenderItem; onAgentTaskOpen?: (taskID: string) => void }) {
-  const duration = toolCallsDuration(item.toolCalls);
-  const kinds = summarizeToolKinds(item.toolCalls);
+function ToolTraceGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (taskID: string) => void; toolCalls: ToolCallViewModel[] }) {
+  const duration = toolCallsDuration(toolCalls);
+  const status = toolTraceStatus(toolCalls);
+  const failed = isFailedStatus(status);
+  const running = isActiveTurnStatus(status);
   return (
     <TraceRow
       expandable
-      icon={<CheckOutlined />}
+      icon={failed ? <WarningOutlined /> : running ? <LoadingOutlined spin /> : <CheckOutlined />}
       meta={
         <>
           {duration && <span>{duration}</span>}
-          {kinds && <span>{kinds}</span>}
+          {toolCalls.length > 1 && <span>{toolCalls.length} items</span>}
         </>
       }
       testId="tool-run-summary"
-      title={`已完成 ${item.toolCalls.length} 个工具`}
+      title={toolTraceTitle(toolCalls)}
+      tone={failed ? 'error' : 'default'}
     >
-      <QuietToolRowList toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />
+      <QuietToolRowList toolCalls={toolCalls} onAgentTaskOpen={onAgentTaskOpen} />
     </TraceRow>
   );
+}
+
+function toolTraceStatus(toolCalls: ToolCallViewModel[]) {
+  if (toolCalls.some((call) => isActiveTurnStatus(call.status))) {
+    return 'running';
+  }
+  if (toolCalls.some((call) => isFailedStatus(call.status))) {
+    return 'failed';
+  }
+  if (toolCalls.some((call) => call.status === 'denied')) {
+    return 'denied';
+  }
+  return 'completed';
+}
+
+function toolTraceTitle(toolCalls: ToolCallViewModel[]) {
+  const kind = dominantToolKind(toolCalls);
+  const count = toolCalls.length;
+  const prefix = toolTraceStatus(toolCalls) === 'running' ? '正在' : '已';
+  switch (kind) {
+    case 'shell':
+      return `${prefix}运行 ${count} 条命令`;
+    case 'file_read':
+      return `${prefix}读取 ${count} 个文件`;
+    case 'file_search':
+      return `${prefix}搜索 ${count} 次`;
+    case 'file_write':
+      return `${prefix}写入 ${count} 个文件`;
+    case 'file_edit':
+      return `${prefix}编辑 ${count} 个文件`;
+    default:
+      return `${prefix}处理 ${count} 个工具调用`;
+  }
+}
+
+function dominantToolKind(toolCalls: ToolCallViewModel[]) {
+  const counts = new Map<string, number>();
+  for (const call of toolCalls) {
+    const kind = timelineToolKind(call);
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'generic';
 }
 
 function TimelineMessage({ item, messageApi }: { item: ConversationTimelineItemViewModel; messageApi: ReturnType<typeof message.useMessage>[0] }) {
@@ -615,6 +709,7 @@ function isProcessItem(item: ConversationTimelineItemViewModel) {
     item.kind === 'hook_run' ||
     item.kind === 'todo_summary' ||
     item.kind === 'recovery_notice' ||
+    item.kind === 'compact_boundary' ||
     item.kind === 'agent_task' ||
     item.kind === 'turn_terminal' ||
     isContextGovernanceItem(item)
@@ -666,11 +761,6 @@ function isActiveTurnStatus(status?: string) {
   return status === 'running' || status === 'queued' || status === 'waiting_permission';
 }
 
-// compact_boundary is intentionally excluded here (B11/WP5): it is handled
-// as its own full-width CompactDivider branch before this check is ever
-// reached (see the render dispatch above), and it must NOT count as a
-// process item — the divider is a standalone timeline element, not part of
-// a turn's collapsible exploration trace.
 function isContextGovernanceItem(item: ConversationTimelineItemViewModel) {
 	return item.kind === 'context_source';
 }
@@ -702,15 +792,14 @@ function processTraceLabel(status?: string) {
 }
 
 function processTraceSummary(block: TimelineTurnBlock) {
-  const { duration, label, toolCount } = processTraceSummaryParts(block);
-  return [label, duration, toolCount > 0 ? `${toolCount} 个工具` : undefined, block.turnId].filter(Boolean).join(' ');
+  const { duration, label } = processTraceSummaryParts(block);
+  return [label, duration, block.turnId].filter(Boolean).join(' ');
 }
 
 function processTraceSummaryParts(block: TimelineTurnBlock) {
   return {
     duration: blockDuration(block),
     label: processTraceLabel(block.status),
-    toolCount: block.processItems.filter((item) => item.kind === 'tool_call' || item.kind === 'tool_group').length,
   };
 }
 
@@ -821,36 +910,6 @@ function toolCallsDuration(toolCalls: ToolCallViewModel[]) {
   const startedAt = toolCalls.reduce<number | undefined>((current, toolCall) => minDefined(current, toolCall.startedAt), undefined);
   const finishedAt = toolCalls.reduce<number | undefined>((current, toolCall) => maxDefined(current, toolCall.finishedAt), undefined);
   return startedAt && finishedAt ? formatDuration(startedAt, finishedAt) : '';
-}
-
-function summarizeToolKinds(toolCalls: ToolCallViewModel[]) {
-  const counts = new Map<string, number>();
-  for (const toolCall of toolCalls) {
-    const kind = timelineToolKind(toolCall);
-    counts.set(kind, (counts.get(kind) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([kind, count]) => `${toolKindLabel(kind)} ${count}`)
-    .join(' / ');
-}
-
-function toolKindLabel(kind: string) {
-  switch (kind) {
-    case 'file_read':
-      return '读取';
-    case 'file_write':
-      return '写入';
-    case 'file_edit':
-      return '编辑';
-    case 'file_search':
-      return '搜索';
-    case 'shell':
-      return '命令';
-    default:
-      return '工具';
-  }
 }
 
 function timelineToolKind(toolCall?: ToolCallViewModel) {

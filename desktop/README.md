@@ -1,6 +1,6 @@
 # Agent Builder Desktop
 
-This is the Phase 1 Wails desktop shell for the agentic operations client.
+This is the Wails desktop shell for the Agent Builder client.
 It intentionally stays thin: the product UI remains in `../client`, and
 the desktop build embeds the shared `client/dist` output.
 
@@ -34,9 +34,8 @@ desktop/bin/logs/
 ```
 
 Model settings are saved by the Go runtime bridge to
-`bin/config/model.json`. See `scripts/phase2-smoke.ps1` for the current
-packaged desktop smoke flow. The historical Phase 1 acceptance flow is archived
-at `../docs/archive/phase-1-acceptance-test.md`.
+`bin/config/model.json`. See `scripts/phase2-smoke.ps1` for a packaged desktop
+smoke flow and `../docs/frontend-and-desktop.md` for the current boundary.
 
 Desktop-managed runtime settings live next to the executable:
 

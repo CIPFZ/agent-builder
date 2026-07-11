@@ -210,8 +210,8 @@ export interface RuntimeConversationItem {
 
 // RuntimeCompactInfo mirrors internal/runtime.RuntimeCompactInfo (WP5): the
 // compact_boundary item's trigger/status/token-delta meta plus the full
-// summary text, so CompactDivider can render its expanded detail without a
-// second round trip.
+// summary text, so the timeline process trace can render compact detail
+// without a second round trip.
 export interface RuntimeCompactInfo {
   trigger?: string;
   status?: string;
