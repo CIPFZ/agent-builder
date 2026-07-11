@@ -139,14 +139,27 @@ Review notes:
 - Verified with build, ESLint, phase 07 structural smoke, conversation output
   and streaming smokes, and code review.
 
-### [ ] Phase 6: Large-output protection
+### [x] Phase 6: Large-output protection
 
 - Truncate commands to a single-line summary when collapsed.
 - Show bounded stdout/stderr excerpts.
 - Summarize reads, searches, diffs, and artifacts.
 - Load full output through a drawer or runtime output reference.
 
-Review notes: Pending.
+Review notes:
+
+- Tool output/error previews are bounded to 24 lines and 6000 characters.
+- Failure excerpts outside disclosures are bounded to two lines and 320
+  characters.
+- Long commands and details use bounded previews; copy actions retain the full
+  original text.
+- Truncated content exposes an explicit "view full content" action that opens a
+  separate Drawer instead of expanding the conversation document.
+- Target lists are capped at ten visible entries with a remaining-count summary.
+- Output, artifact, and diff references continue to render as compact counts.
+- Added pure preview-policy assertions and structural smoke coverage.
+- Verified with build, ESLint, conversation output/streaming smokes, phase 07
+  structural smoke, and code review.
 
 ### [ ] Phase 7: Visual system alignment
 

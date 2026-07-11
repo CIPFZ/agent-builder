@@ -10,6 +10,7 @@ await mkdir(tempDir, { recursive: true });
 await mkdir(path.join(tempDir, 'conversation'), { recursive: true });
 await mkdir(path.join(tempDir, 'timeline'), { recursive: true });
 await mkdir(path.join(tempDir, 'todos'), { recursive: true });
+await mkdir(path.join(tempDir, 'tools'), { recursive: true });
 
 for (const name of ['outputStore', 'outputReducer', 'outputSelectors']) {
   const source = await readFile(path.join(root, 'src', 'runtime', `${name}.ts`), 'utf8');
@@ -21,6 +22,14 @@ for (const name of ['outputStore', 'outputReducer', 'outputSelectors']) {
     },
   }).outputText.replaceAll('.ts', '.mjs');
   await writeFile(path.join(tempDir, `${name}.mjs`), transpiled);
+}
+
+{
+  const source = await readFile(path.join(root, 'src', 'features', 'tools', 'toolOutputPreview.ts'), 'utf8');
+  const transpiled = ts.transpileModule(source, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022, importsNotUsedAsValues: ts.ImportsNotUsedAsValues.Remove },
+  }).outputText.replaceAll('.ts', '.mjs');
+  await writeFile(path.join(tempDir, 'tools', 'toolOutputPreview.mjs'), transpiled);
 }
 
 {
@@ -61,6 +70,7 @@ const { selectConversationMessages, selectProjectedConversationItems, selectPend
 const { selectConversationTurns } = await import(pathToFileURL(path.join(tempDir, 'conversation', 'turnProjection.mjs')).href);
 const { shouldAutoOpenProcess } = await import(pathToFileURL(path.join(tempDir, 'timeline', 'processDisclosurePolicy.mjs')).href);
 const { todoDisplayModel } = await import(pathToFileURL(path.join(tempDir, 'todos', 'todoDisplayPolicy.mjs')).href);
+const { boundedToolText } = await import(pathToFileURL(path.join(tempDir, 'tools', 'toolOutputPreview.mjs')).href);
 
 assert.equal(shouldAutoOpenProcess({ status: 'running', itemStatuses: [] }), true, 'running process auto-opens');
 assert.equal(shouldAutoOpenProcess({ status: 'queued', itemStatuses: [] }), true, 'queued process auto-opens');
@@ -82,6 +92,9 @@ assert.equal(todoDisplayModel(staleTodos, 'completed').state, 'stopped', 'termin
 assert.equal(todoDisplayModel(staleTodos, 'failed').state, 'stopped', 'failed turn renders Todo state as stopped');
 assert.equal(todoDisplayModel(staleTodos, 'running').state, 'running', 'active turn may render an in-progress Todo spinner');
 assert.equal(todoDisplayModel(staleTodos, undefined).state, 'hidden', 'Todo data without an owning turn is hidden as stale');
+assert.equal(boundedToolText('short output').truncated, false, 'short tool output remains intact');
+assert.equal(boundedToolText(Array.from({ length: 30 }, (_, index) => `line-${index}`).join('\n')).truncated, true, 'long tool output is line bounded');
+assert.equal(boundedToolText('x'.repeat(7000)).text.length <= 6002, true, 'long single-line tool output is character bounded');
 
 // ── 1. Runtime-owned snapshot: version=1 items are the only conversation source.
 

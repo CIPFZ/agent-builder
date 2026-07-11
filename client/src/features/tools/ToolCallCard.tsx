@@ -12,8 +12,9 @@ import {
   SafetyCertificateOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
-import { Button, Collapse, Tag, Typography, message } from 'antd';
+import { Button, Collapse, Drawer, Tag, Typography, message } from 'antd';
 import type { ToolCallViewModel } from '../../runtime/workbenchTypes.ts';
+import { boundedToolText } from './toolOutputPreview.ts';
 import styles from './ToolCallCard.module.css';
 
 type ToolKind = 'file_read' | 'file_write' | 'file_edit' | 'file_search' | 'shell' | 'generic';
@@ -95,7 +96,7 @@ function SingleToolCallCard({ onAgentTaskOpen, toolCall }: { onAgentTaskOpen?: (
           },
         ]}
       />
-      {failureExcerpt && <div className={styles.failureExcerpt}>{failureExcerpt}</div>}
+      {failureExcerpt && <div className={styles.failureExcerpt}>{boundedToolText(failureExcerpt, 2, 320).text}</div>}
     </section>
   );
 }
@@ -181,7 +182,7 @@ function ToolCallGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (task
           },
         ]}
       />
-      {failureExcerpt && <div className={styles.failureExcerpt}>{failureExcerpt}</div>}
+      {failureExcerpt && <div className={styles.failureExcerpt}>{boundedToolText(failureExcerpt, 2, 320).text}</div>}
     </section>
   );
 }
@@ -264,6 +265,7 @@ function ToolDetails({
   title?: string;
   toolCall: ToolCallViewModel;
 }) {
+  const [fullContent, setFullContent] = useState<{ title: string; text: string }>();
   const shellLike = kind === 'shell';
   const stderr = toolStderr(toolCall);
   const failureReason = toolFailureReason(toolCall);
@@ -283,8 +285,9 @@ function ToolDetails({
             <Button aria-label="复制工具详情" className={styles.copyButton} icon={<CopyOutlined />} size="small" type="text" onClick={() => void onCopy(detailsText || detail)} />
           </div>
           <Typography.Paragraph className={shellLike ? styles.commandLine : styles.detailText} copyable={false}>
-            {detail}
+            {boundedToolText(detail, 4, 1200).text}
           </Typography.Paragraph>
+          {boundedToolText(detail, 4, 1200).truncated ? <Button className={styles.viewFullButton} size="small" type="link" onClick={() => setFullContent({ title: title || '工具详情', text: detail })}>查看完整详情</Button> : null}
           {(workingDir || (!shellLike && targets.length > 0)) && (
             <div className={styles.detailRows}>
               {workingDir && (
@@ -296,16 +299,16 @@ function ToolDetails({
               {!shellLike && targets.length > 0 && (
                 <div className={styles.detailRow}>
                   <span>{targets.length > 1 ? 'targets' : 'target'}</span>
-                  <code>{targets.join('\n')}</code>
+                  <code>{summarizeTargets(targets)}</code>
                 </div>
               )}
             </div>
           )}
-          {shellLike && command && command !== detail && <pre className={styles.output}>{command}</pre>}
-          {output ? <pre className={styles.output}>{output}</pre> : shellLike && toolCall.status === 'completed' ? <div className={styles.emptyOutput}>无输出</div> : null}
-          {failureReason && failureReason !== stderr && failureReason !== toolCall.error && <pre className={`${styles.output} ${styles.errorOutput}`}>{failureReason}</pre>}
-          {stderr && <pre className={`${styles.output} ${styles.errorOutput}`}>{stderr}</pre>}
-          {toolCall.error && <pre className={`${styles.output} ${styles.errorOutput}`}>{toolCall.error}</pre>}
+          {shellLike && command && command !== detail && <ToolTextPreview label="完整命令" text={command} onViewFull={setFullContent} />}
+          {output ? <ToolTextPreview label="完整输出" text={output} onViewFull={setFullContent} /> : shellLike && toolCall.status === 'completed' ? <div className={styles.emptyOutput}>无输出</div> : null}
+          {failureReason && failureReason !== stderr && failureReason !== toolCall.error && <ToolTextPreview error label="完整失败信息" text={failureReason} onViewFull={setFullContent} />}
+          {stderr && <ToolTextPreview error label="完整错误输出" text={stderr} onViewFull={setFullContent} />}
+          {toolCall.error && <ToolTextPreview error label="完整错误" text={toolCall.error} onViewFull={setFullContent} />}
         </div>
       )}
 
@@ -315,7 +318,7 @@ function ToolDetails({
             <span>{title || '输出'}</span>
             <Button aria-label="复制工具输出" className={styles.copyButton} icon={<CopyOutlined />} size="small" type="text" onClick={() => void onCopy(output)} />
           </div>
-          <pre className={styles.output}>{output}</pre>
+          <ToolTextPreview label="完整输出" text={output} onViewFull={setFullContent} />
         </div>
       )}
 
@@ -332,6 +335,19 @@ function ToolDetails({
           {toolCall.policyTargetSummary && <Tag>{toolCall.policyTargetSummary}</Tag>}
         </div>
       )}
+      <Drawer destroyOnHidden open={Boolean(fullContent)} placement="right" title={fullContent?.title} width="min(720px, 92vw)" onClose={() => setFullContent(undefined)}>
+        {fullContent ? <pre className={styles.fullOutput}>{fullContent.text}</pre> : null}
+      </Drawer>
+    </div>
+  );
+}
+
+function ToolTextPreview({ error = false, label, onViewFull, text }: { error?: boolean; label: string; onViewFull: (content: { title: string; text: string }) => void; text: string }) {
+  const preview = boundedToolText(text);
+  return (
+    <div className={styles.outputBlock}>
+      <pre className={`${styles.output} ${error ? styles.errorOutput : ''}`}>{preview.text}</pre>
+      {preview.truncated ? <Button className={styles.viewFullButton} size="small" type="link" onClick={() => onViewFull({ title: label, text })}>查看完整内容</Button> : null}
     </div>
   );
 }
@@ -618,6 +634,11 @@ function toolTargets(toolCall: ToolCallViewModel) {
     return targets;
   }
   return [toolCall.display?.primaryTarget, toolCall.display?.target].filter((value): value is string => Boolean(value?.trim()));
+}
+
+function summarizeTargets(targets: string[]) {
+  const visible = targets.slice(0, 10);
+  return targets.length > visible.length ? `${visible.join('\n')}\n… ${targets.length - visible.length} more` : visible.join('\n');
 }
 
 function statusLabel(status: string) {

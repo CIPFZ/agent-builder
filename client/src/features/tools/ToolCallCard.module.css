@@ -149,6 +149,29 @@
   line-height: 1.55;
 }
 
+.outputBlock {
+  display: grid;
+  gap: 2px;
+}
+
+.viewFullButton {
+  width: fit-content;
+  height: 24px;
+  padding-inline: 0 !important;
+  color: rgb(13 13 13 / 52%);
+  font-size: 12px;
+}
+
+.fullOutput {
+  margin: 0;
+  color: rgb(13 13 13 / 78%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .output {
   padding: 8px 9px;
   overflow-x: auto;
