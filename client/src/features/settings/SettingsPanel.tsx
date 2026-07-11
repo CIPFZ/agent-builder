@@ -1818,7 +1818,6 @@ function ContextGovernanceSettings({
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     onLoad()
       .then((loaded) => {
         if (cancelled) return;

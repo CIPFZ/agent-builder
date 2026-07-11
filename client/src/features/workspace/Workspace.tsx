@@ -463,7 +463,7 @@ export function Workspace({
       pinAndScrollToBottom('auto');
       await onPromptSubmit(prompt);
     },
-    [onManualCompact, onPromptSubmit, pinAndScrollToBottom],
+    [messageApi, onManualCompact, onPromptSubmit, pinAndScrollToBottom],
   );
   const openRenameDialog = () => {
     if (!activeSession) {
