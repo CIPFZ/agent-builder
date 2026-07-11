@@ -1,5 +1,5 @@
 import { CheckCircleOutlined, LoadingOutlined, UnorderedListOutlined } from '@ant-design/icons';
-import { Popover, Progress } from 'antd';
+import { Popover } from 'antd';
 import type { TodoItemViewModel, TodoSummaryViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './TodoTaskBar.module.css';
 
@@ -15,7 +15,6 @@ export function TodoTaskBar({ todos }: { todos?: TodoSummaryViewModel }) {
   const nextIndex = todos.items.findIndex((todo) => todo.status !== 'completed');
   const currentIndex = activeIndex >= 0 ? activeIndex : nextIndex >= 0 ? nextIndex : completed;
   const currentStep = Math.min(total, Math.max(1, currentIndex + 1));
-  const percent = Math.round((completed / total) * 100);
   const currentText = active?.activeForm || active?.content || todos.items[currentIndex]?.content || '任务进行中';
 
   return (
@@ -32,7 +31,6 @@ export function TodoTaskBar({ todos }: { todos?: TodoSummaryViewModel }) {
               </div>
               <span className={styles.count}>{completed}/{total}</span>
             </div>
-            <Progress className={styles.progress} percent={percent} size="small" showInfo={false} />
             <div className={styles.list}>
               {todos.items.map((todo) => (
                 <TodoTaskBarItem key={todo.id} todo={todo} />

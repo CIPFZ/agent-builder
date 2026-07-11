@@ -1,7 +1,6 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AuditOutlined,
-  ArrowDownOutlined,
   CloseOutlined,
   ConsoleSqlOutlined,
   CopyOutlined,
@@ -29,6 +28,8 @@ import { RecoveryCenter } from '../recovery/RecoveryCenter.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import { TodoTaskBar } from '../todos/TodoTaskBar.tsx';
+import { ConversationDock } from '../conversationDock/ConversationDock.tsx';
+import { JumpToBottomAction } from '../conversationDock/JumpToBottomAction.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
 import { disposeTerminalRuntime } from './terminalRuntime.ts';
 import { useStickToBottom } from './useStickToBottom.ts';
@@ -162,6 +163,10 @@ export function Workspace({
   const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
   const activeSessionID = activeSession?.id ?? '';
   const hasAgentTasks = Boolean(viewModel.agentTasks?.length);
+  const todoTotal = viewModel.todos?.total || viewModel.todos?.items.length || 0;
+  const todoCompleted = Math.min(viewModel.todos?.completed || 0, todoTotal);
+  const showTodoAction = Boolean(viewModel.todos?.items.length && todoTotal > 0 && todoCompleted < todoTotal);
+  const showJumpAction = hasConversation && showJumpToBottom;
   const replaceTerminalTabs = useCallback((terminals: TerminalViewModel[]) => {
     setRightPanelTabs((current) => {
       const projectTabs = current.filter((tab) => tab.kind !== 'terminal');
@@ -597,36 +602,41 @@ export function Workspace({
           ) : (
             <h1 className={styles.title}>{title}</h1>
           )}
-          <TodoTaskBar todos={viewModel.todos} />
-          {hasConversation && showJumpToBottom && (
-            <button
-              aria-label="跳到底部"
-              className={styles.jumpToBottomButton}
-              type="button"
-              onClick={jumpToBottom}
-            >
-              <ArrowDownOutlined />
-            </button>
-          )}
-          {activePendingPermission ? (
-            <div className={styles.permissionDock} data-testid="permission-dock">
-              <PermissionGate permission={activePendingPermission} onDecide={onPermissionDecide} />
-            </div>
-          ) : (
-            <Composer
-              composer={viewModel.composer}
-              project={viewModel.currentProject}
-              projects={viewModel.projects}
-              newConversationDraft={composerDraftTarget}
-              showProjectContext={Boolean(composerDraftTarget)}
-              onNewConversationDraftChange={onNewConversationDraftChange}
-              onModelSelect={onModelSelect}
-              onPermissionModeSelect={onPermissionModeSelect}
-              onCancel={onPromptCancel}
-              onSubmit={handlePromptSubmit}
-              onManualCompact={onManualCompact}
-            />
-          )}
+          <ConversationDock
+            actions={[
+              showTodoAction && {
+                key: 'todos',
+                node: <TodoTaskBar todos={viewModel.todos} />,
+                pinned: true,
+                priority: 10,
+              },
+              showJumpAction && {
+                key: 'jump-to-bottom',
+                node: <JumpToBottomAction onClick={jumpToBottom} />,
+                priority: 100,
+              },
+            ]}
+          >
+            {activePendingPermission ? (
+              <div className={styles.permissionDock} data-testid="permission-dock">
+                <PermissionGate permission={activePendingPermission} onDecide={onPermissionDecide} />
+              </div>
+            ) : (
+              <Composer
+                composer={viewModel.composer}
+                project={viewModel.currentProject}
+                projects={viewModel.projects}
+                newConversationDraft={composerDraftTarget}
+                showProjectContext={Boolean(composerDraftTarget)}
+                onNewConversationDraftChange={onNewConversationDraftChange}
+                onModelSelect={onModelSelect}
+                onPermissionModeSelect={onPermissionModeSelect}
+                onCancel={onPromptCancel}
+                onSubmit={handlePromptSubmit}
+                onManualCompact={onManualCompact}
+              />
+            )}
+          </ConversationDock>
         </div>
         {rightPanelOpen && (
           <aside className={`${styles.rightPanel} ${rightPanelHasTabs ? '' : styles.rightPanelNoTabs}`} aria-label="右侧工作区">
