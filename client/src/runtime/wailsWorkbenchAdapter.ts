@@ -4322,12 +4322,23 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
   async createSession(current, target) {
     forceDraftChatSubmit = false;
     const draft = target ?? current.newConversationDraft ?? defaultDraftTarget(current);
-    return resetConversationRuntimeState({
+    const draftViewModel = resetConversationRuntimeState({
       ...current,
       mode: 'new-chat',
       newConversationDraft: draft,
       sessions: current.sessions.map((session) => ({ ...session, active: false })),
     });
+    return withBridge(
+      async (bridge) => {
+        // A new conversation is intentionally only a draft until its first
+        // prompt is submitted, but the runtime must still clear its active
+        // session. Otherwise the next event-driven hydration reads the old
+        // activeSessionId and visibly switches the UI back to that session.
+        await bridge.NewChat('');
+        return draftViewModel;
+      },
+      () => staticWorkbenchAdapter.createSession(draftViewModel, draft),
+    );
   },
   async selectSession(current, sessionID) {
     forceDraftChatSubmit = false;

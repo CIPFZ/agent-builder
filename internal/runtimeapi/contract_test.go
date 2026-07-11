@@ -148,6 +148,7 @@ func TestEventTypesFreezePhase2Schema(t *testing.T) {
 		EventRecoveryCompactRetryCompleted,
 		EventRecoveryCompactRetryFailed,
 		EventSessionCreated,
+		EventSessionSelectionCleared,
 		EventTurnStarted,
 		EventMessageCreated,
 		EventToolCallStarted,

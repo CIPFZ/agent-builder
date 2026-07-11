@@ -2794,6 +2794,8 @@ func TestRuntimeNewChatUsesDraftSessionAndPreservesRecents(t *testing.T) {
 	service.runtime = runtime
 	service.workspace = &apitypes.Workspace{ID: workspace.ID}
 	service.sessionID = first.ID
+	events, unsubscribe := service.SubscribeEvents(context.Background())
+	defer unsubscribe()
 
 	status, err := service.NewChat(context.Background(), "Second chat")
 	if err != nil {
@@ -2801,6 +2803,23 @@ func TestRuntimeNewChatUsesDraftSessionAndPreservesRecents(t *testing.T) {
 	}
 	if status.SessionID != "" {
 		t.Fatalf("new chat should enter draft mode without selecting a session: %#v", status)
+	}
+	select {
+	case event := <-events:
+		if event.Type != runtimeapi.EventSessionSelectionCleared {
+			t.Fatalf("new chat event type = %q", event.Type)
+		}
+		if event.SessionID != "" {
+			t.Fatalf("selection-cleared event should not identify an active session: %#v", event)
+		}
+		if got := stringFromMap(event.Payload, "previousSessionId"); got != first.ID {
+			t.Fatalf("previousSessionId = %q, want %q", got, first.ID)
+		}
+		if got := stringFromMap(event.Payload, "reason"); got != "new_chat" {
+			t.Fatalf("reason = %q, want new_chat", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for session selection cleared event")
 	}
 
 	sessions, err := service.Sessions(context.Background())

@@ -1,6 +1,7 @@
 import type { RuntimeEventViewModel } from './workbenchTypes.ts';
 
 const immediateRefreshEvents = new Set([
+  'session.selection.cleared',
   'turn.started',
   'turn.completed',
   'turn.failed',

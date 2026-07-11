@@ -812,8 +812,19 @@ func (r *runtimeService) NewChat(ctx context.Context, title string) (RuntimeStat
 	}
 
 	r.mu.Lock()
+	previousSessionID := r.sessionID
 	r.sessionID = ""
 	r.mu.Unlock()
+
+	r.publishRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      runtimeapi.EventSessionSelectionCleared,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Payload: map[string]any{
+			"previousSessionId": previousSessionID,
+			"reason":            "new_chat",
+		},
+	})
 
 	return r.Status(ctx)
 }

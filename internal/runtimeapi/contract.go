@@ -138,6 +138,7 @@ const (
 	EventSessionCreated                = "session.created"
 	EventSessionUpdated                = "session.updated"
 	EventSessionDeleted                = "session.deleted"
+	EventSessionSelectionCleared       = "session.selection.cleared"
 	EventTurnStarted                   = "turn.started"
 	EventTurnCompleted                 = "turn.completed"
 	EventTurnFailed                    = "turn.failed"
@@ -312,6 +313,7 @@ var EventTypes = []string{
 	EventSessionCreated,
 	EventSessionUpdated,
 	EventSessionDeleted,
+	EventSessionSelectionCleared,
 	EventTurnStarted,
 	EventTurnCompleted,
 	EventTurnFailed,
