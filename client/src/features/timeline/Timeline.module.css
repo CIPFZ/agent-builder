@@ -104,6 +104,16 @@
   color: rgb(13 13 13 / 42%);
 }
 
+.processTrace[data-process-status='failed'] .processTraceLabel,
+.processTrace[data-process-has-failures='true'] .processTraceLabel {
+  color: var(--ant-color-error);
+}
+
+.processTrace[data-process-status='interrupted'] .processTraceLabel,
+.processTrace[data-process-status='cancelled'] .processTraceLabel {
+  color: var(--ant-color-warning-text, #ad6800);
+}
+
 .streamingBubble {
   position: relative;
 }

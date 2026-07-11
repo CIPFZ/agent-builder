@@ -1,14 +1,14 @@
 export interface ProcessDisclosureState {
   status?: string;
   explorationStatus?: string;
-  failedCount?: number;
   itemStatuses: Array<string | undefined>;
 }
 
 export function shouldAutoOpenProcess(state: ProcessDisclosureState) {
-  if (state.explorationStatus === 'exploring' || (state.failedCount ?? 0) > 0) return true;
-  if (isFailedStatus(state.status)) return true;
-  return isActiveStatus(state.status) || state.itemStatuses.some((status) => isActiveStatus(status) || isFailedStatus(status));
+  if (isTerminalProcessStatus(state.status)) return false;
+  if (isActiveProcessStatus(state.status)) return true;
+  if (state.explorationStatus === 'exploring') return true;
+  return state.itemStatuses.some((status) => isActiveProcessStatus(status));
 }
 
 export function isActiveProcessStatus(status?: string) {
@@ -19,5 +19,6 @@ export function isFailedProcessStatus(status?: string) {
   return status === 'failed' || status === 'denied' || status === 'cancelled' || status === 'interrupted';
 }
 
-const isActiveStatus = isActiveProcessStatus;
-const isFailedStatus = isFailedProcessStatus;
+export function isTerminalProcessStatus(status?: string) {
+  return status === 'completed' || status === 'success' || status === 'failed' || status === 'denied' || status === 'cancelled' || status === 'interrupted';
+}

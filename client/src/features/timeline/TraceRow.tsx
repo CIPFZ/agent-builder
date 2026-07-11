@@ -45,7 +45,7 @@ export function TraceRow({
   className,
 }: TraceRowProps) {
   const hasBody = expandable && Boolean(children);
-  const [open, setOpen] = useState(defaultOpen || tone === 'error');
+  const [open, setOpen] = useState(defaultOpen);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!clickable) {

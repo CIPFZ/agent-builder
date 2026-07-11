@@ -21,10 +21,10 @@ interface ProcessDisclosureProps {
 
 export function ProcessDisclosure(props: ProcessDisclosureProps) {
   const groupedItems = compactProcessItems(props.items);
-  const autoOpen = shouldAutoOpenProcess({ status: props.status, explorationStatus: props.exploration?.status, failedCount: props.exploration?.failedCount, itemStatuses: props.items.map((item) => item.status) });
+  const autoOpen = shouldAutoOpenProcess({ status: props.status, explorationStatus: props.exploration?.status, itemStatuses: props.items.map((item) => item.status) });
   const [open, setOpen] = useLatchedOpen(autoOpen, props.turnId);
   return (
-    <section className={styles.processTrace} data-testid="process-trace" data-process-label={processSummary(props)} data-process-status={props.status}>
+    <section className={styles.processTrace} data-testid="process-trace" data-process-label={processSummary(props)} data-process-status={props.status} data-process-has-failures={(props.exploration?.failedCount ?? 0) > 0 ? 'true' : undefined}>
       <Collapse ghost size="small" activeKey={open ? ['trace'] : []} expandIcon={({ isActive }) => <DownOutlined rotate={isActive ? 180 : 0} />} items={[{ key: 'trace', label: <ProcessLabel {...props} />, children: <div className={styles.processStream} data-testid="process-stream">{groupedItems.map((item) => <div key={item.id} className={styles.processStreamItem}>{props.renderItem(item)}</div>)}</div> }]} onChange={(keys) => setOpen(Array.isArray(keys) ? keys.includes('trace') : keys === 'trace')} />
     </section>
   );

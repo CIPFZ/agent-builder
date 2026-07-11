@@ -15,8 +15,9 @@ const narrationPath = resolve(repoRoot, 'client', 'src', 'features', 'timeline',
 const timelineStylePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'Timeline.module.css');
 const toolStylePath = resolve(repoRoot, 'client', 'src', 'features', 'tools', 'ToolCallCard.module.css');
 const workspacePath = resolve(repoRoot, 'client', 'src', 'features', 'workspace', 'Workspace.tsx');
+const traceRowPath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'TraceRow.tsx');
 
-const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource, narrationSource, timelineStyleSource, toolStyleSource, workspaceSource] = await Promise.all([
+const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource, narrationSource, timelineStyleSource, toolStyleSource, workspaceSource, traceRowSource] = await Promise.all([
   readFile(adapterPath, 'utf8'),
   readFile(typesPath, 'utf8'),
   readFile(toolCardPath, 'utf8'),
@@ -28,6 +29,7 @@ const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSo
   readFile(timelineStylePath, 'utf8'),
   readFile(toolStylePath, 'utf8'),
   readFile(workspacePath, 'utf8'),
+  readFile(traceRowPath, 'utf8'),
 ]);
 
 assert.match(typesSource, /export type ConversationTimelineKind =/);
@@ -49,11 +51,14 @@ assert.match(turnProjectionSource, /item\.phase === 'final'/);
 assert.match(timelineSource, /<ProcessDisclosure/);
 assert.match(timelineSource, /<TimelineMessage/);
 assert.match(disclosureSource, /shouldAutoOpenProcess/);
+assert.doesNotMatch(disclosureSource, /failedCount: props\.exploration/);
 assert.match(disclosureSource, /data-testid="process-stream"/);
 assert.match(narrationSource, /data-testid="process-narration"/);
 assert.match(narrationSource, /<MarkdownMessage/);
 assert.doesNotMatch(timelineSource, /ThinkingItem|AssistantProcessNote/);
 assert.doesNotMatch(timelineStyleSource, /\.stepRail|\.stepDot|\.processSteps/);
+assert.match(traceRowSource, /useState\(defaultOpen\)/);
+assert.doesNotMatch(traceRowSource, /useState\([^)]*tone === 'error'/);
 const processStreamRule = timelineStyleSource.match(/\.processStream\s*\{[^}]*\}/)?.[0] ?? '';
 assert.ok(processStreamRule, 'processStream CSS rule exists');
 assert.doesNotMatch(processStreamRule, /overflow:\s*auto|max-height:/);

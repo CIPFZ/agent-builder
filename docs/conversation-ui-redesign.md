@@ -96,13 +96,25 @@ Review notes:
 - Verified with build, ESLint, phase 07 structural smoke, conversation output
   smoke, streaming smoke, and a residual overflow scan.
 
-### [ ] Phase 4: Process disclosure policy
+### [x] Phase 4: Process disclosure policy
 
 - Expand only running and permission-waiting processes by default.
 - Collapse completed, partially failed, failed, interrupted, and cancelled turns.
 - Preserve explicit user expand/collapse choices during the turn lifecycle.
 
-Review notes: Pending.
+Review notes:
+
+- Authoritative terminal Turn states always default to collapsed, even when
+  exploration counters report failures or a stale child item remains running.
+- Running, queued, streaming, and permission-waiting processes default to open.
+- Failed, partially failed, interrupted, cancelled, denied, and completed
+  processes default to collapsed.
+- Explicit user choices remain latched for the current Turn and reset when the
+  Turn id changes.
+- Error-tone TraceRows no longer auto-expand; error state is communicated by
+  icon, text, border, and the process summary color.
+- Verified with policy smoke assertions, build, ESLint, phase 07 structural
+  smoke, conversation output smoke, streaming smoke, and code review.
 
 ### [ ] Phase 5: Tool disclosure hierarchy
 

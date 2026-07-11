@@ -63,9 +63,13 @@ const { shouldAutoOpenProcess } = await import(pathToFileURL(path.join(tempDir, 
 const { todoDisplayModel } = await import(pathToFileURL(path.join(tempDir, 'todos', 'todoDisplayPolicy.mjs')).href);
 
 assert.equal(shouldAutoOpenProcess({ status: 'running', itemStatuses: [] }), true, 'running process auto-opens');
+assert.equal(shouldAutoOpenProcess({ status: 'queued', itemStatuses: [] }), true, 'queued process auto-opens');
 assert.equal(shouldAutoOpenProcess({ status: 'completed', itemStatuses: ['completed'] }), false, 'successful completed process auto-collapses');
-assert.equal(shouldAutoOpenProcess({ status: 'failed', itemStatuses: [] }), true, 'failed process remains visible');
-assert.equal(shouldAutoOpenProcess({ status: 'completed', failedCount: 1, itemStatuses: ['failed'] }), true, 'partially failed process remains visible');
+assert.equal(shouldAutoOpenProcess({ status: 'failed', itemStatuses: [] }), false, 'failed process auto-collapses');
+assert.equal(shouldAutoOpenProcess({ status: 'interrupted', itemStatuses: [] }), false, 'interrupted process auto-collapses');
+assert.equal(shouldAutoOpenProcess({ status: 'cancelled', itemStatuses: [] }), false, 'cancelled process auto-collapses');
+assert.equal(shouldAutoOpenProcess({ status: 'completed', failedCount: 1, itemStatuses: ['failed'] }), false, 'partially failed completed process auto-collapses');
+assert.equal(shouldAutoOpenProcess({ status: 'completed', itemStatuses: ['running'] }), false, 'terminal turn wins over stale running process items');
 assert.equal(shouldAutoOpenProcess({ status: 'waiting_permission', itemStatuses: [] }), true, 'permission wait remains visible');
 
 const completeTodos = { sessionId: 'session-runtime', items: [
