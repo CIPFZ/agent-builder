@@ -252,7 +252,7 @@ export function Sidebar({
       <aside className={styles.sidebar} aria-label="工作台导航">
         <div className={styles.header}>
           <div className={styles.brand}>
-            <span className={styles.brandMark}>A</span>
+            <img className={styles.brandMark} src="/appicon.svg" alt="" aria-hidden="true" />
             <span className={styles.brandText}>Agent Builder</span>
           </div>
           <div className={styles.headerActions}>
