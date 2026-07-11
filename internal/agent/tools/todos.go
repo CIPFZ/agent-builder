@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"strings"
 	"time"
 
 	"charm.land/fantasy"
@@ -15,8 +16,7 @@ import (
 var todosDescription string
 
 const (
-	TodosToolName     = "todos"
-	TodosSpanToolName = "todospan"
+	TodosToolName = "todos"
 )
 
 type TodosParams struct {
@@ -62,10 +62,6 @@ func NewTodosTool(sessions session.Service) fantasy.AgentTool {
 	return newTodosTool(TodosToolName, todosDescription, sessions)
 }
 
-func NewTodosSpanTool(sessions session.Service) fantasy.AgentTool {
-	return newTodosTool(TodosSpanToolName, todosDescription, sessions)
-}
-
 func newTodosTool(name, description string, sessions session.Service) fantasy.AgentTool {
 	return fantasy.NewAgentTool(
 		name,
@@ -87,20 +83,17 @@ func newTodosTool(name, description string, sessions session.Service) fantasy.Ag
 				oldStatusByContent[todo.Content] = todo.Status
 			}
 
-			for _, item := range params.Todos {
-				switch item.Status {
-				case "pending", "in_progress", "completed":
-				default:
-					return fantasy.ToolResponse{}, fmt.Errorf("invalid status %q for todo %q", item.Status, item.Content)
-				}
+			normalized, err := normalizeTodoItems(params.Todos)
+			if err != nil {
+				return fantasy.ToolResponse{}, err
 			}
 
-			todos := make([]session.Todo, len(params.Todos))
+			todos := make([]session.Todo, len(normalized))
 			var justCompleted []string
 			var justStarted string
 			completedCount := 0
 
-			for i, item := range params.Todos {
+			for i, item := range normalized {
 				todos[i] = session.Todo{
 					Content:    item.Content,
 					Status:     session.TodoStatus(item.Status),
@@ -128,11 +121,13 @@ func newTodosTool(name, description string, sessions session.Service) fantasy.Ag
 				}
 			}
 
-			currentSession.Todos = todos
-			_, err = sessions.Save(ctx, currentSession)
+			updatedSession := currentSession
+			updatedSession.Todos = todos
+			savedSession, err := sessions.Save(ctx, updatedSession)
 			if err != nil {
 				return fantasy.ToolResponse{}, fmt.Errorf("failed to save todos: %w", err)
 			}
+			todos = savedSession.Todos
 
 			response := "Todo list updated successfully.\n\n"
 
@@ -159,7 +154,7 @@ func newTodosTool(name, description string, sessions session.Service) fantasy.Ag
 				Total:         len(todos),
 				JustCompleted: justCompleted,
 				JustStarted:   justStarted,
-				UpdatedAt:     time.Now().UnixMilli(),
+				UpdatedAt:     firstNonZero(savedSession.UpdatedAt, time.Now().UnixMilli()),
 			})
 
 			response += fmt.Sprintf("Status: %d pending, %d in progress, %d completed\n",
@@ -178,4 +173,42 @@ func newTodosTool(name, description string, sessions session.Service) fantasy.Ag
 
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(response), metadata), nil
 		})
+}
+
+func normalizeTodoItems(items []TodoItem) ([]TodoItem, error) {
+	normalized := make([]TodoItem, len(items))
+	seen := make(map[string]struct{}, len(items))
+	inProgress := 0
+	for i, item := range items {
+		item.Content = strings.TrimSpace(item.Content)
+		item.ActiveForm = strings.TrimSpace(item.ActiveForm)
+		if item.Content == "" {
+			return nil, fmt.Errorf("todo content is required at index %d", i)
+		}
+		if _, exists := seen[item.Content]; exists {
+			return nil, fmt.Errorf("duplicate todo content %q", item.Content)
+		}
+		seen[item.Content] = struct{}{}
+		switch item.Status {
+		case "pending", "completed":
+		case "in_progress":
+			inProgress++
+			if inProgress > 1 {
+				return nil, fmt.Errorf("only one todo may be in_progress")
+			}
+		default:
+			return nil, fmt.Errorf("invalid status %q for todo %q", item.Status, item.Content)
+		}
+		normalized[i] = item
+	}
+	return normalized, nil
+}
+
+func firstNonZero(values ...int64) int64 {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
 }

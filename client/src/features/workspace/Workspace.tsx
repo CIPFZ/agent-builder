@@ -28,7 +28,6 @@ import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { RecoveryCenter } from '../recovery/RecoveryCenter.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
-import { TodoPanel } from '../todos/TodoPanel.tsx';
 import { TodoTaskBar } from '../todos/TodoTaskBar.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
 import { disposeTerminalRuntime } from './terminalRuntime.ts';
@@ -162,7 +161,6 @@ export function Workspace({
   const rightPanelOpen = rightPanelVisible;
   const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
   const activeSessionID = activeSession?.id ?? '';
-  const hasTodos = Boolean(viewModel.todos?.items.length);
   const hasAgentTasks = Boolean(viewModel.agentTasks?.length);
   const replaceTerminalTabs = useCallback((terminals: TerminalViewModel[]) => {
     setRightPanelTabs((current) => {
@@ -725,7 +723,7 @@ export function Workspace({
                   <span>终端</span>
                   <kbd>Ctrl+`</kbd>
                 </button>
-                {(hasTodos || hasAgentTasks) ? (
+                {hasAgentTasks ? (
                   <button className={styles.rightPanelLauncherItem} type="button" onClick={() => openRightPanelTool('tasks')}>
                     <UnorderedListOutlined />
                     <span>任务</span>
@@ -793,7 +791,6 @@ export function Workspace({
             ) : activeRightPanelTab?.kind === 'tasks' ? (
               <div className={styles.sideToolPane} role="tabpanel">
                 <div className={styles.taskStack}>
-                  <TodoPanel todos={viewModel.todos} />
                   <AgentTaskPanel
                     agentRoles={viewModel.agentRoles}
                     selectedTaskID={selectedAgentTaskID}
@@ -802,7 +799,7 @@ export function Workspace({
                     onFollowUp={onAgentTaskFollowUp}
                     onSelectTask={setSelectedAgentTaskID}
                   />
-                  {!hasTodos && !hasAgentTasks ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No tasks" /> : null}
+                  {!hasAgentTasks ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No agent tasks" /> : null}
                 </div>
               </div>
             ) : null}

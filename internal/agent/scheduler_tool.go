@@ -300,7 +300,7 @@ func schedulerSourceForToolName(name string) string {
 
 func isBaseRuntimeTool(name string) bool {
 	switch strings.TrimSpace(name) {
-	case ToolSearchToolName, "bash", "view", "edit", "write", "multiedit", "grep", "glob", "ls", "todos", "todospan":
+	case ToolSearchToolName, "bash", "view", "edit", "write", "multiedit", "grep", "glob", "ls", "todos":
 		return true
 	default:
 		return false

@@ -3470,29 +3470,29 @@ func TestRuntimeToolCallDisplayKeepsViewAsReadWhenPathContainsWrite(t *testing.T
 	}
 }
 
-func TestRuntimeToolCallDisplayKeepsTodosGenericWhenContentMentionsWrite(t *testing.T) {
+func TestRuntimeToolCallDisplayKeepsCustomToolsGenericWhenContentMentionsWrite(t *testing.T) {
 	t.Parallel()
 
 	service := newRuntimeService()
 	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
-		ID:           "tool-todospan",
+		ID:           "tool-custom-checklist",
 		SessionID:    "session-1",
 		TurnID:       "turn-1",
-		Name:         "todospan",
+		Name:         "custom_checklist",
 		Source:       scheduler.ToolSourceBuiltin,
-		CapabilityID: "builtin:todospan",
+		CapabilityID: "custom:checklist",
 		InputSummary: `{"todos":[{"content":"Write the report","status":"in_progress"}]}`,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
-		ToolCallID:    "tool-todospan",
+		ToolCallID:    "tool-custom-checklist",
 		Status:        scheduler.ToolCallCompleted,
 		OutputSummary: "Todo list updated successfully.",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	resp, err := service.ToolCall(context.Background(), "tool-todospan")
+	resp, err := service.ToolCall(context.Background(), "tool-custom-checklist")
 	if err != nil {
 		t.Fatal(err)
 	}

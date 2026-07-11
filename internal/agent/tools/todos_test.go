@@ -14,6 +14,7 @@ import (
 
 type mockTodoSessionService struct {
 	session session.Session
+	saveErr error
 }
 
 func (m *mockTodoSessionService) Subscribe(context.Context) <-chan pubsub.Event[session.Session] {
@@ -56,6 +57,9 @@ func (m *mockTodoSessionService) List(context.Context) ([]session.Session, error
 }
 
 func (m *mockTodoSessionService) Save(_ context.Context, sess session.Session) (session.Session, error) {
+	if m.saveErr != nil {
+		return session.Session{}, m.saveErr
+	}
 	m.session = sess
 	return sess, nil
 }
@@ -84,11 +88,11 @@ func (m *mockTodoSessionService) IsAgentToolSession(string) bool {
 	return false
 }
 
-func TestTodosSpanToolUpdatesTodos(t *testing.T) {
+func TestTodosToolUpdatesTodos(t *testing.T) {
 	t.Parallel()
 
 	sessions := &mockTodoSessionService{session: session.Session{ID: "session-1"}}
-	tool := NewTodosSpanTool(sessions)
+	tool := NewTodosTool(sessions)
 	input, err := json.Marshal(TodosParams{Todos: []TodoItem{{
 		Content:    "Write report",
 		Status:     "in_progress",
@@ -98,7 +102,7 @@ func TestTodosSpanToolUpdatesTodos(t *testing.T) {
 
 	resp, err := tool.Run(context.WithValue(context.Background(), SessionIDContextKey, "session-1"), fantasy.ToolCall{
 		ID:    "todo-call",
-		Name:  TodosSpanToolName,
+		Name:  TodosToolName,
 		Input: string(input),
 	})
 	require.NoError(t, err)
@@ -106,4 +110,42 @@ func TestTodosSpanToolUpdatesTodos(t *testing.T) {
 	require.Len(t, sessions.session.Todos, 1)
 	require.Equal(t, "Write report", sessions.session.Todos[0].Content)
 	require.Equal(t, session.TodoStatusInProgress, sessions.session.Todos[0].Status)
+}
+
+func TestTodosToolRejectsInvalidListsWithoutChangingSession(t *testing.T) {
+	t.Parallel()
+
+	original := []session.Todo{{Content: "Existing", Status: session.TodoStatusPending}}
+	sessions := &mockTodoSessionService{session: session.Session{ID: "session-1", Todos: original}}
+	tool := NewTodosTool(sessions)
+	input, err := json.Marshal(TodosParams{Todos: []TodoItem{
+		{Content: "First", Status: "in_progress"},
+		{Content: "Second", Status: "in_progress"},
+	}})
+	require.NoError(t, err)
+
+	_, err = tool.Run(context.WithValue(context.Background(), SessionIDContextKey, "session-1"), fantasy.ToolCall{
+		ID: "todo-call", Name: TodosToolName, Input: string(input),
+	})
+	require.ErrorContains(t, err, "only one todo may be in_progress")
+	require.Equal(t, original, sessions.session.Todos)
+}
+
+func TestTodosToolSaveFailureKeepsPreviousState(t *testing.T) {
+	t.Parallel()
+
+	original := []session.Todo{{Content: "Existing", Status: session.TodoStatusPending}}
+	sessions := &mockTodoSessionService{
+		session: session.Session{ID: "session-1", Todos: original},
+		saveErr: errors.New("database unavailable"),
+	}
+	tool := NewTodosTool(sessions)
+	input, err := json.Marshal(TodosParams{Todos: []TodoItem{{Content: "Replacement", Status: "completed"}}})
+	require.NoError(t, err)
+
+	_, err = tool.Run(context.WithValue(context.Background(), SessionIDContextKey, "session-1"), fantasy.ToolCall{
+		ID: "todo-call", Name: TodosToolName, Input: string(input),
+	})
+	require.ErrorContains(t, err, "failed to save todos")
+	require.Equal(t, original, sessions.session.Todos)
 }
