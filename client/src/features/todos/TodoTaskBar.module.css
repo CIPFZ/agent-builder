@@ -43,6 +43,11 @@
   color: rgba(0, 0, 0, 0.82);
 }
 
+.taskChip[data-state='stopped'] {
+  color: rgba(0, 0, 0, 0.56);
+  background: #fafafa;
+}
+
 .icon,
 .itemIcon {
   display: inline-flex;
@@ -153,6 +158,11 @@
 .item[data-status='completed'] .itemText {
   color: rgba(0, 0, 0, 0.42);
   text-decoration: line-through;
+}
+
+.item[data-status='stopped'] .itemIcon,
+.item[data-status='stopped'] .itemText {
+  color: rgba(0, 0, 0, 0.48);
 }
 
 @media (max-width: 820px) {

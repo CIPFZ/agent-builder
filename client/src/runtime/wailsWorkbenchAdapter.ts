@@ -3406,9 +3406,9 @@ function mapTodoSummary(summary?: RuntimeTodoSummaryDTO, fallbackSessionID = '')
     return undefined;
   }
   const items = (Array.isArray(summary.todos) ? summary.todos : []).map(mapTodoItem).filter((item): item is TodoItemViewModel => Boolean(item));
-  const pending = typeof summary.pending === 'number' ? summary.pending : items.filter((item) => item.status === 'pending').length;
-  const inProgress = typeof summary.inProgress === 'number' ? summary.inProgress : items.filter((item) => item.status === 'in_progress').length;
-  const completed = typeof summary.completed === 'number' ? summary.completed : items.filter((item) => item.status === 'completed').length;
+  const pending = items.filter((item) => item.status === 'pending').length;
+  const inProgress = items.filter((item) => item.status === 'in_progress').length;
+  const completed = items.filter((item) => item.status === 'completed').length;
   return {
     sessionId: summary.sessionId || fallbackSessionID,
     turnId: summary.turnId,
@@ -3416,7 +3416,7 @@ function mapTodoSummary(summary?: RuntimeTodoSummaryDTO, fallbackSessionID = '')
     pending,
     inProgress,
     completed,
-    total: typeof summary.total === 'number' ? summary.total : items.length,
+    total: items.length,
     updatedAt: summary.updatedAt,
   };
 }

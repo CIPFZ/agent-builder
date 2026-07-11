@@ -9,6 +9,7 @@ const tempDir = path.join(root, 'node_modules', '.tmp', 'conversation-output-smo
 await mkdir(tempDir, { recursive: true });
 await mkdir(path.join(tempDir, 'conversation'), { recursive: true });
 await mkdir(path.join(tempDir, 'timeline'), { recursive: true });
+await mkdir(path.join(tempDir, 'todos'), { recursive: true });
 
 for (const name of ['outputStore', 'outputReducer', 'outputSelectors']) {
   const source = await readFile(path.join(root, 'src', 'runtime', `${name}.ts`), 'utf8');
@@ -20,6 +21,14 @@ for (const name of ['outputStore', 'outputReducer', 'outputSelectors']) {
     },
   }).outputText.replaceAll('.ts', '.mjs');
   await writeFile(path.join(tempDir, `${name}.mjs`), transpiled);
+}
+
+{
+  const source = await readFile(path.join(root, 'src', 'features', 'todos', 'todoDisplayPolicy.ts'), 'utf8');
+  const transpiled = ts.transpileModule(source, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022, importsNotUsedAsValues: ts.ImportsNotUsedAsValues.Remove },
+  }).outputText.replaceAll('.ts', '.mjs');
+  await writeFile(path.join(tempDir, 'todos', 'todoDisplayPolicy.mjs'), transpiled);
 }
 
 {
@@ -51,12 +60,24 @@ const { selectConversationMessages, selectProjectedConversationItems, selectPend
 );
 const { selectConversationTurns } = await import(pathToFileURL(path.join(tempDir, 'conversation', 'turnProjection.mjs')).href);
 const { shouldAutoOpenProcess } = await import(pathToFileURL(path.join(tempDir, 'timeline', 'processDisclosurePolicy.mjs')).href);
+const { todoDisplayModel } = await import(pathToFileURL(path.join(tempDir, 'todos', 'todoDisplayPolicy.mjs')).href);
 
 assert.equal(shouldAutoOpenProcess({ status: 'running', itemStatuses: [] }), true, 'running process auto-opens');
 assert.equal(shouldAutoOpenProcess({ status: 'completed', itemStatuses: ['completed'] }), false, 'successful completed process auto-collapses');
 assert.equal(shouldAutoOpenProcess({ status: 'failed', itemStatuses: [] }), true, 'failed process remains visible');
 assert.equal(shouldAutoOpenProcess({ status: 'completed', failedCount: 1, itemStatuses: ['failed'] }), true, 'partially failed process remains visible');
 assert.equal(shouldAutoOpenProcess({ status: 'waiting_permission', itemStatuses: [] }), true, 'permission wait remains visible');
+
+const completeTodos = { sessionId: 'session-runtime', items: [
+  { id: 'todo-1', content: 'one', status: 'completed' },
+  { id: 'todo-2', content: 'two', status: 'completed' },
+], pending: 0, inProgress: 1, completed: 1, total: 3 };
+assert.deepEqual(todoDisplayModel(completeTodos, 'completed'), { state: 'hidden', items: completeTodos.items, total: 2, completed: 2, activeIndex: -1 }, 'Todo items override stale summary counters');
+const staleTodos = { ...completeTodos, items: [completeTodos.items[0], { id: 'todo-2', content: 'two', status: 'in_progress' }] };
+assert.equal(todoDisplayModel(staleTodos, 'completed').state, 'stopped', 'terminal completed turn never leaves a Todo spinner active');
+assert.equal(todoDisplayModel(staleTodos, 'failed').state, 'stopped', 'failed turn renders Todo state as stopped');
+assert.equal(todoDisplayModel(staleTodos, 'running').state, 'running', 'active turn may render an in-progress Todo spinner');
+assert.equal(todoDisplayModel(staleTodos, undefined).state, 'hidden', 'Todo data without an owning turn is hidden as stale');
 
 // ── 1. Runtime-owned snapshot: version=1 items are the only conversation source.
 

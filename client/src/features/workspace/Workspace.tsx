@@ -29,6 +29,7 @@ import { Timeline } from '../timeline/Timeline.tsx';
 import { selectConversationTurns } from '../../runtime/conversation/turnProjection.ts';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import { TodoTaskBar } from '../todos/TodoTaskBar.tsx';
+import { shouldShowTodoTaskBar } from '../todos/todoDisplayPolicy.ts';
 import { ConversationDock } from '../conversationDock/ConversationDock.tsx';
 import { JumpToBottomAction } from '../conversationDock/JumpToBottomAction.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
@@ -165,9 +166,8 @@ export function Workspace({
   const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
   const activeSessionID = activeSession?.id ?? '';
   const hasAgentTasks = Boolean(viewModel.agentTasks?.length);
-  const todoTotal = viewModel.todos?.total || viewModel.todos?.items.length || 0;
-  const todoCompleted = Math.min(viewModel.todos?.completed || 0, todoTotal);
-  const showTodoAction = Boolean(viewModel.todos?.items.length && todoTotal > 0 && todoCompleted < todoTotal);
+  const todoTurn = (viewModel.todos?.turnId ? conversationTurns.find((turn) => turn.id === viewModel.todos?.turnId) : undefined) ?? conversationTurns[conversationTurns.length - 1];
+  const showTodoAction = shouldShowTodoTaskBar(viewModel.todos, todoTurn?.status);
   const showJumpAction = hasConversation && showJumpToBottom;
   const replaceTerminalTabs = useCallback((terminals: TerminalViewModel[]) => {
     setRightPanelTabs((current) => {
@@ -608,7 +608,7 @@ export function Workspace({
             actions={[
               showTodoAction && {
                 key: 'todos',
-                node: <TodoTaskBar todos={viewModel.todos} />,
+                node: <TodoTaskBar todos={viewModel.todos} turnStatus={todoTurn?.status} />,
                 pinned: true,
                 priority: 10,
               },

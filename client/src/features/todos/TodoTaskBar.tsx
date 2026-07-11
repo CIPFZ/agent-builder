@@ -1,21 +1,21 @@
 import { CheckCircleOutlined, LoadingOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { Popover } from 'antd';
 import type { TodoItemViewModel, TodoSummaryViewModel } from '../../runtime/workbenchTypes.ts';
+import { todoDisplayModel } from './todoDisplayPolicy.ts';
 import styles from './TodoTaskBar.module.css';
 
-export function TodoTaskBar({ todos }: { todos?: TodoSummaryViewModel }) {
-  const total = todos?.total || todos?.items.length || 0;
-  const completed = Math.min(todos?.completed || 0, total);
-  const allComplete = total > 0 && completed >= total;
-  if (!todos?.items.length || total <= 0 || allComplete) {
+export function TodoTaskBar({ todos, turnStatus }: { todos?: TodoSummaryViewModel; turnStatus?: string }) {
+  const display = todoDisplayModel(todos, turnStatus);
+  if (display.state === 'hidden') {
     return null;
   }
-  const active = todos.items.find((todo) => todo.status === 'in_progress');
-  const activeIndex = todos.items.findIndex((todo) => todo.status === 'in_progress');
-  const nextIndex = todos.items.findIndex((todo) => todo.status !== 'completed');
-  const currentIndex = activeIndex >= 0 ? activeIndex : nextIndex >= 0 ? nextIndex : completed;
-  const currentStep = Math.min(total, Math.max(1, currentIndex + 1));
-  const currentText = active?.activeForm || active?.content || todos.items[currentIndex]?.content || '任务进行中';
+  const nextIndex = display.items.findIndex((todo) => todo.status !== 'completed');
+  const currentIndex = display.activeIndex >= 0 ? display.activeIndex : nextIndex >= 0 ? nextIndex : display.completed;
+  const currentStep = Math.min(display.total, Math.max(1, currentIndex + 1));
+  const active = display.activeIndex >= 0 ? display.items[display.activeIndex] : undefined;
+  const currentText = display.state === 'stopped'
+    ? '对话已结束，计划状态未完全更新'
+    : active?.activeForm || active?.content || display.items[currentIndex]?.content || '任务进行中';
 
   return (
     <div className={styles.taskDock} data-testid="todo-task-bar">
@@ -29,43 +29,43 @@ export function TodoTaskBar({ todos }: { todos?: TodoSummaryViewModel }) {
                 <div className={styles.popoverTitle}>任务进度</div>
                 <div className={styles.popoverSubtitle}>{currentText}</div>
               </div>
-              <span className={styles.count}>{completed}/{total}</span>
+              <span className={styles.count}>{display.completed}/{display.total}</span>
             </div>
             <div className={styles.list}>
-              {todos.items.map((todo) => (
-                <TodoTaskBarItem key={todo.id} todo={todo} />
+              {display.items.map((todo) => (
+                <TodoTaskBarItem key={todo.id} todo={todo} running={display.state === 'running'} />
               ))}
             </div>
           </div>
         }
       >
-        <button className={styles.taskChip} type="button" aria-label={`查看任务进度：第 ${currentStep} / ${total} 步`}>
-          <span className={styles.icon}>{active ? <LoadingOutlined spin /> : <UnorderedListOutlined />}</span>
-          <span className={styles.currentText}>第 {currentStep} / {total} 步</span>
+        <button className={styles.taskChip} data-state={display.state} type="button" aria-label={`查看任务进度：第 ${currentStep} / ${display.total} 步`}>
+          <span className={styles.icon}>{display.state === 'running' && active ? <LoadingOutlined spin /> : <UnorderedListOutlined />}</span>
+          <span className={styles.currentText}>{display.state === 'stopped' ? `已停止 · ${display.completed}/${display.total}` : `第 ${currentStep} / ${display.total} 步`}</span>
         </button>
       </Popover>
     </div>
   );
 }
 
-function TodoTaskBarItem({ todo }: { todo: TodoItemViewModel }) {
+function TodoTaskBarItem({ todo, running: allowRunning }: { todo: TodoItemViewModel; running: boolean }) {
   const completed = todo.status === 'completed';
-  const running = todo.status === 'in_progress';
+  const running = allowRunning && todo.status === 'in_progress';
   return (
-    <div className={styles.item} data-status={todo.status}>
+    <div className={styles.item} data-status={!allowRunning && todo.status === 'in_progress' ? 'stopped' : todo.status}>
       <span className={styles.itemIcon}>{completed ? <CheckCircleOutlined /> : running ? <LoadingOutlined spin /> : <span />}</span>
       <span className={styles.itemText}>{running ? todo.activeForm || todo.content : todo.content}</span>
-      <span className={styles.status}>{formatStatus(todo.status)}</span>
+      <span className={styles.status}>{formatStatus(todo.status, allowRunning)}</span>
     </div>
   );
 }
 
-function formatStatus(status: TodoItemViewModel['status']) {
+function formatStatus(status: TodoItemViewModel['status'], allowRunning: boolean) {
   if (status === 'completed') {
     return '已完成';
   }
   if (status === 'in_progress') {
-    return '进行中';
+    return allowRunning ? '进行中' : '已停止';
   }
   if (status === 'pending') {
     return '待处理';
