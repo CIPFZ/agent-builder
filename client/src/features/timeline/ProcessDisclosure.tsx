@@ -6,7 +6,7 @@ import type { RuntimeExplorationSummary } from '../../runtime/outputTypes.ts';
 import { useLatchedOpen, useMinDisplay } from './hooks.ts';
 import { compactProcessItems } from './processGrouping.ts';
 import type { RenderTimelineItem } from './processGrouping.ts';
-import { isActiveProcessStatus, isFailedProcessStatus, shouldAutoOpenProcess } from './processDisclosurePolicy.ts';
+import { isActiveProcessStatus, shouldAutoOpenProcess } from './processDisclosurePolicy.ts';
 import styles from './Timeline.module.css';
 
 interface ProcessDisclosureProps {
@@ -25,7 +25,7 @@ export function ProcessDisclosure(props: ProcessDisclosureProps) {
   const [open, setOpen] = useLatchedOpen(autoOpen, props.turnId);
   return (
     <section className={styles.processTrace} data-testid="process-trace" data-process-label={processSummary(props)} data-process-status={props.status}>
-      <Collapse ghost size="small" activeKey={open ? ['trace'] : []} expandIcon={({ isActive }) => <DownOutlined rotate={isActive ? 180 : 0} />} items={[{ key: 'trace', label: <ProcessLabel {...props} />, children: <div className={styles.processSteps}>{groupedItems.map((item) => <div key={item.id} className={styles.stepRail} data-step-status={stepStatus(item)}><span className={styles.stepDot} aria-hidden="true" /><div className={styles.stepContent}>{props.renderItem(item)}</div></div>)}</div> }]} onChange={(keys) => setOpen(Array.isArray(keys) ? keys.includes('trace') : keys === 'trace')} />
+      <Collapse ghost size="small" activeKey={open ? ['trace'] : []} expandIcon={({ isActive }) => <DownOutlined rotate={isActive ? 180 : 0} />} items={[{ key: 'trace', label: <ProcessLabel {...props} />, children: <div className={styles.processStream} data-testid="process-stream">{groupedItems.map((item) => <div key={item.id} className={styles.processStreamItem}>{props.renderItem(item)}</div>)}</div> }]} onChange={(keys) => setOpen(Array.isArray(keys) ? keys.includes('trace') : keys === 'trace')} />
     </section>
   );
 }
@@ -35,16 +35,6 @@ function ProcessLabel(props: ProcessDisclosureProps) {
   const verb = useMinDisplay(explorationStatusVerb(status, props.exploration?.failedCount), 700);
   const duration = props.exploration?.elapsedMs ? formatElapsed(props.exploration.elapsedMs) : blockDuration(props);
   return <span className={styles.processTraceLabel} data-testid="process-trace-label" data-exploration-status={status}><span>{verb}</span>{duration ? <span>{duration}</span> : null}{props.exploration?.subagentCount ? <span>{props.exploration.subagentCount} 个子任务</span> : null}</span>;
-}
-
-function stepStatus(item: RenderTimelineItem): 'running' | 'failed' | 'done' {
-  if (item.kind === 'tool_call_group' || item.kind === 'tool_call_summary') {
-    if (item.toolCalls.some((call) => isActiveProcessStatus(call.status))) return 'running';
-    if (item.toolCalls.some((call) => isFailedProcessStatus(call.status))) return 'failed';
-    return 'done';
-  }
-  if (isActiveProcessStatus(item.status)) return 'running';
-  return isFailedProcessStatus(item.status) ? 'failed' : 'done';
 }
 
 function explorationStatusVerb(status?: string, failedCount?: number) {

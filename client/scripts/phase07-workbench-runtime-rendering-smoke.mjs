@@ -11,8 +11,10 @@ const shellPath = resolve(repoRoot, 'client', 'src', 'app', 'shell', 'WorkbenchS
 const turnProjectionPath = resolve(repoRoot, 'client', 'src', 'runtime', 'conversation', 'turnProjection.ts');
 const timelinePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'Timeline.tsx');
 const disclosurePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'ProcessDisclosure.tsx');
+const narrationPath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'ProcessNarration.tsx');
+const timelineStylePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'Timeline.module.css');
 
-const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource] = await Promise.all([
+const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource, narrationSource, timelineStyleSource] = await Promise.all([
   readFile(adapterPath, 'utf8'),
   readFile(typesPath, 'utf8'),
   readFile(toolCardPath, 'utf8'),
@@ -20,6 +22,8 @@ const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSo
   readFile(turnProjectionPath, 'utf8'),
   readFile(timelinePath, 'utf8'),
   readFile(disclosurePath, 'utf8'),
+  readFile(narrationPath, 'utf8'),
+  readFile(timelineStylePath, 'utf8'),
 ]);
 
 assert.match(typesSource, /export type ConversationTimelineKind =/);
@@ -41,6 +45,14 @@ assert.match(turnProjectionSource, /item\.phase === 'final'/);
 assert.match(timelineSource, /<ProcessDisclosure/);
 assert.match(timelineSource, /<TimelineMessage/);
 assert.match(disclosureSource, /shouldAutoOpenProcess/);
+assert.match(disclosureSource, /data-testid="process-stream"/);
+assert.match(narrationSource, /data-testid="process-narration"/);
+assert.match(narrationSource, /<MarkdownMessage/);
+assert.doesNotMatch(timelineSource, /ThinkingItem|AssistantProcessNote/);
+assert.doesNotMatch(timelineStyleSource, /\.stepRail|\.stepDot|\.processSteps/);
+const processStreamRule = timelineStyleSource.match(/\.processStream\s*\{[^}]*\}/)?.[0] ?? '';
+assert.ok(processStreamRule, 'processStream CSS rule exists');
+assert.doesNotMatch(processStreamRule, /overflow:\s*auto|max-height:/);
 
 assert.doesNotMatch(toolCardSource, /toolCall\.stdout/);
 assert.doesNotMatch(toolCardSource, /toolCall\.stderr/);

@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { message } from 'antd';
 import type { ConversationTimelineItemViewModel, HookExecutionSummaryViewModel, HookExecutionViewModel } from '../../runtime/workbenchTypes.ts';
 import type { ConversationTurnViewModel } from '../../runtime/conversation/conversationTypes.ts';
-import { ThinkingItem } from './ThinkingItem.tsx';
 import { HookExecutionDetailDrawer } from '../hooks/HookExecutionDetailDrawer.tsx';
 import { HookTimelineRow } from '../hooks/HookTimelineRow.tsx';
 import { TimelineMessage } from './TimelineMessage.tsx';
 import { CompactTraceRow, ContextGovernanceRow, TurnDiagnosticWarning, WorkflowNoticeRow } from './ProcessNoticeItems.tsx';
 import { AgentTaskTimelineRow, PermissionTraceRow } from './InteractiveProcessItems.tsx';
-import { AssistantProcessNote, ToolTraceGroup } from './ToolProcessItems.tsx';
+import { ToolTraceGroup } from './ToolProcessItems.tsx';
+import { ProcessNarration } from './ProcessNarration.tsx';
 import type { RenderTimelineItem } from './processGrouping.ts';
 import { ProcessDisclosure } from './ProcessDisclosure.tsx';
 import styles from './Timeline.module.css';
@@ -156,7 +156,7 @@ function TimelineProcessItem({
     return <PermissionTraceRow item={item} />;
   }
   if (item.kind === 'thinking' || item.kind === 'assistant_thinking') {
-    return <ThinkingItem item={item} />;
+    return <ProcessNarration item={item} />;
   }
   if (item.kind === 'progress' || item.kind === 'turn_progress') {
     const detail = progressDetail(item);
@@ -186,7 +186,7 @@ function TimelineProcessItem({
     return item.agentTask ? <AgentTaskTimelineRow item={item} onAgentTaskOpen={onAgentTaskOpen} /> : <WorkflowNoticeRow item={item} />;
   }
   if (item.kind === 'message' || item.kind === 'assistant_message') {
-    return <AssistantProcessNote item={item} />;
+    return <ProcessNarration item={item} />;
   }
   return null;
 }

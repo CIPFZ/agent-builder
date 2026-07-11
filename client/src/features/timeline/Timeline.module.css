@@ -125,84 +125,29 @@
   }
 }
 
-.processSteps {
+.processStream {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  max-height: min(62vh, 680px);
+  gap: 12px;
   padding-top: 6px;
-  /* The running-dot pulse (.stepDot::after at scale 1.7) reaches ~10px left
-     of the dot; without this padding the overflow:auto box clips it. */
-  padding-left: 10px;
-  overflow: auto;
-  scrollbar-color: #d9d9d9 transparent;
-  scrollbar-width: thin;
 }
 
-.stepRail {
-  position: relative;
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
-  gap: 8px;
-}
-
-.stepRail::before {
-  position: absolute;
-  top: 16px;
-  bottom: -2px;
-  left: 7px;
-  width: 2px;
-  background: var(--ant-color-border-secondary);
-  content: '';
-}
-
-.stepRail:last-child::before {
-  display: none;
-}
-
-.stepDot {
-  position: relative;
-  z-index: 1;
-  width: 8px;
-  height: 8px;
-  margin-top: 13px;
-  border-radius: 999px;
-  background: var(--ant-color-border);
-}
-
-.stepRail[data-step-status='running'] .stepDot {
-  background: var(--ant-color-primary);
-}
-
-.stepRail[data-step-status='running'] .stepDot::after {
-  position: absolute;
-  inset: -4px;
-  border-radius: 999px;
-  background: var(--ant-color-primary);
-  opacity: 0.35;
-  animation: stepPulse 1.4s ease-in-out infinite;
-  content: '';
-}
-
-.stepRail[data-step-status='failed'] .stepDot {
-  background: var(--ant-color-error);
-}
-
-@keyframes stepPulse {
-  0% {
-    opacity: 0.45;
-    transform: scale(0.6);
-  }
-
-  70%,
-  100% {
-    opacity: 0;
-    transform: scale(1.7);
-  }
-}
-
-.stepContent {
+.processStreamItem {
   min-width: 0;
+}
+
+.processNarration {
+  width: min(760px, 100%);
+  color: rgb(13 13 13 / 72%);
+}
+
+.processNarrationMuted {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgb(13 13 13 / 48%);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .inlineCode {

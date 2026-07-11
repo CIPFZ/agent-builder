@@ -58,14 +58,25 @@ Review notes:
 - Verified with frontend build, ESLint, conversation output smoke, conversation
   streaming smoke, and phase 07 runtime-rendering smoke.
 
-### [ ] Phase 2: Continuous process reading flow
+### [x] Phase 2: Continuous process reading flow
 
 - Remove the process rail, dots, and connecting lines.
 - Replace Thinking cards and intermediate assistant cards with inline process
   narration using the shared Markdown presentation.
 - Keep the final response visually stronger without changing its reading width.
 
-Review notes: Pending.
+Review notes:
+
+- Removed the process rail, dots, connecting lines, and the old Thinking
+  Collapse component.
+- Thinking and intermediate assistant messages now share `ProcessNarration`
+  and render as continuous Markdown in runtime sequence order.
+- The Turn-level process disclosure remains the only narration disclosure.
+- Empty running thinking renders a lightweight status line; empty settled
+  thinking is omitted. React-callchain title-only entries remain visible.
+- The process stream no longer has its own max height or vertical overflow.
+- Verified with frontend build, ESLint, conversation output/streaming smokes,
+  phase 07 structural smoke, and a dedicated code review.
 
 ### [ ] Phase 3: Single-scroll conversation
 
