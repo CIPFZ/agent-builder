@@ -1,25 +1,14 @@
 .process {
-  width: min(720px, 94%);
-  margin: 2px 0;
-  padding: 0 8px;
+  width: min(720px, 100%);
+  margin: 1px 0;
+  padding: 0 4px;
   border-left: 2px solid transparent;
   border-radius: 6px;
   color: rgb(13 13 13 / 78%);
 }
 
 .processFailed {
-  padding-block: 4px;
   border-left-color: var(--ant-color-error);
-  background: var(--ant-color-error-bg);
-}
-
-.failureExcerpt {
-  margin: 2px 0 4px;
-  overflow-wrap: anywhere;
-  color: var(--ant-color-error-text, var(--ant-color-error));
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
 }
 
 .summary {
@@ -48,6 +37,17 @@
   font-size: 13px;
 }
 
+.process[data-tool-status='failed'] .summaryTitle :global(.anticon),
+.process[data-tool-status='denied'] .summaryTitle :global(.anticon),
+.process[data-tool-status='cancelled'] .summaryTitle :global(.anticon),
+.process[data-tool-status='interrupted'] .summaryTitle :global(.anticon),
+.quietRow[data-tool-status='failed'] .quietRowHeader > :global(.anticon),
+.quietRow[data-tool-status='denied'] .quietRowHeader > :global(.anticon),
+.quietRow[data-tool-status='cancelled'] .quietRowHeader > :global(.anticon),
+.quietRow[data-tool-status='interrupted'] .quietRowHeader > :global(.anticon) {
+  color: var(--ant-color-error);
+}
+
 .summaryMeta {
   display: inline-flex;
   flex: 0 0 auto;
@@ -73,13 +73,13 @@
   display: grid;
   gap: 6px;
   max-width: 100%;
-  padding: 9px 10px;
-  border-radius: 8px;
-  background: #f6f6f6;
+  padding: 8px 9px;
+  border-radius: 6px;
+  background: var(--ant-color-fill-quaternary);
 }
 
 .shellPanel {
-  background: #f4f4f4;
+  background: var(--ant-color-fill-tertiary);
 }
 
 .panelHeader {
@@ -177,7 +177,7 @@
   overflow-x: auto;
   overflow-y: visible;
   border-radius: 6px;
-  background: #ffffff;
+  background: var(--ant-color-bg-container);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -201,8 +201,10 @@
 }
 
 .errorOutput {
-  background: #fff5f5;
-  color: #9f1d1d;
+  padding-left: 8px;
+  border-left: 2px solid var(--ant-color-error);
+  background: transparent;
+  color: var(--ant-color-error-text, #9f1d1d);
 }
 
 .emptyOutput {
@@ -301,7 +303,7 @@
 }
 
 .process :global(.ant-collapse-content-box) {
-  padding: 2px 0 0 !important;
+  padding: 4px 0 0 !important;
 }
 
 .process :global(.ant-collapse-item) {
@@ -390,7 +392,7 @@
   flex: 0 0 auto;
   color: rgb(13 13 13 / 36%);
   font-size: 10px;
-  opacity: 0;
+  opacity: 0.36;
   transition: opacity 120ms ease, transform 160ms ease;
 }
 
@@ -435,6 +437,37 @@
   }
 
   .details {
-    padding-left: 18px;
+    padding-left: 14px;
+  }
+
+  .quietGroupList,
+  .quietRowBodyInner {
+    padding-left: 12px;
+  }
+
+  .summaryMeta {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .detailRow {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .process {
+    padding-inline: 0;
+  }
+
+  .details,
+  .quietGroupList,
+  .quietRowBodyInner {
+    padding-left: 8px;
+  }
+
+  .detailRow {
+    grid-template-columns: 1fr;
+    gap: 2px;
   }
 }

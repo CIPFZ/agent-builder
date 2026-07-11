@@ -1,7 +1,7 @@
 .timeline {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
   min-height: auto;
   padding: 8px 40px 48px;
   overflow: visible;
@@ -10,11 +10,12 @@
 .turnBlock {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .assistantBubble {
-  max-width: min(760px, 86%);
+  width: min(760px, 100%);
+  max-width: 100%;
 }
 
 .userBubble {
@@ -23,15 +24,17 @@
 }
 
 .assistantBubble :global(.ant-bubble-content) {
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--ant-color-text);
+  font-size: 14px;
+  line-height: 1.7;
   white-space: normal;
 }
 
 .userBubble :global(.ant-bubble-content) {
   padding: 10px 14px;
   border-radius: 16px;
-  background: #f2f2f2;
-  color: rgba(0, 0, 0, 0.88);
+  background: var(--ant-color-fill-tertiary);
+  color: var(--ant-color-text);
   white-space: normal;
 }
 
@@ -86,12 +89,14 @@
 }
 
 .processTrace {
-  width: min(760px, 94%);
+  width: min(760px, 100%);
   color: rgb(13 13 13 / 58%);
 }
 
 .processTraceLabel {
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   min-width: 0;
   align-items: center;
   gap: 6px;
@@ -138,8 +143,8 @@
 .processStream {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding-top: 6px;
+  gap: 10px;
+  padding: 6px 0 2px 4px;
 }
 
 .processStreamItem {
@@ -148,7 +153,9 @@
 
 .processNarration {
   width: min(760px, 100%);
-  color: rgb(13 13 13 / 72%);
+  color: var(--ant-color-text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
 }
 
 .processNarrationMuted {
@@ -188,6 +195,7 @@
 
 .processTrace :global(.ant-collapse-header) {
   width: fit-content;
+  max-width: 100%;
   align-items: center !important;
   padding: 2px 0 !important;
   color: rgb(13 13 13 / 52%);
@@ -200,11 +208,11 @@
 }
 
 .processTrace :global(.ant-collapse-content) {
-  border-top: 1px solid rgb(13 13 13 / 8%) !important;
+  border-top: 0 !important;
 }
 
 .processTrace :global(.ant-collapse-content-box) {
-  padding: 12px 0 0 !important;
+  padding: 8px 0 0 !important;
 }
 
 .processTrace :global(.ant-collapse-item) {
@@ -236,10 +244,8 @@
 }
 
 .compactSummaryPanel {
-  padding: 10px 12px;
-  border: 1px solid var(--ant-color-border-secondary);
-  border-radius: 8px;
-  background: var(--ant-color-fill-quaternary);
+  padding: 8px 10px;
+  border-left: 2px solid var(--ant-color-border-secondary);
 }
 
 .compactSummaryLabel {
@@ -259,7 +265,8 @@
 
 @media (max-width: 720px) {
   .timeline {
-    padding-inline: 18px;
+    gap: 16px;
+    padding: 6px 14px 36px;
   }
 
   .assistantBubble,
@@ -272,5 +279,19 @@
 
   .userBubble {
     max-width: 92%;
+  }
+
+  .processStream {
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .timeline {
+    padding-inline: 12px;
+  }
+
+  .userBubble {
+    max-width: 96%;
   }
 }

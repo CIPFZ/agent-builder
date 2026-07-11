@@ -161,13 +161,29 @@ Review notes:
 - Verified with build, ESLint, conversation output/streaming smokes, phase 07
   structural smoke, and code review.
 
-### [ ] Phase 7: Visual system alignment
+### [x] Phase 7: Visual system alignment
 
 - Normalize typography, spacing, colors, and responsive layout.
 - Avoid large failure backgrounds and excessive borders.
 - Keep process narration secondary and final responses primary.
 
-Review notes: Pending.
+Review notes:
+
+- Final assistant responses now use the primary text token and the shared
+  760px reading column; process narration uses the same column with secondary
+  typography so the answer remains the visual focus.
+- Removed process-panel borders and large error/warning fills. Failed process
+  rows and tools now use compact icons, text, and a two-pixel side marker.
+- Failed tools no longer expose error excerpts while collapsed; full error
+  content remains available inside the individual tool disclosure and Drawer.
+- Reduced tool-detail card nesting, normalized neutral surfaces to Ant Design
+  theme tokens, and kept disclosure chevrons discoverable without hover.
+- Added responsive spacing and indentation rules for 720px and 480px layouts,
+  including single-column detail metadata on narrow screens.
+- Added structural smoke assertions preventing large failure backgrounds and
+  preserving primary/secondary text-token hierarchy.
+- Verified with frontend build, ESLint, phase 07 structural smoke, conversation
+  output/streaming smokes, diff validation, and independent UI/code review.
 
 ### [ ] Phase 8: End-to-end review and verification
 

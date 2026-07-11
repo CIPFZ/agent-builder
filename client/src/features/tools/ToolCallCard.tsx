@@ -57,8 +57,6 @@ function SingleToolCallCard({ onAgentTaskOpen, toolCall }: { onAgentTaskOpen?: (
   const detail = toolDetail(toolCall);
   const hasDetails = hasToolDetails(toolCall, detail, output);
   const defaultActiveKey: string[] = [];
-  const failureExcerpt = failed ? toolFailureExcerpt(toolCall) : '';
-
   return (
     <section
       className={`${styles.process} ${failed ? styles.processFailed : ''}`}
@@ -96,7 +94,6 @@ function SingleToolCallCard({ onAgentTaskOpen, toolCall }: { onAgentTaskOpen?: (
           },
         ]}
       />
-      {failureExcerpt && <div className={styles.failureExcerpt}>{boundedToolText(failureExcerpt, 2, 320).text}</div>}
     </section>
   );
 }
@@ -131,8 +128,6 @@ function ToolCallGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (task
   }
 
   const defaultActiveKey: string[] = [];
-  const failureExcerpt = failed ? groupFailureExcerpt(toolCalls) : '';
-
   return (
     <section
       className={`${styles.process} ${failed ? styles.processFailed : ''}`}
@@ -182,7 +177,6 @@ function ToolCallGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (task
           },
         ]}
       />
-      {failureExcerpt && <div className={styles.failureExcerpt}>{boundedToolText(failureExcerpt, 2, 320).text}</div>}
     </section>
   );
 }
@@ -575,15 +569,6 @@ function isQuietRow(toolCall: ToolCallViewModel) {
 
 function isFailedStatus(status: string) {
   return status === 'failed' || status === 'denied' || status === 'cancelled' || status === 'interrupted';
-}
-
-function toolFailureExcerpt(toolCall: ToolCallViewModel) {
-  return toolFailureReason(toolCall) || toolStderr(toolCall) || (toolCall.error ?? '').trim();
-}
-
-function groupFailureExcerpt(toolCalls: ToolCallViewModel[]) {
-  const failedCall = toolCalls.find((call) => isFailedStatus(toolVisualStatus(call)));
-  return failedCall ? toolFailureExcerpt(failedCall) : '';
 }
 
 function groupStatus(toolCalls: ToolCallViewModel[]) {

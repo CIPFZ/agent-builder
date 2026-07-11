@@ -3,10 +3,9 @@
   align-items: flex-start;
   width: 100%;
   min-width: 0;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  border-left: 2px solid transparent;
+  gap: 7px;
+  padding: 5px 4px;
+  border-radius: 6px;
   color: rgb(13 13 13 / 56%);
   font-size: 13px;
   line-height: 1.5;
@@ -24,17 +23,21 @@
 }
 
 .rowError {
+  padding-left: 6px;
   border-left-color: var(--ant-color-error);
-  background: var(--ant-color-error-bg);
+  border-left-style: solid;
+  border-left-width: 2px;
 }
 
 .rowError.rowClickable:hover {
-  background: var(--ant-color-error-bg-hover, var(--ant-color-error-bg));
+  background: color-mix(in srgb, var(--ant-color-error) 5%, transparent);
 }
 
 .rowWarning {
+  padding-left: 6px;
   border-left-color: var(--ant-color-warning);
-  background: var(--ant-color-warning-bg);
+  border-left-style: solid;
+  border-left-width: 2px;
 }
 
 .rowIcon {
@@ -83,7 +86,7 @@
 
 .rowError .rowTitle,
 .rowWarning .rowTitle {
-  color: rgb(13 13 13 / 80%);
+  color: rgb(13 13 13 / 72%);
 }
 
 .rowMeta {
@@ -126,7 +129,7 @@
 }
 
 .rowError .rowExtra {
-  color: var(--ant-color-error-text, var(--ant-color-error));
+  color: color-mix(in srgb, var(--ant-color-error) 82%, #0d0d0d);
 }
 
 .rowWarning .rowExtra {

@@ -16,8 +16,9 @@ const timelineStylePath = resolve(repoRoot, 'client', 'src', 'features', 'timeli
 const toolStylePath = resolve(repoRoot, 'client', 'src', 'features', 'tools', 'ToolCallCard.module.css');
 const workspacePath = resolve(repoRoot, 'client', 'src', 'features', 'workspace', 'Workspace.tsx');
 const traceRowPath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'TraceRow.tsx');
+const traceRowStylePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'TraceRow.module.css');
 
-const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource, narrationSource, timelineStyleSource, toolStyleSource, workspaceSource, traceRowSource] = await Promise.all([
+const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource, narrationSource, timelineStyleSource, toolStyleSource, workspaceSource, traceRowSource, traceRowStyleSource] = await Promise.all([
   readFile(adapterPath, 'utf8'),
   readFile(typesPath, 'utf8'),
   readFile(toolCardPath, 'utf8'),
@@ -30,6 +31,7 @@ const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSo
   readFile(toolStylePath, 'utf8'),
   readFile(workspacePath, 'utf8'),
   readFile(traceRowPath, 'utf8'),
+  readFile(traceRowStylePath, 'utf8'),
 ]);
 
 assert.match(typesSource, /export type ConversationTimelineKind =/);
@@ -68,6 +70,18 @@ assert.doesNotMatch(compactSummaryRule, /overflow(?:-y)?:\s*(?:auto|scroll)|max-
 const toolOutputRule = toolStyleSource.match(/\.output\s*\{[^}]*\}/)?.[0] ?? '';
 assert.ok(toolOutputRule, 'tool output CSS rule exists');
 assert.doesNotMatch(toolOutputRule, /max-height:|overflow-y:\s*(?:auto|scroll)/);
+const rowErrorRule = traceRowStyleSource.match(/\.rowError\s*\{[^}]*\}/)?.[0] ?? '';
+const rowWarningRule = traceRowStyleSource.match(/\.rowWarning\s*\{[^}]*\}/)?.[0] ?? '';
+const processFailedRule = toolStyleSource.match(/\.processFailed\s*\{[^}]*\}/)?.[0] ?? '';
+assert.ok(rowErrorRule && rowWarningRule && processFailedRule, 'compact status CSS rules exist');
+assert.doesNotMatch(rowErrorRule, /background:/);
+assert.doesNotMatch(rowWarningRule, /background:/);
+assert.doesNotMatch(processFailedRule, /background:/);
+assert.match(rowErrorRule, /var\(--ant-color-error\)/);
+assert.match(processFailedRule, /var\(--ant-color-error\)/);
+assert.match(timelineStyleSource, /\.processNarration\s*\{[^}]*var\(--ant-color-text-secondary\)/s);
+assert.match(timelineStyleSource, /\.assistantBubble\s+:global\(\.ant-bubble-content\)\s*\{[^}]*var\(--ant-color-text\)/s);
+assert.doesNotMatch(toolCardSource, /failureExcerpt/);
 assert.match(workspaceSource, /data-testid=\{hasConversation \|\| isSessionSwitching \? 'conversation-scroll-container'/);
 
 assert.doesNotMatch(toolCardSource, /toolCall\.stdout/);
