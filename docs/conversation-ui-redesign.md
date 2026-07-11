@@ -221,3 +221,15 @@ Review notes:
 - Final hands-on validation should run the packaged Wails desktop app and focus
   on visual preference, wheel/expansion feel, and real provider/permission
   flows; browser/Vite mode is intentionally not a supported runtime path.
+
+Post-completion review:
+
+- Closed the Wails stream handshake window by registering listeners on stable
+  event names before starting streams with client-generated stream ids.
+- Removed desktop delta coalescing; batching now preserves every fragment for
+  the reducer's `contentLen` duplicate/out-of-order checks.
+- Added per-entity event sequence watermarks so stale item, message, turn,
+  tool, permission, result, step, and agent-task events cannot overwrite newer
+  state, including terminal-to-terminal races and stale deletes.
+- Added regression coverage for listener-before-start ordering, Wails-only
+  transport, preserved delta fragments, and entity sequence monotonicity.

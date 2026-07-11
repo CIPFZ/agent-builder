@@ -17,8 +17,9 @@ const toolStylePath = resolve(repoRoot, 'client', 'src', 'features', 'tools', 'T
 const workspacePath = resolve(repoRoot, 'client', 'src', 'features', 'workspace', 'Workspace.tsx');
 const traceRowPath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'TraceRow.tsx');
 const traceRowStylePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'TraceRow.module.css');
+const outputStreamPath = resolve(repoRoot, 'client', 'src', 'runtime', 'outputStream.ts');
 
-const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource, narrationSource, timelineStyleSource, toolStyleSource, workspaceSource, traceRowSource, traceRowStyleSource] = await Promise.all([
+const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource, narrationSource, timelineStyleSource, toolStyleSource, workspaceSource, traceRowSource, traceRowStyleSource, outputStreamSource] = await Promise.all([
   readFile(adapterPath, 'utf8'),
   readFile(typesPath, 'utf8'),
   readFile(toolCardPath, 'utf8'),
@@ -32,6 +33,7 @@ const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSo
   readFile(workspacePath, 'utf8'),
   readFile(traceRowPath, 'utf8'),
   readFile(traceRowStylePath, 'utf8'),
+  readFile(outputStreamPath, 'utf8'),
 ]);
 
 assert.match(typesSource, /export type ConversationTimelineKind =/);
@@ -98,6 +100,9 @@ assert.match(toolCardSource, /const defaultActiveKey: string\[\] = \[\];/);
 assert.match(toolCardSource, /defaultActiveKey=\{\[\]\}/);
 assert.match(timelineSource, /ToolItemDisclosureList|ToolTraceGroup/);
 assert.match(workspaceSource, /activeSession\?\.id[\s\S]*permission\.sessionId === activeSession\.id/);
+assert.ok(outputStreamSource.indexOf('Events.On(SESSION_OUTPUT_STREAM_EVENT') < outputStreamSource.indexOf('StartSessionOutputStream({'), 'session listener is registered before stream start');
+assert.ok(adapterSource.indexOf("Events.On(eventName") < adapterSource.indexOf('StartRuntimeEventStream({ streamId'), 'runtime listener is registered before stream start');
+assert.doesNotMatch(outputStreamSource, /EventSource|SessionOutputEvents/);
 assert.match(workspaceSource, /viewModel\.todos\?\.turnId\s*\?\s*conversationTurns\.find/);
 assert.doesNotMatch(workspaceSource, /todoTurn[\s\S]{0,240}\?\?\s*conversationTurns/);
 

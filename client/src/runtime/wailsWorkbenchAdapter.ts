@@ -3808,10 +3808,11 @@ async function runtimeRequestWithTimeout<T>(request: () => Promise<T>, timeoutMS
 async function subscribeRuntimeBridgeEvents(bridge: RuntimeBridgeModule, onEvent: (event: RuntimeEventViewModel) => void) {
   if (!bridge.StartRuntimeEventStream || !bridge.StopRuntimeEventStream) throw new Error('runtime Wails event stream bindings are unavailable');
   const runtime = await loadWailsRuntime();
-  const started = await bridge.StartRuntimeEventStream({ after: runtimeLatestEventSequence });
-  const off = runtime.Events.On(started.eventName, (payload) => {
+  const streamId = `runtime-events-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const eventName = 'agent-builder:runtime-events';
+  const off = runtime.Events.On(eventName, (payload) => {
     const message = payload.data as { streamId?: string; events?: RuntimeEventDTO[] } | undefined;
-    if (message?.streamId !== started.streamId) return;
+    if (message?.streamId !== streamId) return;
     for (const event of message.events ?? []) {
       const viewEvent = mapRuntimeEvent(event);
       runtimeLatestEventSequence = nextRuntimeEventCursor(runtimeLatestEventSequence, viewEvent);
@@ -3819,9 +3820,15 @@ async function subscribeRuntimeBridgeEvents(bridge: RuntimeBridgeModule, onEvent
       onEvent(viewEvent);
     }
   });
+  try {
+    await bridge.StartRuntimeEventStream({ streamId, after: runtimeLatestEventSequence });
+  } catch (error) {
+    off();
+    throw error;
+  }
   return () => {
     off();
-    void bridge.StopRuntimeEventStream?.({ streamId: started.streamId });
+    void bridge.StopRuntimeEventStream?.({ streamId });
   };
 }
 

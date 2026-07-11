@@ -55,6 +55,10 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
   if (event.textDelta) {
     return applyTextDeltaEvent(store, event);
   }
+  const sequenceKey = eventEntitySequenceKey(event);
+  if (sequenceKey && event.sequence > 0 && event.sequence <= (store.entitySequenceByKey[sequenceKey] ?? 0)) {
+    return store;
+  }
   if (!event.id || store.appliedEventIds[event.id]) {
     return store;
   }
@@ -72,6 +76,10 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
     agentTasksById: { ...store.agentTasksById },
     optimisticByClientRequestId: { ...store.optimisticByClientRequestId },
     appliedEventIds: { ...store.appliedEventIds, [event.id]: true },
+    entitySequenceByKey: {
+      ...store.entitySequenceByKey,
+      ...(sequenceKey && event.sequence > 0 ? { [sequenceKey]: event.sequence } : {}),
+    },
     streamingByMessageId: { ...store.streamingByMessageId },
   };
   if (event.operation === 'delete') {
@@ -170,6 +178,26 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
     next.agentTasksById[event.agentTask.id] = { ...next.agentTasksById[event.agentTask.id], ...event.agentTask };
   }
   return next;
+}
+
+function eventEntitySequenceKey(event: RuntimeOutputEvent) {
+  if (event.item) return `item:${event.item.id}`;
+  if (event.message) return `message:${event.message.id}`;
+  if (event.turn) return `turn:${event.turn.id}`;
+  if (event.assistantStep) return `assistant-step:${event.assistantStep.id}`;
+  if (event.toolCall) return `tool-call:${event.toolCall.id}`;
+  if (event.toolResult) return `tool-result:${event.toolResult.id}`;
+  if (event.permission) return `permission:${event.permission.id}`;
+  if (event.agentTask) return `agent-task:${event.agentTask.id}`;
+  if (event.kind.includes('conversation_item')) return `item:${event.entityId}`;
+  if (event.kind.includes('message')) return `message:${event.entityId}`;
+  if (event.kind.includes('turn')) return `turn:${event.entityId}`;
+  if (event.kind.includes('assistant_step')) return `assistant-step:${event.entityId}`;
+  if (event.kind.includes('tool_call')) return `tool-call:${event.entityId}`;
+  if (event.kind.includes('tool_result')) return `tool-result:${event.entityId}`;
+  if (event.kind.includes('permission')) return `permission:${event.entityId}`;
+  if (event.kind.includes('agent_task')) return `agent-task:${event.entityId}`;
+  return event.entityId ? `entity:${event.entityId}` : '';
 }
 
 function applyTextDeltaEvent(store: OutputStore, event: RuntimeOutputEvent): OutputStore {

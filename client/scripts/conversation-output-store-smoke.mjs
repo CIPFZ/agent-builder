@@ -275,6 +275,16 @@ streamingStore = applyOutputEvent(streamingStore, {
   permission: { id: 'perm-stream', sessionId: 'session-stream', turnId: 'turn-stream', toolCallId: 'call-stream', toolName: 'shell', action: 'run', status: 'pending' },
 });
 assert.equal(streamingStore.permissionsById['perm-stream'].status, 'denied', 'terminal permission cannot regress to pending');
+streamingStore = applyOutputEvent(streamingStore, {
+  id: 'tool-failed-newer', sequence: 200, sessionId: 'session-stream', turnId: 'turn-stream', kind: 'tool_call.updated', entityId: 'call-sequenced', operation: 'update',
+  toolCall: { id: 'call-sequenced', sessionId: 'session-stream', turnId: 'turn-stream', name: 'shell', source: 'builtin', status: 'failed' },
+});
+streamingStore = applyOutputEvent(streamingStore, {
+  id: 'tool-completed-older', sequence: 199, sessionId: 'session-stream', turnId: 'turn-stream', kind: 'tool_call.updated', entityId: 'call-sequenced', operation: 'update',
+  toolCall: { id: 'call-sequenced', sessionId: 'session-stream', turnId: 'turn-stream', name: 'shell', source: 'builtin', status: 'completed' },
+});
+assert.equal(streamingStore.toolCallsById['call-sequenced'].status, 'failed', 'older terminal tool event cannot overwrite newer failure');
+assert.equal(streamingStore.entitySequenceByKey['tool-call:call-sequenced'], 200, 'entity sequence records the newest applied event');
 
 // ── 5. applyOutputEvents batch order is preserved.
 

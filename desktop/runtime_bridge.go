@@ -1104,7 +1104,6 @@ func (r *RuntimeBridge) runSessionOutputStream(
 		if !ok {
 			return
 		}
-		batch = mergeSessionOutputDeltas(batch)
 		app.Event.Emit(eventName, RuntimeOutputStreamMessage{
 			StreamID:  streamID,
 			SessionID: sessionID,
@@ -1136,36 +1135,6 @@ func nextRuntimeBridgeSessionOutputBatch(ctx context.Context, events <-chan Runt
 			return nil, false
 		}
 	}
-}
-
-// mergeSessionOutputDeltas collapses consecutive text-delta events for the
-// same message into one accumulated delta so the front-end sees at most one
-// setState per flush per message. Non-delta events pass through unchanged.
-func mergeSessionOutputDeltas(events []RuntimeOutputEvent) []RuntimeOutputEvent {
-	if len(events) < 2 {
-		return events
-	}
-	out := make([]RuntimeOutputEvent, 0, len(events))
-	for _, event := range events {
-		if event.TextDelta == nil {
-			out = append(out, event)
-			continue
-		}
-		if len(out) == 0 {
-			out = append(out, event)
-			continue
-		}
-		last := &out[len(out)-1]
-		if last.TextDelta != nil && last.TextDelta.MessageID == event.TextDelta.MessageID && last.TextDelta.PartType == event.TextDelta.PartType {
-			last.TextDelta.Delta += event.TextDelta.Delta
-			if event.TextDelta.ContentLen > last.TextDelta.ContentLen {
-				last.TextDelta.ContentLen = event.TextDelta.ContentLen
-			}
-			continue
-		}
-		out = append(out, event)
-	}
-	return out
 }
 
 func (r *RuntimeBridge) SessionActivity(ctx context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {

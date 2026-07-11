@@ -32,6 +32,7 @@ export function subscribeSessionOutput(opts: SubscribeSessionOutputOptions): () 
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
   let pending: RuntimeOutputEvent[] = [];
   let closer: (() => void) | undefined;
+  const streamId = `session-output-${opts.sessionId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   const flush = () => {
     if (pending.length === 0) return;
@@ -47,23 +48,25 @@ export function subscribeSessionOutput(opts: SubscribeSessionOutputOptions): () 
   };
 
   void (async () => {
+    let off: (() => void) | void = undefined;
     try {
       const events = await opts.loadWailsEvents();
-      const started = await opts.bridge.StartSessionOutputStream({ sessionId: opts.sessionId, after: opts.after });
-      if (cancelled) {
-        await opts.bridge.StopSessionOutputStream({ streamId: started.streamId });
-        return;
-      }
-      const off = events.Events.On(started.eventName || SESSION_OUTPUT_STREAM_EVENT, (payload) => {
+      off = events.Events.On(SESSION_OUTPUT_STREAM_EVENT, (payload) => {
         if (cancelled) return;
-        const message = payload as { data?: { events?: RuntimeOutputEvent[] }; events?: RuntimeOutputEvent[] } | undefined;
-        const batch = message?.data?.events ?? message?.events ?? [];
+        const message = payload as { data?: { streamId?: string; events?: RuntimeOutputEvent[] }; streamId?: string; events?: RuntimeOutputEvent[] } | undefined;
+        const data = message?.data ?? message;
+        if (data?.streamId !== streamId) return;
+        const batch = data?.events ?? [];
         if (!Array.isArray(batch) || batch.length === 0) return;
-        if (batch.some((event) => event.kind === 'snapshot_required' || event.operation === 'reset')) {
-          opts.onSnapshotRequired?.();
-        }
+        if (batch.some((event) => event.kind === 'snapshot_required' || event.operation === 'reset')) opts.onSnapshotRequired?.();
         enqueue(batch);
       });
+      const started = await opts.bridge.StartSessionOutputStream({ sessionId: opts.sessionId, streamId, after: opts.after });
+      if (cancelled) {
+        await opts.bridge.StopSessionOutputStream({ streamId: started.streamId });
+        if (typeof off === 'function') off();
+        return;
+      }
       closer = () => {
         if (typeof off === 'function') {
           try { off(); } catch { /* Wails listener was already removed. */ }
@@ -71,6 +74,7 @@ export function subscribeSessionOutput(opts: SubscribeSessionOutputOptions): () 
         void opts.bridge.StopSessionOutputStream({ streamId: started.streamId }).catch(() => undefined);
       };
     } catch {
+      if (typeof off === 'function') off();
       opts.onSnapshotRequired?.();
     }
   })();

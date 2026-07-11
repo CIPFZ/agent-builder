@@ -360,5 +360,6 @@ export interface OutputStore {
   agentTasksById: Record<string, RuntimeAgentTaskOutput>;
   optimisticByClientRequestId: Record<string, OptimisticUserSubmit>;
   appliedEventIds: Record<string, true>;
+  entitySequenceByKey: Record<string, number>;
   streamingByMessageId: Record<string, RuntimeStreamingState>;
 }

@@ -256,7 +256,7 @@ func TestRuntimeBridgeForwardsTodoQueries(t *testing.T) {
 	}
 }
 
-func TestMergeSessionOutputDeltasCoalescesConsecutiveSameMessage(t *testing.T) {
+func TestSessionOutputBatchPreservesDeltaFragments(t *testing.T) {
 	t.Parallel()
 
 	msgA := runtime.RuntimeOutputEvent{Kind: "output.text.delta", TextDelta: &runtime.RuntimeOutputTextDelta{MessageID: "msg-1", PartType: "text", Delta: "he", ContentLen: 2}}
@@ -265,21 +265,17 @@ func TestMergeSessionOutputDeltasCoalescesConsecutiveSameMessage(t *testing.T) {
 	msgD := runtime.RuntimeOutputEvent{Kind: "output.text.delta", TextDelta: &runtime.RuntimeOutputTextDelta{MessageID: "msg-2", PartType: "text", Delta: "!", ContentLen: 1}}
 	item := runtime.RuntimeOutputEvent{Kind: "conversation_item.updated"}
 
-	out := mergeSessionOutputDeltas([]runtime.RuntimeOutputEvent{msgA, msgB, msgC, msgD, item})
-	if len(out) != 4 {
-		t.Fatalf("expected 4 merged events, got %d: %#v", len(out), out)
+	input := make(chan runtime.RuntimeOutputEvent, 5)
+	for _, event := range []runtime.RuntimeOutputEvent{msgA, msgB, msgC, msgD, item} {
+		input <- event
 	}
-	if out[0].TextDelta.Delta != "hello" || out[0].TextDelta.ContentLen != 5 {
-		t.Fatalf("first merged delta = %#v", out[0].TextDelta)
+	close(input)
+	events, ok := nextRuntimeBridgeSessionOutputBatch(context.Background(), input)
+	if !ok {
+		t.Fatal("expected a complete output batch")
 	}
-	if out[1].TextDelta.PartType != "reasoning" {
-		t.Fatalf("part-type switch should not merge: %#v", out[1].TextDelta)
-	}
-	if out[2].TextDelta.MessageID != "msg-2" {
-		t.Fatalf("message switch should not merge: %#v", out[2].TextDelta)
-	}
-	if out[3].Kind != "conversation_item.updated" {
-		t.Fatalf("non-delta event lost: %#v", out[3])
+	if len(events) != 5 || events[0].TextDelta.Delta != "he" || events[1].TextDelta.Delta != "llo" {
+		t.Fatalf("delta fragments must remain independent: %#v", events)
 	}
 }
 

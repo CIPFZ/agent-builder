@@ -13,6 +13,7 @@ export function createOutputStore(sessionId = ''): OutputStore {
     agentTasksById: {},
     optimisticByClientRequestId: {},
     appliedEventIds: {},
+    entitySequenceByKey: {},
     streamingByMessageId: {},
   };
 }
