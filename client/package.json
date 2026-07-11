@@ -9,7 +9,6 @@
     "build:dev": "tsc -b && vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "smoke:phase04-context": "node scripts/phase04-context-diagnostics-browser-smoke.mjs",
     "smoke:phase07": "node scripts/phase07-workbench-runtime-rendering-smoke.mjs",
     "smoke:phase02": "node scripts/phase02-input-normalization-adapter-smoke.mjs",
     "smoke:phase03": "node scripts/phase03-tool-loop-diagnostics-smoke.mjs",
@@ -20,9 +19,6 @@
     "smoke:phase267": "node scripts/phase267-scheduler-refresh-contract-smoke.mjs",
     "smoke:phase269": "node scripts/phase269-scheduler-execute-ui-smoke.mjs",
     "smoke:phase2610": "node scripts/phase2610-scheduler-ui-runtime-fixture-smoke.mjs",
-    "smoke:phase281": "node scripts/phase281-browser-scheduler-click-harness.mjs",
-    "smoke:phase291": "node scripts/phase291-browser-scheduler-worker-completion-smoke.mjs",
-    "smoke:phase331": "node scripts/phase331-browser-provider-completion-smoke.mjs",
     "smoke:phase362": "node scripts/phase362-packaged-webview-scheduler-click-smoke.mjs",
     "smoke:phase401": "node scripts/phase401-action-refresh-selector-smoke.mjs",
     "smoke:phase46": "node scripts/phase46-status-writer-adapter-reread-smoke.mjs",
@@ -31,8 +27,7 @@
     "smoke:phase55-terminal": "node scripts/phase55-terminal-ownership-adapter-smoke.mjs",
     "smoke:project-sidebar": "node scripts/project-sidebar-projection-smoke.mjs",
     "smoke:conversation-output": "node scripts/conversation-output-store-smoke.mjs",
-    "smoke:markdown-message": "node scripts/markdown-message-smoke.mjs",
-    "smoke:scheduler": "npm run smoke:phase281 && npm run smoke:phase291 && npm run smoke:phase331"
+    "smoke:markdown-message": "node scripts/markdown-message-smoke.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.3",

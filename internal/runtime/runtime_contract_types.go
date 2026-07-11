@@ -1915,6 +1915,25 @@ type RuntimeOutputStreamMessage struct {
 	Events    []RuntimeOutputEvent `json:"events"`
 }
 
+type RuntimeEventStreamStartRequest struct {
+	StreamID string `json:"streamId,omitempty"`
+	After    int64  `json:"after,omitempty"`
+}
+
+type RuntimeEventStreamStopRequest struct {
+	StreamID string `json:"streamId"`
+}
+
+type RuntimeEventStreamResponse struct {
+	StreamID  string `json:"streamId"`
+	EventName string `json:"eventName"`
+}
+
+type RuntimeEventStreamMessage struct {
+	StreamID string         `json:"streamId"`
+	Events   []RuntimeEvent `json:"events"`
+}
+
 type RuntimeSessionActivityResponse struct {
 	SessionID   string                     `json:"sessionId"`
 	Messages    []RuntimeMessage           `json:"messages"`
@@ -2546,11 +2565,6 @@ type RuntimeManualCompactResponse struct {
 
 type RuntimeManualSnipResponse struct {
 	SnipBoundary RuntimeSnipBoundary `json:"snipBoundary"`
-}
-
-type RuntimeEventsEndpointResponse struct {
-	URL   string `json:"url"`
-	Token string `json:"token,omitempty"`
 }
 
 type RuntimeRecoveryStatus struct {

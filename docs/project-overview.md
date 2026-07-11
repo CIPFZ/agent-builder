@@ -7,10 +7,10 @@ Agent Builder 是一个以桌面客户端为主的 AI 编程 Agent。项目使�
 模块路径为 `github.com/CIPFZ/agent-builder`。当前主产品链路是：
 
 ```text
-React Client -> Wails/HTTP Adapter -> Go Runtime -> Agent/Tools/Providers -> SQLite
+React Client -> Wails Bindings/Events -> Go Runtime -> Agent/Tools/Providers -> SQLite
 ```
 
-根目录的 CLI/HTTP 入口仍然存在，但属于兼容和服务入口；桌面产品不应依赖 CLI/TUI 状态。
+桌面产品只通过 Wails 与 Go Runtime 通信；不提供 React 到 Runtime 的 HTTP 降级链路。
 
 ## 技术栈
 

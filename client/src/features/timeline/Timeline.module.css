@@ -263,6 +263,19 @@
   overflow-wrap: anywhere;
 }
 
+.noticeText {
+  max-width: 100%;
+}
+
+.noticeFullText {
+  padding-top: 6px;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 720px) {
   .timeline {
     gap: 16px;

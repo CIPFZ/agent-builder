@@ -37,7 +37,7 @@ func newRuntimeService() *runtimeService {
 		terminalsByID:        make(map[string]*runtimeTerminalState),
 		terminalIDsBySession: make(map[string]map[string]struct{}),
 
-		eventStream: newRuntimeSSEServer(),
+		eventStream: newRuntimeEventBroker(),
 
 		messageStream: make(map[string]*messageStreamCursor),
 
@@ -45,8 +45,6 @@ func newRuntimeService() *runtimeService {
 
 		compactFailures: make(map[string]int),
 	}
-
-	service.httpAPI = newRuntimeHTTPServer(service)
 
 	return service
 }

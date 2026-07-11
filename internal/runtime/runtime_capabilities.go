@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -597,22 +596,6 @@ func cloneCapabilityLoadRecords(records map[string]runtimeCapabilityLoadRecord) 
 		result[key] = value
 	}
 	return result
-}
-
-func capabilityRefreshPathID(path string) string {
-	const prefix = "/v1/capabilities/"
-	const suffix = "/refresh"
-	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
-		return ""
-	}
-	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
-	if id == "" {
-		return ""
-	}
-	if decoded, err := url.PathUnescape(id); err == nil {
-		return decoded
-	}
-	return id
 }
 
 func builtinToolCapabilities() []RuntimeCapability {

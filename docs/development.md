@@ -50,7 +50,7 @@ task lint
 
 - 修改前先定位权威状态所在的 Go 包和 RuntimeService 接口。
 - 新前端能力先设计 DTO/view model 边界，再接入组件。
-- 新 Wails 方法应有对应 runtime 方法；如能力需要 browser/dev 使用，也应有 HTTP 契约。
+- 新 Wails 方法应有对应 runtime 方法；不得为 browser/dev 增加重复 HTTP 契约。
 - 新工具必须接入 scheduler、policy/permission、Hook、审计和结构化输出链路。
 - 数据结构变化通过新 migration 演进，并保持旧数据可升级。
 - 不在主产品路径引入新的 CLI/TUI 依赖。
@@ -59,6 +59,6 @@ task lint
 ## 调试入口
 
 - 根入口设置 `AGENT_BUILDER_PROFILE` 后在 `localhost:6060` 提供 pprof。
-- Runtime HTTP API 和 event stream 可用于检查适配器外的真实状态。
+- Runtime 状态通过 Wails bridge 测试和 RuntimeService 测试检查。
 - 审计、Run transition、Prompt assembly、Hook execution、sandbox decision 和 recovery 记录用于定位跨层问题。
 - 桌面 WebView 问题应分别验证共享 React 构建、资源同步、Wails bridge 和 packaged 环境。

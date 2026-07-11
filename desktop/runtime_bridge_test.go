@@ -301,6 +301,17 @@ func TestStopSessionOutputStreamUnknownStreamIsNoop(t *testing.T) {
 	}
 }
 
+func TestStopRuntimeEventStreamUnknownStreamIsNoop(t *testing.T) {
+	bridge := NewRuntimeBridge()
+	ok, err := bridge.StopRuntimeEventStream(context.Background(), runtime.RuntimeEventStreamStopRequest{StreamID: "ghost"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("unknown runtime event stream should not be stopped")
+	}
+}
+
 func TestRuntimeBridgeForwardsTerminalLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -529,20 +540,6 @@ func TestRuntimeBridgeForwardsReplayExport(t *testing.T) {
 	}
 }
 
-func TestRuntimeBridgeForwardsEventsCursor(t *testing.T) {
-	t.Parallel()
-
-	service := &recordingRuntimeService{}
-	bridge := &RuntimeBridge{service: service}
-
-	if _, err := bridge.Events(context.Background(), 42); err != nil {
-		t.Fatal(err)
-	}
-	if service.eventsAfter != 42 {
-		t.Fatalf("events cursor = %d, want 42", service.eventsAfter)
-	}
-}
-
 func TestRuntimeBridgePhase62PackagedHandoffRecoveryContract(t *testing.T) {
 	t.Parallel()
 
@@ -606,17 +603,6 @@ func TestRuntimeBridgePhase62PackagedHandoffRecoveryContract(t *testing.T) {
 	}
 	if chat.Status.SessionID != "session-new" || chat.TurnID != "turn-new" {
 		t.Fatalf("chat response = %#v", chat)
-	}
-
-	events, err := bridge.Events(context.Background(), 6)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if service.eventsAfter != 6 {
-		t.Fatalf("events cursor = %d, want 6", service.eventsAfter)
-	}
-	if len(events.Events) != 1 || events.Events[0].Type != "turn.interrupted" {
-		t.Fatalf("events should be lifecycle refresh triggers: %#v", events.Events)
 	}
 
 	activity, err := bridge.SessionActivity(context.Background(), "session-new")
@@ -786,14 +772,6 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 	if service.outputSessionID != "session-window" || service.outputRequest.Cursor != "6" || service.outputRequest.Limit != 4 || output.Version != 1 || output.Items[0].Kind != "user_message" || output.Messages[0].ClientRequestID != "client-output" {
 		t.Fatalf("output = %#v request=%#v session=%q", output, service.outputRequest, service.outputSessionID)
 	}
-	outputEvents, err := bridge.SessionOutputEvents(context.Background(), "session-window", "7")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if service.outputEventsSessionID != "session-window" || service.outputEventsAfter != "7" || outputEvents.Cursor != "8" || len(outputEvents.Events) != 1 || outputEvents.Events[0].Item == nil {
-		t.Fatalf("output events = %#v session=%q after=%q", outputEvents, service.outputEventsSessionID, service.outputEventsAfter)
-	}
-
 	turnActivity, err := bridge.TurnActivity(context.Background(), "turn-window")
 	if err != nil {
 		t.Fatal(err)
@@ -1771,10 +1749,6 @@ func (s *recordingRuntimeService) Events(_ context.Context, afterValues ...int64
 	return s.eventsResponse, nil
 }
 
-func (s *recordingRuntimeService) EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error) {
-	return RuntimeEventsEndpointResponse{}, nil
-}
-
 func (s *recordingRuntimeService) SubscribeEvents(context.Context, ...int64) (<-chan RuntimeEvent, func()) {
 	events := make(chan RuntimeEvent)
 	return events, func() {
@@ -1920,14 +1894,6 @@ func (s *recordingRuntimeService) ContextSources(context.Context) (RuntimeContex
 
 func (s *recordingRuntimeService) ReadFiles(context.Context, string) (RuntimeReadFilesResponse, error) {
 	return RuntimeReadFilesResponse{}, nil
-}
-
-func (s *recordingRuntimeService) APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error) {
-	return RuntimeAPIEndpointResponse{}, nil
-}
-
-func (s *recordingRuntimeService) ServeHTTP(context.Context, string, string) (RuntimeAPIEndpointResponse, error) {
-	return RuntimeAPIEndpointResponse{}, nil
 }
 
 func (s *recordingRuntimeService) DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error) {

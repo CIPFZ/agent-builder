@@ -1,9 +1,9 @@
-export interface ToolOutputPreview {
+export interface BoundedText {
   text: string;
   truncated: boolean;
 }
 
-export function boundedToolText(value: string, maxLines = 24, maxChars = 6000): ToolOutputPreview {
+export function boundedText(value: string, maxLines = 24, maxChars = 3000): BoundedText {
   const normalized = value.trim();
   const lines = normalized.split(/\r?\n/);
   let text = lines.slice(0, maxLines).join('\n');

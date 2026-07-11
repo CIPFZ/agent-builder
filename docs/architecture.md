@@ -6,9 +6,7 @@
 flowchart TB
     UI["React 工作台"] --> Adapter["Workbench Adapter"]
     Adapter -->|"Wails WebView"| Bridge["desktop/RuntimeBridge"]
-    Adapter -->|"Vite/外部客户端"| HTTP["Runtime HTTP API"]
     Bridge --> Runtime["internal/runtime"]
-    HTTP --> Runtime
     Runtime --> App["internal/app 与 workbench 装配"]
     Runtime --> Agent["internal/agent"]
     Runtime --> Scheduler["internal/tools/scheduler"]
@@ -47,7 +45,7 @@ flowchart TB
 - Skills、MCP、上下文来源、项目记忆和文件读取状态；
 - 子任务、worktree、终端、恢复和事件流。
 
-Runtime 同时提供 Wails 可调用方法与 `/v1` HTTP/SSE 接口，两者应表达同一业务语义。
+Runtime 只通过 Wails bindings 和 Wails events 暴露给 React 客户端，避免维护重复传输语义。
 
 ### Agent 与工具层
 

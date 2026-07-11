@@ -21,7 +21,7 @@ type RuntimeContextGovernanceProviderOverride struct {
 	Models             map[string]RuntimeContextGovernanceModelOverride `json:"models,omitempty"`
 }
 
-// RuntimeContextGovernanceSettings is the API-facing shape of the
+// RuntimeContextGovernanceSettings is the Wails-facing shape of the
 // "contextGovernance" config section. Every field is optional; unset fields
 // fall back to documented defaults (enabled=true, pct=nil(auto),
 // microcompact=true, keepRecent=5, summaryModel=session).
@@ -34,8 +34,7 @@ type RuntimeContextGovernanceSettings struct {
 	ProviderOverrides      map[string]RuntimeContextGovernanceProviderOverride `json:"providerOverrides,omitempty"`
 }
 
-// RuntimeContextGovernanceSettingsResponse wraps the persisted settings for
-// GET/PUT /v1/settings/context-governance.
+// RuntimeContextGovernanceSettingsResponse wraps the persisted settings.
 type RuntimeContextGovernanceSettingsResponse struct {
 	Settings RuntimeContextGovernanceSettings `json:"settings"`
 }

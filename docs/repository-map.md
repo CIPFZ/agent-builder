@@ -14,8 +14,8 @@
 
 | 路径 | 职责 |
 |---|---|
-| `internal/runtime` | 客户端运行时服务、DTO、HTTP/SSE、投影和持久化协调 |
-| `internal/runtimeapi` | HTTP endpoint 与事件契约 |
+| `internal/runtime` | 客户端运行时服务、DTO、Wails 事件投影和持久化协调 |
+| `internal/runtimeapi` | Runtime 事件契约 |
 | `internal/app` | 应用依赖装配 |
 | `internal/workbench` | Agent、会话、权限等工作台服务组合 |
 | `internal/agent` | Agent 循环、Provider、Prompt、压缩、工具处理 |
@@ -59,7 +59,7 @@
 
 ## 契约与变更定位
 
-- 查 HTTP endpoint 或事件名：`internal/runtimeapi/contract.go`
+- 查 Runtime 事件名：`internal/runtimeapi/contract.go`
 - 查 Wails 暴露能力：`desktop/runtime_bridge.go`
 - 查前端可调用方法：`client/src/runtime/workbenchTypes.ts` 与 adapters
 - 查 Runtime DTO：`internal/runtime/runtime_contract_types.go`

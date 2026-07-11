@@ -1231,7 +1231,7 @@ export interface SettingsViewModel {
 }
 
 // ContextGovernanceSettingsViewModel mirrors the runtime's
-// RuntimeContextGovernanceSettings DTO (GET/PUT /v1/settings/context-governance).
+// RuntimeContextGovernanceSettings DTO exposed through Wails bindings.
 // Every field is optional; an absent field means "use the documented
 // default" (autoCompactEnabled=true, autoCompactPercent=auto,
 // microcompactEnabled=true, microcompactKeepRecent=5, summaryModel=session).

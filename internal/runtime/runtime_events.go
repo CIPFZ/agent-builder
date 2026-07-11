@@ -28,16 +28,6 @@ func (r *runtimeService) Events(_ context.Context, afterValues ...int64) (Runtim
 	return r.eventsAfterLocked(after), nil
 }
 
-func (r *runtimeService) EventsEndpoint(_ context.Context) (RuntimeEventsEndpointResponse, error) {
-	if err := r.httpAPI.Start(); err != nil {
-		return RuntimeEventsEndpointResponse{}, err
-	}
-	return RuntimeEventsEndpointResponse{
-		URL:   r.httpAPI.URL() + "/v1/events",
-		Token: r.httpAPI.Token(),
-	}, nil
-}
-
 func (r *runtimeService) SubscribeEvents(_ context.Context, afterValues ...int64) (<-chan RuntimeEvent, func()) {
 	var after int64
 	if len(afterValues) > 0 {
@@ -45,7 +35,7 @@ func (r *runtimeService) SubscribeEvents(_ context.Context, afterValues ...int64
 	}
 	events := make(chan RuntimeEvent, runtimeEventLimit+16)
 	if r.eventStream == nil {
-		r.eventStream = newRuntimeSSEServer()
+		r.eventStream = newRuntimeEventBroker()
 	}
 	r.mu.Lock()
 	history := r.eventsAfterLocked(after)
@@ -482,11 +472,10 @@ func (r *runtimeService) eventsAfterLocked(after int64) RuntimeEventsResponse {
 	}
 }
 
-func (r *runtimeService) ensureEventStream() error {
+func (r *runtimeService) ensureEventStream() {
 	if r.eventStream == nil {
-		r.eventStream = newRuntimeSSEServer()
+		r.eventStream = newRuntimeEventBroker()
 	}
-	return r.eventStream.Start()
 }
 
 func (r *runtimeService) publishRuntimeEvent(event RuntimeEvent) {
@@ -506,10 +495,7 @@ func (r *runtimeService) publishRuntimeEvent(event RuntimeEvent) {
 	if r.eventStream == nil {
 		return
 	}
-	if err := r.ensureEventStream(); err != nil {
-		slog.Error("Failed to start desktop runtime SSE stream", "error", err)
-		return
-	}
+	r.ensureEventStream()
 	r.eventStream.Publish(event)
 }
 

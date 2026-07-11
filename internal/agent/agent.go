@@ -409,6 +409,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 					Parts:    []message.ContentPart{},
 					Model:    largeModel.ModelCfg.Model,
 					Provider: largeModel.ModelCfg.Provider,
+					Metadata: map[string]string{"turn_id": call.TurnID},
 				})
 				if err != nil {
 					return callContext, prepared, err

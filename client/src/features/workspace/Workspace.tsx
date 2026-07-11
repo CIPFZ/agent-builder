@@ -168,7 +168,9 @@ export function Workspace({
   const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
   const activeSessionID = activeSession?.id ?? '';
   const hasAgentTasks = Boolean(viewModel.agentTasks?.length);
-  const todoTurn = (viewModel.todos?.turnId ? conversationTurns.find((turn) => turn.id === viewModel.todos?.turnId) : undefined) ?? conversationTurns[conversationTurns.length - 1];
+  const todoTurn = viewModel.todos?.turnId
+    ? conversationTurns.find((turn) => turn.id === viewModel.todos?.turnId)
+    : undefined;
   const showTodoAction = shouldShowTodoTaskBar(viewModel.todos, todoTurn?.status);
   const showJumpAction = hasConversation && showJumpToBottom;
   const replaceTerminalTabs = useCallback((terminals: TerminalViewModel[]) => {

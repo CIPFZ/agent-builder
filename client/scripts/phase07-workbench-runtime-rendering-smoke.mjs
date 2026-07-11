@@ -98,6 +98,8 @@ assert.match(toolCardSource, /const defaultActiveKey: string\[\] = \[\];/);
 assert.match(toolCardSource, /defaultActiveKey=\{\[\]\}/);
 assert.match(timelineSource, /ToolItemDisclosureList|ToolTraceGroup/);
 assert.match(workspaceSource, /activeSession\?\.id[\s\S]*permission\.sessionId === activeSession\.id/);
+assert.match(workspaceSource, /viewModel\.todos\?\.turnId\s*\?\s*conversationTurns\.find/);
+assert.doesNotMatch(workspaceSource, /todoTurn[\s\S]{0,240}\?\?\s*conversationTurns/);
 
 assert.match(shellSource, /id: userID,[\s\S]*status: 'success'/);
 assert.match(shellSource, /const nextViewModel = await adapter\.sendPrompt\(optimisticViewModel, prompt/);

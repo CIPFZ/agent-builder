@@ -24,7 +24,7 @@ Runtime 投影不能只存在浏览器内存中。提交成功、事件到达、
 
 ## 传输适配
 
-`client/src/runtime/wailsWorkbenchAdapter.ts` 是桌面环境适配器；`staticWorkbenchAdapter.tsx` 为非 Wails 环境提供开发/降级能力。HTTP API 由 `internal/runtime/runtime_http.go` 提供，并以 `internal/runtimeapi/contract.go` 的 `/v1` 契约为准。
+`client/src/runtime/wailsWorkbenchAdapter.ts` 是唯一产品适配器。请求/响应通过 Wails bindings，持续输出通过 Wails events。`staticWorkbenchAdapter.tsx` 仅用于纯 UI 数据构造，不得作为 Runtime 传输降级。
 
 代码必须考虑以下环境差异：
 

@@ -69,16 +69,15 @@ let assistant = timeline.find((item) => item.messageId === messageId);
 assert.equal(assistant?.content, 'plan', 'delta content populates assistant item via streaming overlay');
 assert.equal(assistant?.streaming, true, 'assistant item marked streaming while overlay is active');
 
-// Batch 3: adjacent deltas merged by transport, applied together, tool started.
+// Batch 3: transport preserves individual deltas so duplicate/out-of-order
+// fragments remain visible to the reducer's contentLen guard.
 const streamed = mergeAdjacentDeltas([
   { id: 'delta-2', sequence: 0, sessionId, kind: 'output.text.delta', entityId: messageId, operation: 'delta',
     textDelta: { messageId, partType: 'text', delta: 'ning', contentLen: 8 } },
   { id: 'delta-3', sequence: 0, sessionId, kind: 'output.text.delta', entityId: messageId, operation: 'delta',
     textDelta: { messageId, partType: 'text', delta: ', running tool', contentLen: 22 } },
 ]);
-assert.equal(streamed.length, 1, 'transport merges adjacent deltas for the same (message, partType)');
-assert.equal(streamed[0].textDelta.delta, 'ning, running tool', 'merged delta concatenates in order');
-assert.equal(streamed[0].textDelta.contentLen, 22, 'merged delta keeps the largest contentLen');
+assert.equal(streamed.length, 2, 'transport preserves adjacent deltas for reducer-level idempotency');
 
 store = applyOutputEvents(store, [
   ...streamed,
@@ -121,6 +120,25 @@ assistant = timeline.find((item) => item.messageId === messageId);
 assert.equal(assistant?.phase, 'final', 'assistant item is now in final phase');
 assert.notEqual(assistant?.streaming, true, 'assistant item no longer flagged streaming');
 assert.equal(assistant?.content, 'planning, running tool - done.', 'final assistant content matches runtime snapshot');
+
+// Terminal and session boundaries reject late/foreign activity.
+store = applyOutputEvents(store, [
+  { id: 'turn-finished', sequence: 10, sessionId, turnId, kind: 'turn.updated', entityId: turnId, operation: 'update',
+    turn: { id: turnId, sessionId, status: 'completed', startedAt: 10, finishedAt: 31 } },
+  { id: 'delta-late', sequence: 11, sessionId, turnId, kind: 'output.text.delta', entityId: messageId, operation: 'delta',
+    textDelta: { messageId, turnId, partType: 'text', delta: ' late', contentLen: 33 } },
+  { id: 'foreign-item', sequence: 12, sessionId: 'other-session', kind: 'conversation_item.created', entityId: 'foreign', operation: 'append',
+    item: { id: 'foreign', kind: 'assistant_message', sessionId: 'other-session', sequence: 1, role: 'assistant', content: 'wrong session' } },
+]);
+assert.equal(store.streamingByMessageId[messageId], undefined, 'late delta cannot revive a terminal turn');
+assert.equal(store.itemsById.foreign, undefined, 'foreign-session event cannot pollute the active store');
+
+const duplicateDeltas = mergeAdjacentDeltas([
+  { id: 'dup-1', sequence: 0, sessionId, kind: 'output.text.delta', entityId: 'dup-message', operation: 'delta', textDelta: { messageId: 'dup-message', partType: 'text', delta: 'abc', contentLen: 3 } },
+  { id: 'dup-2', sequence: 0, sessionId, kind: 'output.text.delta', entityId: 'dup-message', operation: 'delta', textDelta: { messageId: 'dup-message', partType: 'text', delta: 'abc', contentLen: 3 } },
+]);
+const duplicateStore = applyOutputEvents(createOutputStore(sessionId), duplicateDeltas);
+assert.equal(duplicateStore.streamingByMessageId['dup-message']?.text, 'abc', 'duplicate adjacent delta is rejected without duplicated text');
 
 // --- Scenario 2: optimistic submit ordering with realistic runtime-scale
 // sequences (sequence = turnStartMs/100 * 100000 + rank + intra). The

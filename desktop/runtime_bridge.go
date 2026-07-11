@@ -70,6 +70,10 @@ type RuntimeTerminalStreamMessage = runtime.RuntimeTerminalStreamMessage
 type RuntimeTerminalStreamResponse = runtime.RuntimeTerminalStreamResponse
 type RuntimeOutputStreamStartRequest = runtime.RuntimeOutputStreamStartRequest
 type RuntimeOutputStreamStopRequest = runtime.RuntimeOutputStreamStopRequest
+type RuntimeEventStreamStartRequest = runtime.RuntimeEventStreamStartRequest
+type RuntimeEventStreamStopRequest = runtime.RuntimeEventStreamStopRequest
+type RuntimeEventStreamResponse = runtime.RuntimeEventStreamResponse
+type RuntimeEventStreamMessage = runtime.RuntimeEventStreamMessage
 type RuntimeOutputStreamResponse = runtime.RuntimeOutputStreamResponse
 type RuntimeOutputStreamMessage = runtime.RuntimeOutputStreamMessage
 type RuntimeOutputTextDelta = runtime.RuntimeOutputTextDelta
@@ -195,7 +199,6 @@ type RuntimeContextUsage = runtime.RuntimeContextUsage
 type RuntimeContextCategory = runtime.RuntimeContextCategory
 type RuntimeEventStats = runtime.RuntimeEventStats
 type RuntimeEventsResponse = runtime.RuntimeEventsResponse
-type RuntimeEventsEndpointResponse = runtime.RuntimeEventsEndpointResponse
 type RuntimeReplayExportRequest = runtime.RuntimeReplayExportRequest
 type RuntimeReplayExportResponse = runtime.RuntimeReplayExportResponse
 type RuntimeReplayExportSummary = runtime.RuntimeReplayExportSummary
@@ -244,7 +247,6 @@ type RuntimeReadFilesResponse = runtime.RuntimeReadFilesResponse
 type RuntimeModelConfig = runtime.RuntimeModelConfig
 type RuntimeModelVerifyResponse = runtime.RuntimeModelVerifyResponse
 type RuntimeModelDiscoveryResponse = runtime.RuntimeModelDiscoveryResponse
-type RuntimeAPIEndpointResponse = runtime.RuntimeAPIEndpointResponse
 type RuntimeAuditEvent = runtime.RuntimeAuditEvent
 type RuntimeAuditResponse = runtime.RuntimeAuditResponse
 type RuntimeEvent = runtime.RuntimeEvent
@@ -262,6 +264,8 @@ type RuntimeBridge struct {
 	// previous stream for the same session automatically (session switch
 	// path).
 	outputStreamBySession map[string]string
+	runtimeEventMu        sync.Mutex
+	runtimeEventStreams   map[string]context.CancelFunc
 }
 
 type runtimeBridgeTerminalStream struct {
@@ -282,6 +286,7 @@ func NewRuntimeBridge() *RuntimeBridge {
 		terminalStreams:       make(map[string]*runtimeBridgeTerminalStream),
 		outputStreams:         make(map[string]*runtimeBridgeOutputStream),
 		outputStreamBySession: make(map[string]string),
+		runtimeEventStreams:   make(map[string]context.CancelFunc),
 	}
 
 }
@@ -1011,12 +1016,6 @@ func (r *RuntimeBridge) SessionOutput(ctx context.Context, sessionID string, req
 
 }
 
-func (r *RuntimeBridge) SessionOutputEvents(ctx context.Context, sessionID string, after string) (RuntimeOutputEventsResponse, error) {
-
-	return r.service.SessionOutputEvents(ctx, sessionID, after)
-
-}
-
 // StartSessionOutputStream opens a per-session push channel that batches
 // RuntimeOutputEvent (including ephemeral text deltas). Emits Wails app
 // events under the name "agent-builder:output-stream" with a 50ms batcher.
@@ -1253,16 +1252,55 @@ func (r *RuntimeBridge) SaveContextGovernanceSettings(ctx context.Context, req R
 
 }
 
-func (r *RuntimeBridge) Events(ctx context.Context, after int64) (RuntimeEventsResponse, error) {
-
-	return r.service.Events(ctx, after)
-
+func (r *RuntimeBridge) StartRuntimeEventStream(ctx context.Context, req RuntimeEventStreamStartRequest) (RuntimeEventStreamResponse, error) {
+	app := application.Get()
+	if app == nil {
+		return RuntimeEventStreamResponse{}, errors.New("desktop application is not initialized")
+	}
+	streamID := strings.TrimSpace(req.StreamID)
+	if streamID == "" {
+		streamID = fmt.Sprintf("runtime-event-stream-%d", time.Now().UnixNano())
+	}
+	streamCtx, cancel := context.WithCancel(context.Background())
+	events, unsubscribe := r.service.SubscribeEvents(streamCtx, req.After)
+	r.runtimeEventMu.Lock()
+	if previous := r.runtimeEventStreams[streamID]; previous != nil {
+		previous()
+	}
+	r.runtimeEventStreams[streamID] = func() { cancel(); unsubscribe() }
+	r.runtimeEventMu.Unlock()
+	eventName := "agent-builder:runtime-events"
+	go func() {
+		defer r.stopRuntimeEventStream(streamID)
+		for {
+			select {
+			case <-streamCtx.Done():
+				return
+			case event, ok := <-events:
+				if !ok {
+					return
+				}
+				app.Event.Emit(eventName, RuntimeEventStreamMessage{StreamID: streamID, Events: []RuntimeEvent{event}})
+			}
+		}
+	}()
+	return RuntimeEventStreamResponse{StreamID: streamID, EventName: eventName}, nil
 }
 
-func (r *RuntimeBridge) EventsEndpoint(ctx context.Context) (RuntimeEventsEndpointResponse, error) {
+func (r *RuntimeBridge) StopRuntimeEventStream(ctx context.Context, req RuntimeEventStreamStopRequest) (bool, error) {
+	return r.stopRuntimeEventStream(strings.TrimSpace(req.StreamID)), nil
+}
 
-	return r.service.EventsEndpoint(ctx)
-
+func (r *RuntimeBridge) stopRuntimeEventStream(streamID string) bool {
+	r.runtimeEventMu.Lock()
+	cancel := r.runtimeEventStreams[streamID]
+	delete(r.runtimeEventStreams, streamID)
+	r.runtimeEventMu.Unlock()
+	if cancel == nil {
+		return false
+	}
+	cancel()
+	return true
 }
 
 func (r *RuntimeBridge) AuditTurn(ctx context.Context, turnID string) (RuntimeAuditResponse, error) {
@@ -1410,18 +1448,6 @@ func (r *RuntimeBridge) ContextSources(ctx context.Context) (RuntimeContextSourc
 func (r *RuntimeBridge) ReadFiles(ctx context.Context, sessionID string) (RuntimeReadFilesResponse, error) {
 
 	return r.service.ReadFiles(ctx, sessionID)
-
-}
-
-func (r *RuntimeBridge) APIEndpoint(ctx context.Context) (RuntimeAPIEndpointResponse, error) {
-
-	return r.service.APIEndpoint(ctx)
-
-}
-
-func (r *RuntimeBridge) ServeHTTP(ctx context.Context, address string, token string) (RuntimeAPIEndpointResponse, error) {
-
-	return r.service.ServeHTTP(ctx, address, token)
 
 }
 

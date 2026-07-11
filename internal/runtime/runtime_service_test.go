@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1852,15 +1851,6 @@ func TestRuntimeCapabilityStateNormalization(t *testing.T) {
 	})
 	if capability.State != capabilityStateFailed || capability.Error != "boom" || capability.Diagnostics != "failed" {
 		t.Fatalf("capability load record not applied: %#v", capability)
-	}
-}
-
-func TestCapabilityRefreshPathIDAllowsEncodedSlashIDs(t *testing.T) {
-	t.Parallel()
-
-	id := capabilityRefreshPathID("/v1/capabilities/mcp_resource%3Adocs%3Adocs%3A%2F%2Fintro/refresh")
-	if id != "mcp_resource:docs:docs://intro" {
-		t.Fatalf("capability refresh path id = %q", id)
 	}
 }
 
@@ -4559,31 +4549,13 @@ func TestTurnRuntimeEventsCarryUsageAndStatus(t *testing.T) {
 	}
 }
 
-func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
+func TestRuntimeEventBrokerPublishesRuntimeEvents(t *testing.T) {
 	t.Parallel()
 
-	stream := newRuntimeSSEServer()
-	if err := stream.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer stream.Close(context.Background()) //nolint:errcheck
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, stream.URL(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("StatusCode = %d", resp.StatusCode)
-	}
+	stream := newRuntimeEventBroker()
+	events := make(chan RuntimeEvent, 1)
+	stream.addSubscriber(events)
+	defer stream.removeSubscriber(events)
 
 	stream.Publish(RuntimeEvent{
 		ID:        "event-1",
@@ -4597,25 +4569,14 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 		},
 	})
 
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		var event RuntimeEvent
-		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
-			t.Fatal(err)
-		}
+	select {
+	case event := <-events:
 		if event.Type != "message.created" || event.MessageID != "message-1" {
 			t.Fatalf("event = %#v", event)
 		}
-		return
+	case <-time.After(time.Second):
+		t.Fatal("runtime event was not received")
 	}
-	if err := scanner.Err(); err != nil {
-		t.Fatal(err)
-	}
-	t.Fatal("runtime SSE event was not received")
 }
 
 type recordingRuntimeService struct {
@@ -5384,10 +5345,6 @@ func (s *recordingRuntimeService) Events(context.Context, ...int64) (RuntimeEven
 	return RuntimeEventsResponse{}, nil
 }
 
-func (s *recordingRuntimeService) EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error) {
-	return RuntimeEventsEndpointResponse{}, nil
-}
-
 func (s *recordingRuntimeService) SubscribeEvents(context.Context, ...int64) (<-chan RuntimeEvent, func()) {
 	events := make(chan RuntimeEvent)
 	return events, func() {
@@ -5540,14 +5497,6 @@ func (s *recordingRuntimeService) ContextSources(context.Context) (RuntimeContex
 
 func (s *recordingRuntimeService) ReadFiles(context.Context, string) (RuntimeReadFilesResponse, error) {
 	return RuntimeReadFilesResponse{}, nil
-}
-
-func (s *recordingRuntimeService) APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error) {
-	return RuntimeAPIEndpointResponse{URL: "http://127.0.0.1:1", Token: "token"}, nil
-}
-
-func (s *recordingRuntimeService) ServeHTTP(context.Context, string, string) (RuntimeAPIEndpointResponse, error) {
-	return RuntimeAPIEndpointResponse{URL: "http://127.0.0.1:1", Token: "token"}, nil
 }
 
 func (s *recordingRuntimeService) DecidePermission(_ context.Context, req RuntimePermissionDecision) (RuntimeStatus, error) {

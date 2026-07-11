@@ -1,12 +1,13 @@
 import { BranchesOutlined, CompressOutlined, LoadingOutlined, WarningOutlined } from '@ant-design/icons';
 import { Tag } from 'antd';
+import { boundedText } from '../../runtime/boundedText.ts';
 import type { ConversationTimelineItemViewModel } from '../../runtime/workbenchTypes.ts';
-import { TraceRow } from './TraceRow.tsx';
+import { InlineExpandable, TraceRow } from './TraceRow.tsx';
 import styles from './Timeline.module.css';
 
 export function WorkflowNoticeRow({ item }: { item: ConversationTimelineItemViewModel }) {
   const failed = item.status === 'failed' || item.status === 'interrupted' || Boolean(item.error);
-  return <TraceRow dataAttrs={{ 'data-workflow-kind': item.kind, 'data-workflow-status': item.status }} extra={item.summary || item.error || item.content ? <span>{item.error || item.summary || item.content}</span> : null} icon={failed ? <WarningOutlined /> : <BranchesOutlined />} meta={item.status ? <Tag color={failed ? 'error' : 'default'}>{item.status}</Tag> : null} testId="timeline-workflow-row" title={item.title || workflowNoticeTitle(item.kind)} tone={failed ? 'error' : 'default'} />;
+  return <TraceRow dataAttrs={{ 'data-workflow-kind': item.kind, 'data-workflow-status': item.status }} extra={<BoundedNoticeText text={item.error || item.summary || item.content} />} icon={failed ? <WarningOutlined /> : <BranchesOutlined />} meta={item.status ? <Tag color={failed ? 'error' : 'default'}>{item.status}</Tag> : null} testId="timeline-workflow-row" title={item.title || workflowNoticeTitle(item.kind)} tone={failed ? 'error' : 'default'} />;
 }
 
 export function CompactTraceRow({ item }: { item: ConversationTimelineItemViewModel }) {
@@ -18,14 +19,21 @@ export function CompactTraceRow({ item }: { item: ConversationTimelineItemViewMo
   const meta = <>{(compact?.trigger || item.title) && <Tag>{compactTriggerLabel(compact?.trigger || item.title || '')}</Tag>}{item.status && <Tag color={failed ? 'error' : compacting ? 'processing' : 'success'}>{compactStatusLabel(item.status)}</Tag>}{!failed && !compacting && typeof compact?.preTokens === 'number' && typeof compact?.postTokens === 'number' && <span>{formatTokenCount(compact.preTokens)} -&gt; {formatTokenCount(compact.postTokens)} tokens</span>}{!failed && !compacting && typeof compact?.summarizedCount === 'number' && compact.summarizedCount > 0 && <span>{compact.summarizedCount} messages</span>}</>;
   return (
     <TraceRow expandable={Boolean(summary)} icon={failed ? <WarningOutlined /> : compacting ? <LoadingOutlined spin /> : <CompressOutlined />} meta={meta} testId="timeline-compact-row" title={compactTraceTitle(item, compacting, failed)} tone={failed ? 'error' : 'default'} extra={error ? <span>{error}</span> : null}>
-      {summary ? <div className={styles.compactSummaryPanel}><div className={styles.compactSummaryLabel}>Summary retained for future turns</div><div className={styles.compactSummaryText}>{summary}</div></div> : null}
+      {summary ? <div className={styles.compactSummaryPanel}><div className={styles.compactSummaryLabel}>Summary retained for future turns</div><BoundedNoticeText text={summary} /></div> : null}
     </TraceRow>
   );
 }
 
 export function ContextGovernanceRow({ item }: { item: ConversationTimelineItemViewModel }) {
   const failed = item.status === 'failed' || Boolean(item.error);
-  return <TraceRow dataAttrs={{ 'data-context-kind': item.kind, 'data-context-status': item.status }} extra={item.summary || item.error ? <span>{item.error || item.summary}</span> : null} icon={failed ? <WarningOutlined /> : <BranchesOutlined />} meta={item.status ? <Tag color={failed ? 'error' : 'default'}>{item.status}</Tag> : null} testId="timeline-context-governance-row" title={`Context source${item.title ? `: ${item.title}` : ''}`} tone={failed ? 'error' : 'default'} />;
+  return <TraceRow dataAttrs={{ 'data-context-kind': item.kind, 'data-context-status': item.status }} extra={<BoundedNoticeText text={item.error || item.summary} />} icon={failed ? <WarningOutlined /> : <BranchesOutlined />} meta={item.status ? <Tag color={failed ? 'error' : 'default'}>{item.status}</Tag> : null} testId="timeline-context-governance-row" title={`Context source${item.title ? `: ${item.title}` : ''}`} tone={failed ? 'error' : 'default'} />;
+}
+
+function BoundedNoticeText({ text }: { text?: string }) {
+  if (!text) return null;
+  const preview = boundedText(text, 6, 900);
+  if (!preview.truncated) return <span>{preview.text}</span>;
+  return <InlineExpandable className={styles.noticeText} summary={preview.text}><div className={styles.noticeFullText}>{text}</div></InlineExpandable>;
 }
 
 export function TurnDiagnosticWarning({ item }: { item: ConversationTimelineItemViewModel }) {

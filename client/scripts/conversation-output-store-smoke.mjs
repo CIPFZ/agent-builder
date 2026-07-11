@@ -25,7 +25,7 @@ for (const name of ['outputStore', 'outputReducer', 'outputSelectors']) {
 }
 
 {
-  const source = await readFile(path.join(root, 'src', 'features', 'tools', 'toolOutputPreview.ts'), 'utf8');
+  const source = await readFile(path.join(root, 'src', 'runtime', 'boundedText.ts'), 'utf8');
   const transpiled = ts.transpileModule(source, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022, importsNotUsedAsValues: ts.ImportsNotUsedAsValues.Remove },
   }).outputText.replaceAll('.ts', '.mjs');
@@ -70,7 +70,7 @@ const { selectConversationMessages, selectProjectedConversationItems, selectPend
 const { selectConversationTurns } = await import(pathToFileURL(path.join(tempDir, 'conversation', 'turnProjection.mjs')).href);
 const { shouldAutoOpenProcess } = await import(pathToFileURL(path.join(tempDir, 'timeline', 'processDisclosurePolicy.mjs')).href);
 const { todoDisplayModel } = await import(pathToFileURL(path.join(tempDir, 'todos', 'todoDisplayPolicy.mjs')).href);
-const { boundedToolText } = await import(pathToFileURL(path.join(tempDir, 'tools', 'toolOutputPreview.mjs')).href);
+const { boundedText } = await import(pathToFileURL(path.join(tempDir, 'tools', 'toolOutputPreview.mjs')).href);
 
 assert.equal(shouldAutoOpenProcess({ status: 'running', itemStatuses: [] }), true, 'running process auto-opens');
 assert.equal(shouldAutoOpenProcess({ status: 'queued', itemStatuses: [] }), true, 'queued process auto-opens');
@@ -92,9 +92,9 @@ assert.equal(todoDisplayModel(staleTodos, 'completed').state, 'stopped', 'termin
 assert.equal(todoDisplayModel(staleTodos, 'failed').state, 'stopped', 'failed turn renders Todo state as stopped');
 assert.equal(todoDisplayModel(staleTodos, 'running').state, 'running', 'active turn may render an in-progress Todo spinner');
 assert.equal(todoDisplayModel(staleTodos, undefined).state, 'hidden', 'Todo data without an owning turn is hidden as stale');
-assert.equal(boundedToolText('short output').truncated, false, 'short tool output remains intact');
-assert.equal(boundedToolText(Array.from({ length: 30 }, (_, index) => `line-${index}`).join('\n')).truncated, true, 'long tool output is line bounded');
-assert.equal(boundedToolText('x'.repeat(7000)).text.length <= 6002, true, 'long single-line tool output is character bounded');
+assert.equal(boundedText('short output').truncated, false, 'short bounded text remains intact');
+assert.equal(boundedText(Array.from({ length: 30 }, (_, index) => `line-${index}`).join('\n')).truncated, true, 'long text is line bounded');
+assert.equal(boundedText('x'.repeat(7000)).text.length <= 3002, true, 'long single-line text is character bounded');
 
 // ── 1. Runtime-owned snapshot: version=1 items are the only conversation source.
 
@@ -260,6 +260,21 @@ streamingStore = applyOutputEvent(streamingStore, {
   permission: { id: 'perm-1', sessionId: 'session-stream', turnId: 'turn-stream', toolCallId: 'tool-x', toolName: 'bash', action: 'run', status: 'pending', createdAt: 300 },
 });
 assert.equal(selectPendingPermissions(streamingStore).length, 1, 'pending permission surfaced via runtime event');
+
+streamingStore = applyOutputEvent(streamingStore, {
+  id: 'terminal-turn', sequence: 90, sessionId: 'session-stream', turnId: 'turn-stream', kind: 'turn.updated', entityId: 'turn-stream', operation: 'update',
+  turn: { id: 'turn-stream', sessionId: 'session-stream', status: 'completed', startedAt: 1, finishedAt: 99 },
+});
+assert.equal(selectPendingPermissions(streamingStore).length, 0, 'pending permission from a terminal turn is not actionable');
+streamingStore = applyOutputEvent(streamingStore, {
+  id: 'permission-regression', sequence: 89, sessionId: 'session-stream', turnId: 'turn-stream', kind: 'permission.updated', entityId: 'perm-stream', operation: 'update',
+  permission: { id: 'perm-stream', sessionId: 'session-stream', turnId: 'turn-stream', toolCallId: 'call-stream', toolName: 'shell', action: 'run', status: 'denied' },
+});
+streamingStore = applyOutputEvent(streamingStore, {
+  id: 'permission-stale-pending', sequence: 88, sessionId: 'session-stream', turnId: 'turn-stream', kind: 'permission.updated', entityId: 'perm-stream', operation: 'update',
+  permission: { id: 'perm-stream', sessionId: 'session-stream', turnId: 'turn-stream', toolCallId: 'call-stream', toolName: 'shell', action: 'run', status: 'pending' },
+});
+assert.equal(streamingStore.permissionsById['perm-stream'].status, 'denied', 'terminal permission cannot regress to pending');
 
 // ── 5. applyOutputEvents batch order is preserved.
 

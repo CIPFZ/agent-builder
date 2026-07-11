@@ -47,7 +47,7 @@ export function hydrateOutputStore(snapshot: RuntimeOutputSnapshot | undefined, 
 }
 
 export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent): OutputStore {
-  if (!event) {
+  if (!event || (store.sessionId && event.sessionId !== store.sessionId)) {
     return store;
   }
   // Delta events are ephemeral and idempotent; the id may be reused across
@@ -87,7 +87,12 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
     return next;
   }
   if (event.item) {
-    next.itemsById[event.item.id] = { ...next.itemsById[event.item.id], ...event.item };
+    const previous = next.itemsById[event.item.id];
+    next.itemsById[event.item.id] = {
+      ...previous,
+      ...event.item,
+      status: event.item.status ? mergeTerminalEntityStatus(previous?.status, event.item.status) : previous?.status,
+    };
     if (event.item.clientRequestId) {
       delete next.optimisticByClientRequestId[event.item.clientRequestId];
     } else if (event.item.role === 'user') {
@@ -108,7 +113,12 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
     }
   }
   if (event.message) {
-    next.messagesById[event.message.id] = { ...next.messagesById[event.message.id], ...event.message };
+    const previous = next.messagesById[event.message.id];
+    next.messagesById[event.message.id] = {
+      ...previous,
+      ...event.message,
+      finished: previous?.finished || event.message.finished,
+    };
     if (event.message.clientRequestId) {
       delete next.optimisticByClientRequestId[event.message.clientRequestId];
     }
@@ -130,16 +140,31 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
     }
   }
   if (event.assistantStep) {
-    next.assistantStepsById[event.assistantStep.id] = { ...next.assistantStepsById[event.assistantStep.id], ...event.assistantStep };
+    const previous = next.assistantStepsById[event.assistantStep.id];
+    next.assistantStepsById[event.assistantStep.id] = {
+      ...previous,
+      ...event.assistantStep,
+      status: mergeTerminalEntityStatus(previous?.status, event.assistantStep.status),
+    };
   }
   if (event.toolCall) {
-    next.toolCallsById[event.toolCall.id] = { ...next.toolCallsById[event.toolCall.id], ...event.toolCall };
+    const previous = next.toolCallsById[event.toolCall.id];
+    next.toolCallsById[event.toolCall.id] = {
+      ...previous,
+      ...event.toolCall,
+      status: mergeTerminalEntityStatus(previous?.status, event.toolCall.status),
+    };
   }
   if (event.toolResult) {
     next.toolResultsById[event.toolResult.id] = { ...next.toolResultsById[event.toolResult.id], ...event.toolResult };
   }
   if (event.permission) {
-    next.permissionsById[event.permission.id] = { ...next.permissionsById[event.permission.id], ...event.permission };
+    const previous = next.permissionsById[event.permission.id];
+    next.permissionsById[event.permission.id] = {
+      ...previous,
+      ...event.permission,
+      status: mergeTerminalEntityStatus(previous?.status, event.permission.status),
+    };
   }
   if (event.agentTask) {
     next.agentTasksById[event.agentTask.id] = { ...next.agentTasksById[event.agentTask.id], ...event.agentTask };
@@ -150,6 +175,10 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
 function applyTextDeltaEvent(store: OutputStore, event: RuntimeOutputEvent): OutputStore {
   const delta = event.textDelta;
   if (!delta || !delta.messageId) {
+    return store;
+  }
+  const turnId = delta.turnId || event.turnId || Object.values(store.itemsById).find((item) => item.messageId === delta.messageId)?.turnId;
+  if (turnId && isTerminalStatus(store.turnsById[turnId]?.status)) {
     return store;
   }
   const partType = delta.partType === 'reasoning' ? 'reasoning' : 'text';
@@ -176,6 +205,14 @@ function applyTextDeltaEvent(store: OutputStore, event: RuntimeOutputEvent): Out
       [delta.messageId]: nextState,
     },
   };
+}
+
+function mergeTerminalEntityStatus(previous: string | undefined, incoming: string) {
+  return isTerminalStatus(previous) && !isTerminalStatus(incoming) ? previous! : incoming;
+}
+
+function isTerminalStatus(status: string | undefined) {
+  return ['completed', 'success', 'failed', 'denied', 'cancelled', 'interrupted', 'expired'].includes(status ?? '');
 }
 
 function emptyStreamingState(): RuntimeStreamingState {

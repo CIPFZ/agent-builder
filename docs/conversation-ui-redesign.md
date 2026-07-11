@@ -185,11 +185,39 @@ Review notes:
 - Verified with frontend build, ESLint, phase 07 structural smoke, conversation
   output/streaming smokes, diff validation, and independent UI/code review.
 
-### [ ] Phase 8: End-to-end review and verification
+### [x] Phase 8: End-to-end review and verification
 
 - Verify no-tool, multi-tool, failed-tool, permission, interrupted, Todo, reconnect,
   long-output, historical-turn, and responsive-layout scenarios.
 - Run frontend build/lint/smokes and relevant Go tests.
 - Complete a final code review and update this document.
 
-Review notes: Pending.
+Review notes:
+
+- Consolidated React-to-Runtime transport on Wails 3. Session output and
+  global runtime updates now use dedicated Wails application event streams;
+  HTTP, SSE, polling fallbacks, endpoint/token APIs, and browser HTTP harnesses
+  were removed.
+- Removed the embedded Runtime HTTP/SSE servers and replaced the generic SSE
+  broadcaster with an in-process event broker consumed by the Wails bridge.
+- Hardened output convergence: foreign-session events are rejected, terminal
+  tools/permissions/items cannot regress to active states, terminal turns
+  reject late text deltas, and duplicate/out-of-order deltas remain separate
+  for reducer-level idempotency checks.
+- Pending permissions owned by terminal turns are no longer actionable. Todo
+  state with an explicit unknown turn id no longer falls back to the newest
+  turn and cannot restart its spinner.
+- Assistant messages persist their owning turn id; final-message lookup is
+  constrained to that turn so a failed later turn cannot reuse an earlier
+  answer.
+- Generalized bounded text previews and applied them to tool output, compact
+  summaries, workflow notices, and context notices.
+- Removed obsolete HTTP/browser scripts, route contracts, CLI `serve-http`,
+  and HTTP profiling startup. Provider, MCP, and download networking remain
+  external capabilities and are not React-to-Runtime transports.
+- Verified with frontend build and ESLint; conversation output, streaming,
+  Phase 07, and Markdown smokes; desktop/runtime focused tests; `go test ./...`;
+  `go build ./...`; dependency tidy; diff validation; and independent reviews.
+- Final hands-on validation should run the packaged Wails desktop app and focus
+  on visual preference, wheel/expansion feel, and real provider/permission
+  flows; browser/Vite mode is intentionally not a supported runtime path.

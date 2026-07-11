@@ -21,7 +21,7 @@ internal/config/             Config loading and validation
 internal/session/, message/   Core persistence models
 internal/db/                 SQLite storage and migrations
 internal/skills/, hooks/, lsp/  Capability and context support
-internal/adapters/           Wails/HTTP/CLI/TUI adapters
+internal/adapters/           Legacy CLI/TUI adapters outside the product path
 ```
 
 ## Key Principles
@@ -54,8 +54,7 @@ internal/adapters/           Wails/HTTP/CLI/TUI adapters
   making React or Ant Design X hooks the runtime state source.
 - Use Ant Design theme tokens and scoped CSS Modules for new UI surfaces; avoid
   expanding global CSS as the main styling mechanism.
-- For frontend/runtime integration, keep the runtime adapter transport-neutral.
-  Wails bindings are only valid inside the desktop Wails runtime; Vite/browser
-  development must use the HTTP/dev transport fallback. Do not assume `fetch`,
-  `XMLHttpRequest`, axios, or Wails generated bindings are always available in
-  the in-app browser. See `docs/frontend-and-desktop.md`.
+- Frontend/runtime integration is Wails-only. Use generated bindings for
+  request/response operations and Wails events for streams. Do not add HTTP,
+  SSE, polling, `fetch`, `XMLHttpRequest`, or axios fallbacks between React and
+  the Go runtime. See `docs/frontend-and-desktop.md`.

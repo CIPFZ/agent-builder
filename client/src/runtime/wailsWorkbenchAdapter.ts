@@ -64,7 +64,7 @@ import { runtimeActionRefreshTargets, type RuntimeActionRefreshTarget, type Runt
 import { hydrateOutputStore } from './outputReducer.ts';
 import { selectConversationMessages, selectPendingPermissions } from './outputSelectors.ts';
 import { createOutputStore } from './outputStore.ts';
-import type { RuntimeOutputEventsResponse, RuntimeOutputSnapshot } from './outputTypes.ts';
+import type { RuntimeOutputSnapshot } from './outputTypes.ts';
 import { getInitialWorkbenchViewModel, staticWorkbenchAdapter } from './staticWorkbenchAdapter.tsx';
 
 interface RuntimeStatusDTO extends RuntimeWriteActionResponseDTO {
@@ -550,11 +550,6 @@ interface WailsRuntimeModule {
   };
 }
 
-interface RuntimeEventsEndpointDTO {
-  url: string;
-  token?: string;
-}
-
 interface RuntimeEventDTO {
   sequence?: number;
   type?: string;
@@ -566,10 +561,6 @@ interface RuntimeEventDTO {
   turnId?: string;
   tool_call_id?: string;
   toolCallId?: string;
-}
-
-interface RuntimeEventsResponseDTO {
-  events?: RuntimeEventDTO[];
 }
 
 interface RuntimeMessageDTO {
@@ -1716,7 +1707,6 @@ interface RuntimeBridgeModule {
   SessionMessages?: (sessionID: string) => Promise<RuntimeMessagesResponseDTO>;
   SessionContextUsage?: (sessionID: string) => Promise<RuntimeContextUsageDTO>;
   SessionOutput?: (sessionID: string, req: { snapshot?: boolean; cursor?: string; limit?: number }) => Promise<RuntimeOutputSnapshot>;
-  SessionOutputEvents?: (sessionID: string, after: string) => Promise<RuntimeOutputEventsResponse>;
   StartSessionOutputStream?: (req: { sessionId: string; streamId?: string; after?: string }) => Promise<{ streamId: string; eventName: string }>;
   StopSessionOutputStream?: (req: { streamId: string }) => Promise<boolean>;
   SessionActivity?: (sessionID: string) => Promise<RuntimeSessionActivityDTO>;
@@ -1769,8 +1759,8 @@ interface RuntimeBridgeModule {
   MCPTools?: (name: string) => Promise<RuntimeMCPToolsResponseDTO>;
   MCPResources?: (name: string) => Promise<RuntimeMCPResourcesResponseDTO>;
   MCPPrompts?: (name: string) => Promise<RuntimeMCPPromptsResponseDTO>;
-  EventsEndpoint?: () => Promise<RuntimeEventsEndpointDTO>;
-  Events?: (after?: number) => Promise<RuntimeEventsResponseDTO>;
+  StartRuntimeEventStream?: (req: { streamId?: string; after?: number }) => Promise<{ streamId: string; eventName: string }>;
+  StopRuntimeEventStream?: (req: { streamId: string }) => Promise<boolean>;
 }
 
 let runtimeBridgePromise: Promise<RuntimeBridgeModule | null> | undefined;
@@ -1788,7 +1778,7 @@ function loadRuntimeBridge() {
   }
 
   // Wails dev also serves generated bindings through Vite. Try them first so
-  // the desktop WebView does not depend on the standalone HTTP runtime.
+  // the desktop WebView uses Wails bindings and events exclusively.
   runtimeBridgePromise ??= Promise.race([
     import(
       /* @vite-ignore */
@@ -1808,10 +1798,6 @@ function loadWailsRuntime() {
     wailsRuntimePath
   ).then((module) => module as WailsRuntimeModule);
   return wailsRuntimePromise;
-}
-
-function hasProviderSettingsBridge(bridge: RuntimeBridgeModule | null): bridge is RuntimeBridgeModule {
-  return Boolean(bridge?.ProviderCatalog && bridge.ConfiguredProviders && bridge.SaveConfiguredProvider && bridge.DeleteConfiguredProvider);
 }
 
 function formatUpdatedLabel(updatedAt?: number) {
@@ -3820,54 +3806,22 @@ async function runtimeRequestWithTimeout<T>(request: () => Promise<T>, timeoutMS
 }
 
 async function subscribeRuntimeBridgeEvents(bridge: RuntimeBridgeModule, onEvent: (event: RuntimeEventViewModel) => void) {
-  return subscribeRuntimeEventsByPolling(bridge, onEvent);
-}
-
-function subscribeRuntimeEventsByPolling(bridge: RuntimeBridgeModule, onEvent: (event: RuntimeEventViewModel) => void) {
-  if (typeof window === 'undefined') {
-    return () => undefined;
-  }
-
-  let closed = false;
-  let timer: number | undefined;
-  let lastSequence = runtimeLatestEventSequence;
-
-  const poll = async () => {
-    try {
-      if (!bridge.Events) {
-        return;
-      }
-      const response = await bridge.Events(lastSequence);
-      if (closed) {
-        return;
-      }
-      const events = Array.isArray(response.events) ? response.events : [];
-      for (const event of events) {
-        const viewEvent = mapRuntimeEvent(event);
-        const nextSequence = nextRuntimeEventCursor(lastSequence, viewEvent);
-        if (nextSequence > lastSequence) {
-          lastSequence = nextSequence;
-          runtimeLatestEventSequence = nextRuntimeEventCursor(runtimeLatestEventSequence, viewEvent);
-          runtimeActivityRefreshHint = viewEvent;
-          onEvent(viewEvent);
-        }
-      }
-    } catch {
-      // Keep polling; the existing refresh loop still covers active turns.
-    } finally {
-      if (!closed) {
-        timer = window.setTimeout(poll, 1200);
-      }
+  if (!bridge.StartRuntimeEventStream || !bridge.StopRuntimeEventStream) throw new Error('runtime Wails event stream bindings are unavailable');
+  const runtime = await loadWailsRuntime();
+  const started = await bridge.StartRuntimeEventStream({ after: runtimeLatestEventSequence });
+  const off = runtime.Events.On(started.eventName, (payload) => {
+    const message = payload.data as { streamId?: string; events?: RuntimeEventDTO[] } | undefined;
+    if (message?.streamId !== started.streamId) return;
+    for (const event of message.events ?? []) {
+      const viewEvent = mapRuntimeEvent(event);
+      runtimeLatestEventSequence = nextRuntimeEventCursor(runtimeLatestEventSequence, viewEvent);
+      runtimeActivityRefreshHint = viewEvent;
+      onEvent(viewEvent);
     }
-  };
-
-  timer = window.setTimeout(poll, 300);
-
+  });
   return () => {
-    closed = true;
-    if (timer) {
-      window.clearTimeout(timer);
-    }
+    off();
+    void bridge.StopRuntimeEventStream?.({ streamId: started.streamId });
   };
 }
 
@@ -4024,8 +3978,9 @@ function mapTerminalEvent(event: RuntimeTerminalEventDTO): TerminalEventViewMode
 
 async function withBridge(
   run: (bridge: RuntimeBridgeModule) => Promise<WorkbenchViewModel>,
-  fallback: () => Promise<WorkbenchViewModel>,
+  _fallback: () => Promise<WorkbenchViewModel>,
 ) {
+  void _fallback;
   const bridge = await loadRuntimeBridge();
   if (!bridge?.Status) {
     throw new Error('runtime Wails bindings are unavailable');
@@ -4033,40 +3988,9 @@ async function withBridge(
   try {
     return await run(bridge);
   } catch (error) {
-    console.warn('[runtime] Wails bridge failed', error);
-    if (hasProviderSettingsBridge(bridge)) {
-      try {
-        return await hydrateSettingsOnly(await fallback(), bridge);
-      } catch (settingsError) {
-        console.warn('[runtime] provider settings fallback failed', settingsError);
-      }
-    }
-    return fallback();
+    console.error('[runtime] Wails bridge failed', error);
+    throw error;
   }
-}
-
-async function hydrateSettingsOnly(current: WorkbenchViewModel, bridge: RuntimeBridgeModule) {
-  const providerCatalog = await bridge.ProviderCatalog?.().catch(() => undefined);
-  const configuredProvidersResponse = await bridge.ConfiguredProviders?.().catch(() => undefined);
-  const skillsResponse = await bridge.Skills?.().catch(() => undefined);
-  const pluginsResponse = await bridge.Plugins?.().catch(() => undefined);
-  const mcpServersResponse = await bridge.MCPServers?.().catch(() => undefined);
-  const hooks = await hydrateHooks(bridge);
-  const providers = mapProviderCatalogItems(providerCatalog) ?? current.settings.providers;
-
-  return {
-    ...current,
-    hooks: hooks ?? current.hooks ?? [],
-    settings: {
-      ...current.settings,
-      providerTypes: providerCatalog?.providerTypes ?? current.settings.providerTypes,
-      providers,
-      configuredProviders: mapConfiguredProviders(configuredProvidersResponse) ?? current.settings.configuredProviders,
-      plugins: mapPlugins(pluginsResponse) ?? current.settings.plugins,
-      skills: mapSkills(skillsResponse) ?? current.settings.skills,
-      mcpServers: mapMCPServers(mcpServersResponse) ?? current.settings.mcpServers,
-    },
-  };
 }
 
 async function hydratePluginSettings(current: WorkbenchViewModel, bridge: RuntimeBridgeModule) {
@@ -4168,25 +4092,25 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
   },
   async subscribeRuntimeEvents(onEvent) {
     const bridge = await loadRuntimeBridge();
-    if (bridge?.Events || bridge?.EventsEndpoint) {
+    if (bridge?.StartRuntimeEventStream && bridge.StopRuntimeEventStream) {
       return subscribeRuntimeBridgeEvents(bridge, onEvent);
     }
     return () => undefined;
   },
   async subscribeSessionOutput(sessionID, handlers, after) {
     const bridge = await loadRuntimeBridge();
-    if (!bridge?.SessionOutputEvents && !bridge?.StartSessionOutputStream) {
+    if (!bridge?.StartSessionOutputStream || !bridge.StopSessionOutputStream) {
       return () => undefined;
     }
     const { subscribeSessionOutput } = await import('./outputStream.ts');
     return subscribeSessionOutput({
       sessionId: sessionID,
       after,
-      bridge: bridge as unknown as Parameters<typeof subscribeSessionOutput>[0]['bridge'],
+      bridge: bridge as Parameters<typeof subscribeSessionOutput>[0]['bridge'],
       loadWailsEvents: async () => {
         try {
           return (await loadWailsRuntime()) as unknown as Parameters<typeof subscribeSessionOutput>[0]['loadWailsEvents'] extends (() => infer R) ? Awaited<R> : never;
-        } catch { return null; }
+        } catch { throw new Error('Wails events runtime is unavailable'); }
       },
       onBatch: handlers.onEvents,
       onSnapshotRequired: handlers.onSnapshotRequired,

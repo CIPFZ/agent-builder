@@ -12,8 +12,8 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/workbench"
 )
 
-// RuntimeService is the transport-neutral runtime boundary used by Wails and
-// the local HTTP adapter.
+// RuntimeService is the application boundary exposed to the React client by
+// the Wails desktop adapter.
 type RuntimeService interface {
 	Status(context.Context) (RuntimeStatus, error)
 	RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error)
@@ -135,7 +135,6 @@ type RuntimeService interface {
 	ContextGovernanceSettings(context.Context) (RuntimeContextGovernanceSettingsResponse, error)
 	SaveContextGovernanceSettings(context.Context, RuntimeContextGovernanceSettings) (RuntimeContextGovernanceSettingsResponse, error)
 	Events(context.Context, ...int64) (RuntimeEventsResponse, error)
-	EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error)
 	SubscribeEvents(context.Context, ...int64) (<-chan RuntimeEvent, func())
 	AuditTurn(context.Context, string) (RuntimeAuditResponse, error)
 	AuditSession(context.Context, string) (RuntimeAuditResponse, error)
@@ -163,8 +162,6 @@ type RuntimeService interface {
 	SearchTools(context.Context, RuntimeToolSearchRequest) (RuntimeToolSearchResponse, error)
 	ContextSources(context.Context) (RuntimeContextSourcesResponse, error)
 	ReadFiles(context.Context, string) (RuntimeReadFilesResponse, error)
-	APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error)
-	ServeHTTP(context.Context, string, string) (RuntimeAPIEndpointResponse, error)
 	DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error)
 	Cancel(context.Context) (RuntimeStatus, error)
 	CancelTurn(context.Context, string) (RuntimeStatus, error)
@@ -217,8 +214,7 @@ type runtimeService struct {
 	recovery             runtimeRecoveryRecord
 	events               []RuntimeEvent
 	nextEventSequence    int64
-	eventStream          *runtimeSSEServer
-	httpAPI              *runtimeHTTPServer
+	eventStream          *runtimeEventBroker
 	messageStream        map[string]*messageStreamCursor
 	sessionOutputStream  *runtimeSessionOutputBroker
 	compactTurnMu        sync.Mutex

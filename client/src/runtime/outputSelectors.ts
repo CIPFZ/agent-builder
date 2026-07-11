@@ -23,14 +23,18 @@ export function selectConversationMessages(store: OutputStore): ConversationMess
 
 export function selectPendingPermissions(store: OutputStore): PermissionRequestViewModel[] {
   return Object.values(store.permissionsById)
-    .filter((permission) => permission.status === 'pending')
+    .filter((permission) => permission.status === 'pending' && (!permission.turnId || !isTerminalTurn(store.turnsById[permission.turnId]?.status)))
     .sort((left, right) => compareNumbers(left.createdAt, right.createdAt) || left.id.localeCompare(right.id));
 }
 
 export function selectActiveTurn(store: OutputStore) {
   return Object.values(store.turnsById)
-    .filter((turn) => !['completed', 'failed', 'cancelled'].includes(turn.status))
+    .filter((turn) => !isTerminalTurn(turn.status))
     .sort((left, right) => compareNumbers(right.startedAt, left.startedAt))[0];
+}
+
+function isTerminalTurn(status: string | undefined) {
+  return ['completed', 'failed', 'cancelled', 'interrupted'].includes(status ?? '');
 }
 
 export function selectProjectedConversationItems(store: OutputStore): ConversationTimelineItemViewModel[] {

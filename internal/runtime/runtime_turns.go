@@ -718,7 +718,7 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 	if usageErr != nil {
 		slog.Error("Desktop chat usage unavailable", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "error", usageErr)
 	}
-	assistant, assistantErr := r.latestFinishedAssistantMessage(context.Background(), wsID, sessionID)
+	assistant, assistantErr := r.latestFinishedAssistantMessage(context.Background(), wsID, sessionID, requestID)
 	if assistantErr != nil {
 		slog.Warn("Desktop chat assistant message unavailable", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "error", assistantErr)
 	}
@@ -828,13 +828,13 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 	r.storeRuntimeEvent(newTurnFinishedRuntimeEvent(time.Now(), requestID, sessionID, entry.Event, duration, provider, model, usageDelta, entry.Error))
 }
 
-func (r *runtimeService) latestFinishedAssistantMessage(ctx context.Context, workspaceID, sessionID string) (apitypes.Message, error) {
+func (r *runtimeService) latestFinishedAssistantMessage(ctx context.Context, workspaceID, sessionID, turnID string) (apitypes.Message, error) {
 	msgs, err := r.runtime.ListSessionMessages(ctx, workspaceID, sessionID)
 	if err != nil {
 		return apitypes.Message{}, fmt.Errorf("failed to read session messages: %w", err)
 	}
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == message.Assistant && msgs[i].FinishPart() != nil {
+		if msgs[i].Role == message.Assistant && msgs[i].Metadata["turn_id"] == turnID && msgs[i].FinishPart() != nil {
 			return toAPITypeMessage(msgs[i]), nil
 		}
 	}

@@ -2,11 +2,8 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"math"
-	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -241,74 +238,5 @@ func TestBuildModelInputProjectionSkipsAutoCompactWhenDisabled(t *testing.T) {
 	}
 	if usage.Level == contextUsageLevelOK {
 		t.Fatalf("expected a non-ok warning level once usage exceeds the threshold, got %#v", usage)
-	}
-}
-
-func TestRuntimeHTTPServerRoutesContextGovernanceSettingsToRuntimeService(t *testing.T) {
-	t.Parallel()
-
-	pct := 0.5
-	service := &recordingRuntimeService{
-		contextGovernanceSettings: RuntimeContextGovernanceSettings{AutoCompactPercent: &pct},
-	}
-	server := newRuntimeHTTPServer(service)
-
-	req, err := http.NewRequest(http.MethodGet, "/v1/settings/context-governance", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Authorization", "Bearer "+server.Token())
-	resp := httptestResponse(server, req)
-	if resp.status != http.StatusOK {
-		t.Fatalf("get status = %d body = %s", resp.status, resp.body.String())
-	}
-	var getBody struct {
-		Settings RuntimeContextGovernanceSettings `json:"settings"`
-	}
-	if err := json.Unmarshal(resp.body.Bytes(), &getBody); err != nil {
-		t.Fatal(err)
-	}
-	if getBody.Settings.AutoCompactPercent == nil || *getBody.Settings.AutoCompactPercent != 0.5 {
-		t.Fatalf("get body = %#v", getBody.Settings)
-	}
-
-	putReq, err := http.NewRequest(http.MethodPut, "/v1/settings/context-governance", strings.NewReader(`{"autoCompactEnabled":false,"summaryModel":"small"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	putReq.Header.Set("Authorization", "Bearer "+server.Token())
-	putResp := httptestResponse(server, putReq)
-	if putResp.status != http.StatusOK {
-		t.Fatalf("put status = %d body = %s", putResp.status, putResp.body.String())
-	}
-	if service.savedContextGovernanceCalls != 1 {
-		t.Fatalf("savedContextGovernanceCalls = %d, want 1", service.savedContextGovernanceCalls)
-	}
-	if service.savedContextGovernance.AutoCompactEnabled == nil || *service.savedContextGovernance.AutoCompactEnabled != false {
-		t.Fatalf("saved request = %#v", service.savedContextGovernance)
-	}
-	if service.savedContextGovernance.SummaryModel != "small" {
-		t.Fatalf("saved summary model = %q, want small", service.savedContextGovernance.SummaryModel)
-	}
-}
-
-// TestRuntimeHTTPServerContextGovernanceValidationReturns400 exercises the
-// real service (not the recording mock) end to end through the HTTP layer
-// so an invalid percent surfaces as 400, per the WP3 contract.
-func TestRuntimeHTTPServerContextGovernanceValidationReturns400(t *testing.T) {
-	service, _ := newContextGovernanceTestService(t)
-	server := newRuntimeHTTPServer(service)
-
-	req, err := http.NewRequest(http.MethodPut, "/v1/settings/context-governance", strings.NewReader(`{"autoCompactPercent":3}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Authorization", "Bearer "+server.Token())
-	resp := httptestResponse(server, req)
-	if resp.status != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400; body = %s", resp.status, resp.body.String())
-	}
-	if !strings.Contains(resp.body.String(), "autoCompactPercent") {
-		t.Fatalf("error body = %s, want a message about autoCompactPercent", resp.body.String())
 	}
 }

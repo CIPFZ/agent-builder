@@ -93,32 +93,6 @@ func (r *runtimeService) configDB(ctx context.Context) (*sql.DB, error) {
 	return conn, nil
 }
 
-func (r *runtimeService) APIEndpoint(_ context.Context) (RuntimeAPIEndpointResponse, error) {
-	if r.httpAPI == nil {
-		r.httpAPI = newRuntimeHTTPServer(r)
-	}
-	if err := r.httpAPI.Start(); err != nil {
-		return RuntimeAPIEndpointResponse{}, err
-	}
-	return RuntimeAPIEndpointResponse{
-		URL:   r.httpAPI.URL(),
-		Token: r.httpAPI.Token(),
-	}, nil
-}
-
-func (r *runtimeService) ServeHTTP(_ context.Context, address, token string) (RuntimeAPIEndpointResponse, error) {
-	if r.httpAPI == nil {
-		r.httpAPI = newRuntimeHTTPServer(r)
-	}
-	if err := r.httpAPI.StartAt(address, token); err != nil {
-		return RuntimeAPIEndpointResponse{}, err
-	}
-	return RuntimeAPIEndpointResponse{
-		URL:   r.httpAPI.URL(),
-		Token: r.httpAPI.Token(),
-	}, nil
-}
-
 func (r *runtimeService) restart() {
 	r.startMu.Lock()
 	defer r.startMu.Unlock()

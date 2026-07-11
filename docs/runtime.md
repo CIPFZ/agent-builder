@@ -2,7 +2,7 @@
 
 ## 权威状态
 
-`internal/runtime` 是客户端运行状态的权威边界。`RuntimeService` 初始化工具调度器、运行记录、权限请求、事件流、终端、子任务、Prompt 装配、worktree、沙箱和恢复存储，并挂载 HTTP API。
+`internal/runtime` 是客户端运行状态的权威边界。`RuntimeService` 初始化工具调度器、运行记录、权限请求、事件流、终端、子任务、Prompt 装配、worktree、沙箱和恢复存储，并由 Wails 桥接层暴露给 React。
 
 运行时实现按功能拆为多个 `runtime_*.go` 文件，而不是单个大服务文件。公共契约集中在 `internal/runtime/runtime_contract_types.go`、`runtime_service_types.go` 和 `internal/runtimeapi/contract.go`。
 
@@ -63,8 +63,8 @@ Prompt 由系统指令、项目上下文、Skills、Hooks 注入、文件读取�
 ## 输出、事件与恢复
 
 - 会话输出支持快照、增量事件和流式订阅。
-- `/v1/events` 提供运行时事件流；Wails 环境也可通过桥接和应用事件刷新。
+- Wails application events provide the runtime event stream to React.
 - Run transition、ToolCall、permission、hook execution、sandbox decision 和 audit 均有独立记录。
 - 中断、失败、compact 失败和 provider 错误可进入恢复分类与重试流程。
 
-事件名称和 HTTP endpoint 的权威清单位于 `internal/runtimeapi/contract.go`，新增或变更契约时必须同步适配器与契约测试。
+事件名称的权威清单位于 `internal/runtimeapi/contract.go`，新增或变更契约时必须同步 Wails 适配器与契约测试。
