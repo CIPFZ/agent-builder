@@ -371,13 +371,13 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  padding-left: 26px;
 }
 
 .projectSessionButton {
   flex: 1 1 auto;
   height: 34px;
-  padding-inline: 8px 42px;
+  padding-left: 34px;
+  padding-right: 42px;
   justify-content: flex-start;
   font-size: 14px;
 }
