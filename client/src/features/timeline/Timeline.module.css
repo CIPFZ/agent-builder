@@ -226,14 +226,10 @@
 }
 
 .compactSummaryPanel {
-  max-height: 260px;
-  overflow: auto;
   padding: 10px 12px;
   border: 1px solid var(--ant-color-border-secondary);
   border-radius: 8px;
   background: var(--ant-color-fill-quaternary);
-  scrollbar-color: #d9d9d9 transparent;
-  scrollbar-width: thin;
 }
 
 .compactSummaryLabel {

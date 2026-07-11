@@ -13,8 +13,10 @@ const timelinePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 
 const disclosurePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'ProcessDisclosure.tsx');
 const narrationPath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'ProcessNarration.tsx');
 const timelineStylePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'Timeline.module.css');
+const toolStylePath = resolve(repoRoot, 'client', 'src', 'features', 'tools', 'ToolCallCard.module.css');
+const workspacePath = resolve(repoRoot, 'client', 'src', 'features', 'workspace', 'Workspace.tsx');
 
-const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource, narrationSource, timelineStyleSource] = await Promise.all([
+const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource, narrationSource, timelineStyleSource, toolStyleSource, workspaceSource] = await Promise.all([
   readFile(adapterPath, 'utf8'),
   readFile(typesPath, 'utf8'),
   readFile(toolCardPath, 'utf8'),
@@ -24,6 +26,8 @@ const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSo
   readFile(disclosurePath, 'utf8'),
   readFile(narrationPath, 'utf8'),
   readFile(timelineStylePath, 'utf8'),
+  readFile(toolStylePath, 'utf8'),
+  readFile(workspacePath, 'utf8'),
 ]);
 
 assert.match(typesSource, /export type ConversationTimelineKind =/);
@@ -53,6 +57,13 @@ assert.doesNotMatch(timelineStyleSource, /\.stepRail|\.stepDot|\.processSteps/);
 const processStreamRule = timelineStyleSource.match(/\.processStream\s*\{[^}]*\}/)?.[0] ?? '';
 assert.ok(processStreamRule, 'processStream CSS rule exists');
 assert.doesNotMatch(processStreamRule, /overflow:\s*auto|max-height:/);
+const compactSummaryRule = timelineStyleSource.match(/\.compactSummaryPanel\s*\{[^}]*\}/)?.[0] ?? '';
+assert.ok(compactSummaryRule, 'compact summary CSS rule exists');
+assert.doesNotMatch(compactSummaryRule, /overflow(?:-y)?:\s*(?:auto|scroll)|max-height:/);
+const toolOutputRule = toolStyleSource.match(/\.output\s*\{[^}]*\}/)?.[0] ?? '';
+assert.ok(toolOutputRule, 'tool output CSS rule exists');
+assert.doesNotMatch(toolOutputRule, /max-height:|overflow-y:\s*(?:auto|scroll)/);
+assert.match(workspaceSource, /data-testid=\{hasConversation \|\| isSessionSwitching \? 'conversation-scroll-container'/);
 
 assert.doesNotMatch(toolCardSource, /toolCall\.stdout/);
 assert.doesNotMatch(toolCardSource, /toolCall\.stderr/);

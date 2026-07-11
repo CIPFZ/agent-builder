@@ -150,24 +150,16 @@
 }
 
 .output {
-  max-height: 220px;
   padding: 8px 9px;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
   border-radius: 6px;
   background: #ffffff;
-  scrollbar-color: #ececec transparent;
-  scrollbar-width: thin;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.output:hover,
-.output:active {
-  scrollbar-color: #5a5a5a transparent;
-}
-
 .output::-webkit-scrollbar {
-  width: 8px;
   height: 8px;
 }
 

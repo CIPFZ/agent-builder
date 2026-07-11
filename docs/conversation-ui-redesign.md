@@ -78,13 +78,23 @@ Review notes:
 - Verified with frontend build, ESLint, conversation output/streaming smokes,
   phase 07 structural smoke, and a dedicated code review.
 
-### [ ] Phase 3: Single-scroll conversation
+### [x] Phase 3: Single-scroll conversation
 
 - Remove the process list max height and nested vertical overflow.
 - Move large compact summaries and complete outputs to explicit detail surfaces.
 - Preserve stable conversation scroll behavior while content streams or expands.
 
-Review notes: Pending.
+Review notes:
+
+- `.chatContent` is the only vertical scroll owner for the conversation.
+- Removed max-height and vertical overflow from process narration, Compact
+  summaries, and tool output details.
+- Added `conversation-scroll-container` and `process-stream` test identifiers.
+- Markdown code blocks retain horizontal overflow without a height cap.
+- Terminal and right-side tool panels retain their independent scroll ownership
+  because they are separate application surfaces, not nested conversation flow.
+- Verified with build, ESLint, phase 07 structural smoke, conversation output
+  smoke, streaming smoke, and a residual overflow scan.
 
 ### [ ] Phase 4: Process disclosure policy
 

@@ -567,6 +567,7 @@ export function Workspace({
       </Modal>
         <div
           ref={hasConversation || isSessionSwitching ? scrollContainerRef : undefined}
+          data-testid={hasConversation || isSessionSwitching ? 'conversation-scroll-container' : undefined}
           className={hasConversation || isSessionSwitching ? styles.chatContent : styles.content}
           onKeyDown={hasConversation || isSessionSwitching ? handleScrollKeyDown : undefined}
           onPointerDown={hasConversation || isSessionSwitching ? handleScrollPointerDown : undefined}
