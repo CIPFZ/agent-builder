@@ -55,7 +55,7 @@ function SingleToolCallCard({ onAgentTaskOpen, toolCall }: { onAgentTaskOpen?: (
   const output = readableToolOutput(toolCall);
   const detail = toolDetail(toolCall);
   const hasDetails = hasToolDetails(toolCall, detail, output);
-  const defaultActiveKey = shouldOpenByDefault([toolCall]) ? ['details'] : [];
+  const defaultActiveKey: string[] = [];
   const failureExcerpt = failed ? toolFailureExcerpt(toolCall) : '';
 
   return (
@@ -114,26 +114,22 @@ function ToolCallGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (task
     return (
       <section className={styles.process} data-testid="tool-call-card" data-tool-call-id={groupId} data-tool-kind={groupKind} data-tool-quiet="true" data-tool-status={status}>
         {messageContextHolder}
-        <div className={styles.groupQuietHeader}>
-          <span className={styles.summaryTitle}>
-            <ToolIcon kind={groupKind} status={status} />
-            {groupSummaryTitle(toolCalls, groupKind)}
-          </span>
-          <span className={styles.summaryMeta}>
-            {startedAt && finishedAt && <span>{formatDuration(startedAt, finishedAt)}</span>}
-            <ToolStatus status={status} />
-          </span>
-        </div>
-        <div className={styles.quietGroupList}>
-          {toolCalls.map((call) => (
-            <QuietToolRow key={call.id} messageApi={messageApi} toolCall={call} onAgentTaskOpen={onAgentTaskOpen} />
-          ))}
-        </div>
+        <Collapse
+          ghost
+          size="small"
+          defaultActiveKey={[]}
+          expandIconPlacement="end"
+          items={[{
+            key: 'details',
+            label: <div className={styles.groupQuietHeader}><span className={styles.summaryTitle}><ToolIcon kind={groupKind} status={status} />{groupSummaryTitle(toolCalls, groupKind)}</span><span className={styles.summaryMeta}>{startedAt && finishedAt && <span>{formatDuration(startedAt, finishedAt)}</span>}<ToolStatus status={status} /></span></div>,
+            children: <div className={styles.quietGroupList}>{toolCalls.map((call) => <QuietToolRow key={call.id} messageApi={messageApi} toolCall={call} onAgentTaskOpen={onAgentTaskOpen} />)}</div>,
+          }]}
+        />
       </section>
     );
   }
 
-  const defaultActiveKey = shouldOpenByDefault(toolCalls) ? ['details'] : [];
+  const defaultActiveKey: string[] = [];
   const failureExcerpt = failed ? groupFailureExcerpt(toolCalls) : '';
 
   return (
@@ -190,11 +186,11 @@ function ToolCallGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (task
   );
 }
 
-// QuietToolRowList renders a flat list of single-line quiet tool rows. It is
+// ToolItemDisclosureList renders a flat list of single-line tool rows. It is
 // used both by ToolCallGroup's all-quiet path and by Timeline's
 // "已完成 N 个工具" summary, which supplies its own header and only needs the
 // row list as its expandable body.
-export function QuietToolRowList({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (taskID: string) => void; toolCalls: ToolCallViewModel[] }) {
+export function ToolItemDisclosureList({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (taskID: string) => void; toolCalls: ToolCallViewModel[] }) {
   const [messageApi, messageContextHolder] = message.useMessage();
   return (
     <div className={styles.quietGroupList}>
@@ -227,7 +223,7 @@ function QuietToolRow({
   const target = toolCall.display?.primaryTarget || toolCall.display?.target;
 
   return (
-    <div className={styles.quietRow} data-testid="tool-call-quiet-row" data-tool-call-id={toolCall.id} data-tool-kind={kind}>
+    <div className={styles.quietRow} data-testid="tool-item-disclosure" data-tool-call-id={toolCall.id} data-tool-kind={kind} data-tool-status={toolVisualStatus(toolCall)}>
       <button
         aria-expanded={hasDetails ? open : undefined}
         className={styles.quietRowHeader}
@@ -278,7 +274,7 @@ function ToolDetails({
   const agentTask = toolCall.agentTask;
 
   return (
-    <div className={styles.details}>
+    <div className={styles.details} data-testid="tool-detail">
       {agentTask ? <AgentTaskLink toolCall={toolCall} onAgentTaskOpen={onAgentTaskOpen} /> : null}
       {detail && (
         <div className={shellLike ? styles.shellPanel : styles.detailPanel}>
@@ -572,10 +568,6 @@ function toolFailureExcerpt(toolCall: ToolCallViewModel) {
 function groupFailureExcerpt(toolCalls: ToolCallViewModel[]) {
   const failedCall = toolCalls.find((call) => isFailedStatus(toolVisualStatus(call)));
   return failedCall ? toolFailureExcerpt(failedCall) : '';
-}
-
-function shouldOpenByDefault(toolCalls: ToolCallViewModel[]) {
-  return toolCalls.some((call) => call.defaultExpanded || ['running', 'queued', 'waiting_permission', 'failed', 'denied', 'cancelled', 'interrupted'].includes(toolVisualStatus(call)));
 }
 
 function groupStatus(toolCalls: ToolCallViewModel[]) {

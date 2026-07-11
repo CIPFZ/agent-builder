@@ -1,6 +1,6 @@
 import { CheckOutlined, LoadingOutlined, WarningOutlined } from '@ant-design/icons';
 import type { ToolCallViewModel } from '../../runtime/workbenchTypes.ts';
-import { QuietToolRowList } from '../tools/ToolCallCard.tsx';
+import { ToolItemDisclosureList } from '../tools/ToolCallCard.tsx';
 import { TraceRow } from './TraceRow.tsx';
 import { timelineToolKind, toolCallsDuration } from './processGrouping.ts';
 
@@ -9,7 +9,7 @@ export function ToolTraceGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen
   const status = toolTraceStatus(toolCalls);
   const failed = isFailedStatus(status);
   const running = isActiveStatus(status);
-  return <TraceRow expandable icon={failed ? <WarningOutlined /> : running ? <LoadingOutlined spin /> : <CheckOutlined />} meta={<>{duration && <span>{duration}</span>}{toolCalls.length > 1 && <span>{toolCalls.length} items</span>}</>} testId="tool-run-summary" title={toolTraceTitle(toolCalls)} tone={failed ? 'error' : 'default'}><QuietToolRowList toolCalls={toolCalls} onAgentTaskOpen={onAgentTaskOpen} /></TraceRow>;
+  return <TraceRow expandable icon={failed ? <WarningOutlined /> : running ? <LoadingOutlined spin /> : <CheckOutlined />} meta={<>{duration && <span>{duration}</span>}{toolCalls.length > 1 && <span>{toolCalls.length} items</span>}</>} testId="tool-group-disclosure" dataAttrs={{ 'data-tool-status': status }} title={toolTraceTitle(toolCalls)} tone={failed ? 'error' : 'default'}><ToolItemDisclosureList toolCalls={toolCalls} onAgentTaskOpen={onAgentTaskOpen} /></TraceRow>;
 }
 
 function toolTraceStatus(toolCalls: ToolCallViewModel[]) {

@@ -116,14 +116,28 @@ Review notes:
 - Verified with policy smoke assertions, build, ESLint, phase 07 structural
   smoke, conversation output smoke, streaming smoke, and code review.
 
-### [ ] Phase 5: Tool disclosure hierarchy
+### [x] Phase 5: Tool disclosure hierarchy
 
 - Keep tool groups collapsed by default.
 - Keep individual tool details collapsed by default.
 - Keep permission actions directly visible when user input is required.
 - Show compact status, duration, target, count, and failure summaries.
 
-Review notes: Pending.
+Review notes:
+
+- Timeline tool groups render through `tool-group-disclosure` and default to
+  collapsed for completed, running, and failed states.
+- Expanding a group reveals `tool-item-disclosure` rows; every individual tool
+  detail starts collapsed and toggles independently.
+- Legacy single/group tool entry points were aligned to the same default-closed
+  policy, including the all-quiet group path.
+- Permission actions remain in the ConversationDock outside process/tool
+  disclosures. Active sessions no longer fall back to a permission request
+  belonging to another session.
+- Added stable `tool-detail`, tool id/kind/status, and group status markers for
+  browser-level verification.
+- Verified with build, ESLint, phase 07 structural smoke, conversation output
+  and streaming smokes, and code review.
 
 ### [ ] Phase 6: Large-output protection
 

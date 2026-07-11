@@ -73,6 +73,14 @@ assert.match(workspaceSource, /data-testid=\{hasConversation \|\| isSessionSwitc
 assert.doesNotMatch(toolCardSource, /toolCall\.stdout/);
 assert.doesNotMatch(toolCardSource, /toolCall\.stderr/);
 assert.doesNotMatch(toolCardSource, /extractWrappedOutput/);
+assert.match(toolCardSource, /export function ToolItemDisclosureList/);
+assert.match(toolCardSource, /data-testid="tool-item-disclosure"/);
+assert.match(toolCardSource, /data-testid="tool-detail"/);
+assert.doesNotMatch(toolCardSource, /shouldOpenByDefault/);
+assert.match(toolCardSource, /const defaultActiveKey: string\[\] = \[\];/);
+assert.match(toolCardSource, /defaultActiveKey=\{\[\]\}/);
+assert.match(timelineSource, /ToolItemDisclosureList|ToolTraceGroup/);
+assert.match(workspaceSource, /activeSession\?\.id[\s\S]*permission\.sessionId === activeSession\.id/);
 
 assert.match(shellSource, /id: userID,[\s\S]*status: 'success'/);
 assert.match(shellSource, /const nextViewModel = await adapter\.sendPrompt\(optimisticViewModel, prompt/);

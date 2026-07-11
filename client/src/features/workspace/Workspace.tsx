@@ -147,7 +147,9 @@ export function Workspace({
   const isDraftSurface = !activeSession && !hasConversation && !switchingSessionID;
   const composerDraftTarget =
     viewModel.newConversationDraft ?? (isDraftSurface ? defaultComposerDraftTarget(viewModel) : undefined);
-  const activePendingPermission = viewModel.pendingPermissions.find((permission) => !activeSession?.id || permission.sessionId === activeSession.id) ?? viewModel.pendingPermissions[0];
+  const activePendingPermission = activeSession?.id
+    ? viewModel.pendingPermissions.find((permission) => permission.sessionId === activeSession.id)
+    : viewModel.pendingPermissions[0];
   const isSessionSwitching = Boolean(switchingSessionID && activeSession?.id === switchingSessionID && !hasConversation);
   const sessionTitle = activeSession?.title || viewModel.currentProject.name || '新对话';
   const title =
