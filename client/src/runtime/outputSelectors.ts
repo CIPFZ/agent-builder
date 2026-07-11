@@ -13,7 +13,7 @@ import type { OutputStore, RuntimeAgentTaskOutput, RuntimeConversationItem, Runt
 // turn it triggers (turn start >= submit time, response ranks > 0).
 const RUNTIME_SEQUENCE_SPAN = 100_000;
 
-export function optimisticSubmitSequence(createdAtMs: number): number {
+function optimisticSubmitSequence(createdAtMs: number): number {
   return Math.floor(createdAtMs / 100) * RUNTIME_SEQUENCE_SPAN;
 }
 
@@ -33,7 +33,7 @@ export function selectActiveTurn(store: OutputStore) {
     .sort((left, right) => compareNumbers(right.startedAt, left.startedAt))[0];
 }
 
-export function selectConversationTimeline(store: OutputStore): ConversationTimelineItemViewModel[] {
+export function selectProjectedConversationItems(store: OutputStore): ConversationTimelineItemViewModel[] {
   return selectRuntimeConversationTimeline(store);
 }
 
@@ -102,11 +102,11 @@ function selectRuntimeConversationTimeline(store: OutputStore): ConversationTime
     }));
   return [
     ...optimistic,
-    ...runtimeItems.map((item) => runtimeConversationItemViewModel(item, store)),
+    ...runtimeItems.map((item) => projectRuntimeConversationItem(item, store)),
   ].sort((left, right) => compareNumbers(left.sequence, right.sequence) || compareNumbers(left.createdAt, right.createdAt) || left.id.localeCompare(right.id));
 }
 
-function runtimeConversationItemViewModel(item: RuntimeConversationItem, store: OutputStore): ConversationTimelineItemViewModel {
+export function projectRuntimeConversationItem(item: RuntimeConversationItem, store: OutputStore): ConversationTimelineItemViewModel {
   const toolCall = item.toolCallId ? store.toolCallsById[item.toolCallId] : undefined;
   const permission = item.permissionId ? store.permissionsById[item.permissionId] : undefined;
   const overlay = item.messageId ? store.streamingByMessageId[item.messageId] : undefined;

@@ -14,7 +14,7 @@ import type { OutputStore } from '../../runtime/outputTypes.ts';
 import { addOptimisticUserSubmit, applyOutputEvents } from '../../runtime/outputReducer.ts';
 import { createOutputStore } from '../../runtime/outputStore.ts';
 import { installWebviewCursorRecovery, nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
-import { selectConversationMessages, selectConversationTimeline, selectPendingPermissions } from '../../runtime/outputSelectors.ts';
+import { selectConversationMessages, selectPendingPermissions } from '../../runtime/outputSelectors.ts';
 import { runtimeEventCoveredByOutputStream, runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
 import { PluginCenter } from '../../features/plugins/PluginCenter.tsx';
 import { Sidebar } from '../../features/sidebar/Sidebar.tsx';
@@ -63,7 +63,6 @@ function withFresherOutputStore(nextViewModel: WorkbenchViewModel, current: Work
       ...nextViewModel,
       outputStore: curr,
       conversation: selectConversationMessages(curr),
-      timeline: selectConversationTimeline(curr),
       pendingPermissions: selectPendingPermissions(curr),
     };
   }
@@ -90,7 +89,6 @@ function withFresherOutputStore(nextViewModel: WorkbenchViewModel, current: Work
     ...nextViewModel,
     outputStore: store,
     conversation: selectConversationMessages(store),
-    timeline: selectConversationTimeline(store),
     pendingPermissions: selectPendingPermissions(store),
   };
 }
@@ -327,7 +325,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           ...current,
           outputStore: nextStore,
           conversation: selectConversationMessages(nextStore),
-          timeline: selectConversationTimeline(nextStore),
           pendingPermissions: selectPendingPermissions(nextStore),
         };
       });
@@ -447,7 +444,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       newConversationDraft: draftTarget,
       sessions: currentViewModel.sessions.map((session) => ({ ...session, active: false })),
       conversation: [],
-      timeline: [],
       // The output store must not leak across conversations: a stale store
       // would swallow the next optimistic submit and resurface old items.
       outputStore: createOutputStore(''),
@@ -497,7 +493,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       newConversationDraft: target,
       sessions: current.sessions.map((session) => ({ ...session, active: false })),
       conversation: leavingActiveSession ? [] : current.conversation,
-      timeline: leavingActiveSession ? [] : current.timeline,
       outputStore: leavingActiveSession ? createOutputStore('') : current.outputStore,
       turnDiagnostics: undefined,
       runProjection: undefined,
@@ -554,7 +549,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       newConversationDraft: undefined,
       sessions: currentViewModel.sessions.map((session) => ({ ...session, active: session.id === sessionID })),
       conversation: cachedStore ? selectConversationMessages(cachedStore) : [],
-      timeline: cachedStore ? selectConversationTimeline(cachedStore) : [],
       outputStore: cachedStore ?? createOutputStore(sessionID),
       turnDiagnostics: undefined,
       runProjection: undefined,
@@ -612,7 +606,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       newConversationDraft: wasActive ? defaultDraftTarget(currentViewModel) : currentViewModel.newConversationDraft,
       sessions: currentViewModel.sessions.filter((session) => session.id !== sessionID),
       conversation: wasActive ? [] : currentViewModel.conversation,
-      timeline: wasActive ? [] : currentViewModel.timeline,
       outputStore: wasActive ? createOutputStore('') : currentViewModel.outputStore,
       turnDiagnostics: wasActive ? undefined : currentViewModel.turnDiagnostics,
       runProjection: wasActive ? undefined : currentViewModel.runProjection,
@@ -673,7 +666,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       status: 'submitting',
     });
     const outputConversation = optimisticOutputStore.sessionId ? selectConversationMessages(optimisticOutputStore) : undefined;
-    const outputTimeline = optimisticOutputStore.sessionId ? selectConversationTimeline(optimisticOutputStore) : undefined;
     const optimisticViewModel: WorkbenchViewModel = {
       ...currentViewModel,
       mode: currentMode,
@@ -691,27 +683,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         },
         {
           id: loadingID,
-          role: 'assistant',
-          content: '正在生成回复...',
-          createdAt,
-          clientRequestId,
-          status: 'loading',
-        },
-      ],
-      timeline: outputTimeline ?? [
-        ...currentViewModel.timeline,
-        {
-          id: userID,
-          kind: 'message',
-          role: 'user',
-          content: prompt,
-          createdAt,
-          clientRequestId,
-          status: 'success',
-        },
-        {
-          id: loadingID,
-          kind: 'message',
           role: 'assistant',
           content: '正在生成回复...',
           createdAt,
@@ -753,9 +724,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         composer: { ...optimisticViewModel.composer, busy: false },
         conversation: failedOutputStore.sessionId ? selectConversationMessages(failedOutputStore) : optimisticViewModel.conversation.map((message) =>
           message.id === loadingID ? { ...message, content: sendPromptErrorMessage(error), status: 'error', error: sendPromptErrorMessage(error) } : message,
-        ),
-        timeline: failedOutputStore.sessionId ? selectConversationTimeline(failedOutputStore) : optimisticViewModel.timeline.map((item) =>
-          item.id === loadingID ? { ...item, content: sendPromptErrorMessage(error), status: 'error', error: sendPromptErrorMessage(error) } : item,
         ),
       };
       viewModelRef.current = failedViewModel;

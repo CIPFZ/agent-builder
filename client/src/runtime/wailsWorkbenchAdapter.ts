@@ -10,7 +10,6 @@ import type {
   ContextGovernanceSettingsViewModel,
   ContextUsageViewModel,
   ConversationMessageViewModel,
-  ConversationTimelineItemViewModel,
   CreateProjectRequestViewModel,
   HookExecutionSummaryViewModel,
   HookExecutionViewModel,
@@ -63,7 +62,7 @@ import type {
 } from './workbenchTypes.ts';
 import { runtimeActionRefreshTargets, type RuntimeActionRefreshTarget, type RuntimeWriteActionResponseDTO } from './actionRefreshSelector.ts';
 import { hydrateOutputStore } from './outputReducer.ts';
-import { selectConversationMessages, selectConversationTimeline, selectPendingPermissions } from './outputSelectors.ts';
+import { selectConversationMessages, selectPendingPermissions } from './outputSelectors.ts';
 import { createOutputStore } from './outputStore.ts';
 import type { RuntimeOutputEventsResponse, RuntimeOutputSnapshot } from './outputTypes.ts';
 import { getInitialWorkbenchViewModel, staticWorkbenchAdapter } from './staticWorkbenchAdapter.tsx';
@@ -2445,18 +2444,6 @@ function mapNormalizedInputConversation(response: RuntimeChatResponseDTO, fallba
   return conversation;
 }
 
-function mapNormalizedInputTimeline(response: RuntimeChatResponseDTO, fallbackPrompt: string): ConversationTimelineItemViewModel[] {
-  return mapNormalizedInputConversation(response, fallbackPrompt).map((message) => ({
-    id: `timeline-${message.id}`,
-    kind: 'message',
-    role: message.role === 'assistant' || message.role === 'user' ? message.role : undefined,
-    content: message.content,
-    createdAt: message.createdAt,
-    clientRequestId: message.clientRequestId,
-    status: message.status,
-  }));
-}
-
 function normalizedClientRequestId(normalized?: RuntimeNormalizedInputDTO) {
   if (!normalized) {
     return undefined;
@@ -2577,60 +2564,6 @@ function mapToolCall(toolCall: RuntimeToolCallDTO): ToolCallViewModel {
 }
 
 
-export function attachAgentTasksToTimeline(items: ConversationTimelineItemViewModel[], tasks?: AgentTaskViewModel[]): ConversationTimelineItemViewModel[] {
-  if (!tasks?.length) {
-    return items;
-  }
-  const taskByTool = new Map(tasks.filter((task) => task.parentToolCallId).map((task) => [task.parentToolCallId!, task]));
-  const taskItems = tasks.map((task) => ({
-    id: `agent-task:${task.id}`,
-    kind: 'agent_task' as const,
-    sessionId: task.parentSessionId,
-    turnId: task.parentTurnId,
-    toolCallId: task.parentToolCallId,
-    title: task.title,
-    status: task.status,
-    summary: task.resultSummary || task.promptSummary,
-    createdAt: task.startedAt,
-    updatedAt: task.finishedAt || task.updatedAt,
-    error: task.error,
-    agentTask: task,
-  }));
-  const byTool = new Map<string, ConversationTimelineItemViewModel[]>();
-  const unplaced: ConversationTimelineItemViewModel[] = [];
-  taskItems.forEach((item) => {
-    if (item.toolCallId) {
-      byTool.set(item.toolCallId, [...(byTool.get(item.toolCallId) ?? []), item]);
-    } else {
-      unplaced.push(item);
-    }
-  });
-  const merged: ConversationTimelineItemViewModel[] = [];
-  items.forEach((item) => {
-    if (item.kind === 'tool_call' && item.toolCallId && item.toolCall) {
-      const agentTask = taskByTool.get(item.toolCallId);
-      merged.push(agentTask ? { ...item, toolCall: { ...item.toolCall, agentTask } } : item);
-    } else {
-      merged.push(item);
-    }
-    if (item.kind === 'tool_call' && item.toolCallId) {
-      merged.push(...(byTool.get(item.toolCallId) ?? []));
-      byTool.delete(item.toolCallId);
-    }
-  });
-  byTool.forEach((values) => unplaced.push(...values));
-  unplaced.sort((left, right) => {
-    const leftTime = normalizeTimestamp(left.createdAt ?? 0);
-    const rightTime = normalizeTimestamp(right.createdAt ?? 0);
-    if (leftTime !== rightTime) {
-      return leftTime - rightTime;
-    }
-    return left.id.localeCompare(right.id);
-  });
-  return [...merged, ...unplaced];
-}
-
-
 export function mergeConversationMessages(current: ConversationMessageViewModel[], response?: RuntimeMessagesResponseDTO) {
   const incoming = mapConversation(response);
   if (incoming.length === 0) {
@@ -2665,32 +2598,6 @@ function mergeNormalizedConversation(current: ConversationMessageViewModel[], in
   });
 }
 
-function mergeNormalizedTimeline(current: ConversationTimelineItemViewModel[], incoming: ConversationTimelineItemViewModel[]) {
-  if (incoming.length === 0) {
-    return current.filter((item) => item.status !== 'loading');
-  }
-  const incomingIDs = new Set(incoming.map((item) => item.id));
-  return dedupeTimelineItems([
-    ...current.filter((item) => item.status !== 'loading' && !incomingIDs.has(item.id) && !hasRuntimeReplacementForOptimisticTimeline(item, incoming)),
-    ...incoming,
-  ]).sort((left, right) => {
-    const leftTime = normalizeTimestamp(left.createdAt ?? 0);
-    const rightTime = normalizeTimestamp(right.createdAt ?? 0);
-    if (leftTime !== rightTime) {
-      return leftTime - rightTime;
-    }
-    return left.id.localeCompare(right.id);
-  });
-}
-
-function dedupeTimelineItems(items: ConversationTimelineItemViewModel[]) {
-  const byID = new Map<string, ConversationTimelineItemViewModel>();
-  items.forEach((item) => {
-    byID.set(item.id, item);
-  });
-  return [...byID.values()];
-}
-
 function isOptimisticConversationMessage(message: ConversationMessageViewModel) {
   return message.status === 'loading' || message.id.startsWith('local-') || message.id.startsWith('loading-');
 }
@@ -2710,25 +2617,6 @@ function hasRuntimeReplacementForOptimisticConversation(message: ConversationMes
     return incoming.some((candidate) => candidate.role === 'assistant');
   }
   return incoming.some((candidate) => candidate.role === message.role && sameDisplayContent(candidate.content, message.content));
-}
-
-function hasRuntimeReplacementForOptimisticTimeline(item: ConversationTimelineItemViewModel, replacement: ConversationTimelineItemViewModel[]) {
-  if (item.clientRequestId && replacement.some((candidate) => candidate.clientRequestId === item.clientRequestId && candidate.kind === item.kind && candidate.role === item.role)) {
-    return true;
-  }
-  if (item.kind === 'message' && item.role === 'user') {
-    return replacement.some((candidate) => candidate.kind === 'message' && candidate.role === 'user' && sameDisplayContent(candidate.content, item.content));
-  }
-  if (item.kind === 'message' && item.role === 'assistant' && item.status === 'loading') {
-    return replacement.some((candidate) =>
-      candidate.role === 'assistant' ||
-      candidate.kind === 'thinking' ||
-      candidate.kind === 'tool_call' ||
-      candidate.kind === 'permission' ||
-      candidate.kind === 'progress',
-    );
-  }
-  return replacement.some((candidate) => candidate.kind === item.kind && candidate.role === item.role && sameDisplayContent(candidate.content || candidate.summary, item.content || item.summary));
 }
 
 function sameDisplayContent(left?: string, right?: string) {
@@ -3819,13 +3707,11 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   ]);
   const contextDiagnostics = mapContextDiagnostics(promptAssembliesDTO) ?? (current.contextDiagnostics?.sessionId === activeSessionID ? current.contextDiagnostics : undefined);
   const activeOutputStore = outputStore?.sessionId === activeSessionID ? outputStore : undefined;
-  const outputTimeline = activeOutputStore ? selectConversationTimeline(activeOutputStore) : undefined;
   const outputConversation = activeOutputStore ? selectConversationMessages(activeOutputStore) : undefined;
   const outputPendingPermissions = activeOutputStore ? selectPendingPermissions(activeOutputStore) : undefined;
   // Primary conversation rendering is owned by SessionOutput. SessionActivity,
   // prompt assemblies, and context diagnostics remain diagnostics-only and must
   // not reconstruct the main timeline if a runtime output snapshot is absent.
-  const timeline = outputTimeline ?? (activeSessionID ? [] : current.timeline);
   const conversation = outputConversation ?? (activeSessionID ? [] : current.conversation);
   const pendingPermissions = outputPendingPermissions ?? current.pendingPermissions;
   const skills = mapSkills(skillsResponse) ?? current.settings.skills;
@@ -3841,7 +3727,6 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     projects,
     sessions: mapSessions(projectedSessionsResponse, activeSessionID, activeTurns),
     conversation,
-    timeline,
     outputStore,
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
     runProjection: mapRunProjection(runProjection, schedulerTaskCandidates) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
@@ -4196,7 +4081,6 @@ function resetConversationRuntimeState(current: WorkbenchViewModel): WorkbenchVi
   return {
     ...current,
     conversation: [],
-    timeline: [],
     turnDiagnostics: undefined,
     runProjection: undefined,
     reactCallchain: undefined,
@@ -4377,7 +4261,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         await bridge.DeleteSession(sessionID);
         const wasActive = current.sessions.some((session) => session.id === sessionID && session.active);
         const hydrated = await hydrateWorkbench(
-          wasActive ? { ...current, mode: 'new-chat', conversation: [], timeline: [] } : current,
+          wasActive ? { ...current, mode: 'new-chat', conversation: [] } : current,
           bridge,
           { refreshTargets: ['status'] },
         );
@@ -4479,7 +4363,6 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
           forceDraftChatSubmit = false;
           const busyAfterSubmit = Boolean(response.turnId);
           const normalizedConversation = mapNormalizedInputConversation(response, prompt);
-          const normalizedTimeline = mapNormalizedInputTimeline(response, prompt);
           const normalizedOnly = !response.turnId && response.normalizedInput;
           const nextOutputStore =
             responseSessionID && current.outputStore?.sessionId !== responseSessionID
@@ -4495,7 +4378,6 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
               normalizedOnly
                 ? mergeNormalizedConversation(current.conversation, normalizedConversation)
                 : optimistic.conversation,
-            timeline: normalizedOnly ? mergeNormalizedTimeline(current.timeline, normalizedTimeline) : optimistic.timeline,
             composer: {
               ...optimistic.composer,
               busy: busyAfterSubmit,

@@ -26,6 +26,7 @@ import { ContextDiagnosticsPanel } from '../diagnostics/ContextDiagnosticsPanel.
 import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { RecoveryCenter } from '../recovery/RecoveryCenter.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
+import { selectConversationTurns } from '../../runtime/conversation/turnProjection.ts';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import { TodoTaskBar } from '../todos/TodoTaskBar.tsx';
 import { ConversationDock } from '../conversationDock/ConversationDock.tsx';
@@ -138,14 +139,15 @@ export function Workspace({
   } = useStickToBottom();
   const hasProjectContext = Boolean(viewModel.currentProject.id || viewModel.currentProject.name || viewModel.currentProject.path);
   const canUseProjectSideTools = hasProjectContext;
-  const hasTimeline = viewModel.timeline.length > 0;
+  const conversationTurns = selectConversationTurns(viewModel.outputStore);
+  const hasTimeline = conversationTurns.length > 0;
   const hasConversation = viewModel.conversation.length > 0 || hasTimeline;
   const activeSession = viewModel.sessions.find((session) => session.active);
   const isDraftSurface = !activeSession && !hasConversation && !switchingSessionID;
   const composerDraftTarget =
     viewModel.newConversationDraft ?? (isDraftSurface ? defaultComposerDraftTarget(viewModel) : undefined);
   const activePendingPermission = viewModel.pendingPermissions.find((permission) => !activeSession?.id || permission.sessionId === activeSession.id) ?? viewModel.pendingPermissions[0];
-  const isSessionSwitching = Boolean(switchingSessionID && activeSession?.id === switchingSessionID && !hasConversation && viewModel.timeline.length === 0);
+  const isSessionSwitching = Boolean(switchingSessionID && activeSession?.id === switchingSessionID && !hasConversation);
   const sessionTitle = activeSession?.title || viewModel.currentProject.name || '新对话';
   const title =
     viewModel.mode === 'project' && hasProjectContext ? `我们应该在 ${viewModel.currentProject.name} 中构建什么？` : '我们该做什么？';
@@ -573,7 +575,7 @@ export function Workspace({
           {hasTimeline ? (
             <div className={styles.timelineLayout}>
               <div className={styles.timelineColumn}>
-                <Timeline items={viewModel.timeline} hookExecutions={viewModel.hookExecutions} onAgentTaskOpen={openAgentTask} onHookExecutionLoad={onHookExecutionLoad} />
+                <Timeline turns={conversationTurns} hookExecutions={viewModel.hookExecutions} onAgentTaskOpen={openAgentTask} onHookExecutionLoad={onHookExecutionLoad} />
               </div>
             </div>
           ) : viewModel.conversation.length > 0 ? (

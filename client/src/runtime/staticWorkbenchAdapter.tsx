@@ -76,7 +76,6 @@ export function getInitialWorkbenchViewModel(mode: WorkbenchMode = 'project'): W
     newConversationDraft: undefined,
     sidebarActions,
     conversation: [],
-    timeline: [],
     turnDiagnostics: undefined,
     runProjection: undefined,
     agentTasks: [],

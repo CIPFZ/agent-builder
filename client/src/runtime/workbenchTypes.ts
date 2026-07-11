@@ -1261,7 +1261,6 @@ export interface WorkbenchViewModel {
   newConversationDraft?: NewConversationDraftViewModel;
   sidebarActions: SidebarActionViewModel[];
   conversation: ConversationMessageViewModel[];
-  timeline: ConversationTimelineItemViewModel[];
   outputStore?: OutputStore;
   turnDiagnostics?: TurnDiagnosticsViewModel;
   runProjection?: RunProjectionViewModel;

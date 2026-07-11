@@ -12,6 +12,7 @@ import ts from 'typescript';
 const root = process.cwd();
 const tempDir = path.join(root, 'node_modules', '.tmp', 'conversation-streaming-smoke');
 await mkdir(tempDir, { recursive: true });
+await mkdir(path.join(tempDir, 'conversation'), { recursive: true });
 
 for (const name of ['outputStore', 'outputReducer', 'outputSelectors', 'outputStream']) {
   const source = await readFile(path.join(root, 'src', 'runtime', `${name}.ts`), 'utf8');
@@ -25,9 +26,17 @@ for (const name of ['outputStore', 'outputReducer', 'outputSelectors', 'outputSt
   await writeFile(path.join(tempDir, `${name}.mjs`), transpiled);
 }
 
+for (const name of ['statusMachine']) {
+  const source = await readFile(path.join(root, 'src', 'runtime', 'conversation', `${name}.ts`), 'utf8');
+  const transpiled = ts.transpileModule(source, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022, importsNotUsedAsValues: ts.ImportsNotUsedAsValues.Remove },
+  }).outputText.replaceAll('.ts', '.mjs');
+  await writeFile(path.join(tempDir, 'conversation', `${name}.mjs`), transpiled);
+}
+
 const { createOutputStore } = await import(pathToFileURL(path.join(tempDir, 'outputStore.mjs')).href);
 const { applyOutputEvents, addOptimisticUserSubmit } = await import(pathToFileURL(path.join(tempDir, 'outputReducer.mjs')).href);
-const { selectConversationTimeline, optimisticSubmitSequence } = await import(pathToFileURL(path.join(tempDir, 'outputSelectors.mjs')).href);
+const { selectProjectedConversationItems } = await import(pathToFileURL(path.join(tempDir, 'outputSelectors.mjs')).href);
 const { mergeAdjacentDeltas } = await import(pathToFileURL(path.join(tempDir, 'outputStream.mjs')).href);
 
 const sessionId = 'session-turn';
@@ -44,7 +53,7 @@ store = applyOutputEvents(store, [
     item: { id: 'user-1', kind: 'user_message', sessionId, turnId, sequence: 1000000, role: 'user', content: 'go', messageId: 'msg-user', clientRequestId: 'client-1', createdAt: 5 } },
 ]);
 
-let timeline = selectConversationTimeline(store);
+let timeline = selectProjectedConversationItems(store);
 assert.deepEqual(timeline.map((item) => item.kind), ['user_message'], 'after user message we only see user_message');
 
 // Batch 2: assistant streaming message + text deltas.
@@ -55,7 +64,7 @@ store = applyOutputEvents(store, [
     textDelta: { messageId, partType: 'text', delta: 'plan', contentLen: 4 } },
 ]);
 
-timeline = selectConversationTimeline(store);
+timeline = selectProjectedConversationItems(store);
 let assistant = timeline.find((item) => item.messageId === messageId);
 assert.equal(assistant?.content, 'plan', 'delta content populates assistant item via streaming overlay');
 assert.equal(assistant?.streaming, true, 'assistant item marked streaming while overlay is active');
@@ -79,7 +88,7 @@ store = applyOutputEvents(store, [
     toolCall: { id: 'call-1', sessionId, turnId, name: 'view', source: 'builtin', kind: 'file_read', status: 'running', display: { kind: 'file_read', title: 'view' }, startedAt: 15 } },
 ]);
 
-timeline = selectConversationTimeline(store);
+timeline = selectProjectedConversationItems(store);
 assistant = timeline.find((item) => item.messageId === messageId);
 assert.equal(assistant?.content, 'planning, running tool', 'stream text continues to grow');
 assert.equal(assistant?.streaming, true, 'assistant still streaming until the message is finished');
@@ -94,7 +103,7 @@ store = applyOutputEvents(store, [
     item: { id: `exploration-${turnId}`, kind: 'exploration_summary', sessionId, turnId, sequence: 1030000, status: 'exploring', title: 'Read 1 file', exploration: { status: 'exploring', toolTotal: 1, toolCounts: [{ kind: 'file_read', count: 1 }] }, display: { counts: [{ kind: 'file_read', count: 1 }] }, createdAt: 12, updatedAt: 20 } },
 ]);
 
-timeline = selectConversationTimeline(store);
+timeline = selectProjectedConversationItems(store);
 assert.equal(timeline.find((item) => item.id === 'tool-1')?.status, 'completed', 'tool item promoted to completed');
 assert.equal(timeline.find((item) => item.id === `exploration-${turnId}`)?.exploration?.toolTotal, 1, 'exploration summary counts the completed tool');
 
@@ -107,7 +116,7 @@ store = applyOutputEvents(store, [
 ]);
 
 assert.equal(store.streamingByMessageId[messageId], undefined, 'streaming overlay cleared after finished message');
-timeline = selectConversationTimeline(store);
+timeline = selectProjectedConversationItems(store);
 assistant = timeline.find((item) => item.messageId === messageId);
 assert.equal(assistant?.phase, 'final', 'assistant item is now in final phase');
 assert.notEqual(assistant?.streaming, true, 'assistant item no longer flagged streaming');
@@ -131,8 +140,7 @@ store2 = applyOutputEvents(store2, [
 ]);
 store2 = addOptimisticUserSubmit(store2, { clientRequestId: 'client-new', prompt: 'new question', createdAt: submitAt, status: 'submitting' });
 
-assert.equal(optimisticSubmitSequence(submitAt), seqBase(submitAt), 'optimistic sequence mirrors the runtime scale');
-let timeline2 = selectConversationTimeline(store2);
+let timeline2 = selectProjectedConversationItems(store2);
 assert.deepEqual(timeline2.map((item) => item.id), ['old-user', 'old-final', 'optimistic-client-new'],
   'optimistic submit sorts after history, not at the top of the timeline');
 
@@ -141,7 +149,7 @@ store2 = applyOutputEvents(store2, [
   { id: 'new-assistant', sequence: 3, sessionId: 'session-2', kind: 'conversation_item.created', entityId: 'new-assistant', operation: 'append',
     item: { id: 'new-assistant', kind: 'assistant_message', sessionId: 'session-2', turnId: 'turn-new', sequence: seqBase(newTurnStart, 1010), role: 'assistant', phase: 'intermediate', content: 'thinking', status: 'streaming', messageId: 'msg-new-assistant', createdAt: newTurnStart + 400 } },
 ]);
-timeline2 = selectConversationTimeline(store2);
+timeline2 = selectProjectedConversationItems(store2);
 assert.deepEqual(timeline2.map((item) => item.id), ['old-user', 'old-final', 'optimistic-client-new', 'new-assistant'],
   'streaming response renders below the optimistic user bubble, never above it');
 
@@ -150,7 +158,7 @@ store2 = applyOutputEvents(store2, [
   { id: 'new-user-echo', sequence: 4, sessionId: 'session-2', kind: 'conversation_item.created', entityId: 'new-user', operation: 'append',
     item: { id: 'new-user', kind: 'user_message', sessionId: 'session-2', turnId: 'turn-new', sequence: seqBase(newTurnStart), role: 'user', content: 'new question', clientRequestId: 'client-new', createdAt: submitAt } },
 ]);
-timeline2 = selectConversationTimeline(store2);
+timeline2 = selectProjectedConversationItems(store2);
 assert.deepEqual(timeline2.map((item) => item.id), ['old-user', 'old-final', 'new-user', 'new-assistant'],
   'runtime echo replaces the optimistic bubble and keeps send -> response order');
 

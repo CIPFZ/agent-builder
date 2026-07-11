@@ -1,5 +1,6 @@
 import { createOutputStore } from './outputStore.ts';
 import type { OptimisticUserSubmit, OutputStore, RuntimeOutputEvent, RuntimeOutputSnapshot, RuntimeStreamingState } from './outputTypes.ts';
+import { mergeMonotonicTurnStatus } from './conversation/statusMachine.ts';
 
 export function hydrateOutputStore(snapshot: RuntimeOutputSnapshot | undefined, previous?: OutputStore): OutputStore {
   if (!snapshot) {
@@ -116,7 +117,17 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
     }
   }
   if (event.turn) {
-    next.turnsById[event.turn.id] = { ...next.turnsById[event.turn.id], ...event.turn };
+    const previous = next.turnsById[event.turn.id];
+    next.turnsById[event.turn.id] = {
+      ...previous,
+      ...event.turn,
+      status: mergeMonotonicTurnStatus(previous?.status, event.turn.status) ?? event.turn.status,
+    };
+    if (['completed', 'failed', 'cancelled', 'interrupted'].includes(next.turnsById[event.turn.id].status)) {
+      for (const item of Object.values(next.itemsById)) {
+        if (item.turnId === event.turn.id && item.messageId) delete next.streamingByMessageId[item.messageId];
+      }
+    }
   }
   if (event.assistantStep) {
     next.assistantStepsById[event.assistantStep.id] = { ...next.assistantStepsById[event.assistantStep.id], ...event.assistantStep };

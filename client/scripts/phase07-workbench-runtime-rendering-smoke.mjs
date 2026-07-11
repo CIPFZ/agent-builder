@@ -8,38 +8,47 @@ const adapterPath = resolve(repoRoot, 'client', 'src', 'runtime', 'wailsWorkbenc
 const typesPath = resolve(repoRoot, 'client', 'src', 'runtime', 'workbenchTypes.ts');
 const toolCardPath = resolve(repoRoot, 'client', 'src', 'features', 'tools', 'ToolCallCard.tsx');
 const shellPath = resolve(repoRoot, 'client', 'src', 'app', 'shell', 'WorkbenchShell.tsx');
+const turnProjectionPath = resolve(repoRoot, 'client', 'src', 'runtime', 'conversation', 'turnProjection.ts');
+const timelinePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'Timeline.tsx');
+const disclosurePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'ProcessDisclosure.tsx');
 
-const [adapterSource, typesSource, toolCardSource, shellSource] = await Promise.all([
+const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource] = await Promise.all([
   readFile(adapterPath, 'utf8'),
   readFile(typesPath, 'utf8'),
   readFile(toolCardPath, 'utf8'),
   readFile(shellPath, 'utf8'),
+  readFile(turnProjectionPath, 'utf8'),
+  readFile(timelinePath, 'utf8'),
+  readFile(disclosurePath, 'utf8'),
 ]);
 
-assert.match(typesSource, /ConversationTimelineKind = .*'turn_terminal'/s);
+assert.match(typesSource, /export type ConversationTimelineKind =/);
+assert.match(typesSource, /\| 'turn_terminal'/);
 assert.match(typesSource, /sequence\?: number;/);
 assert.doesNotMatch(typesSource, /export interface ToolCallViewModel[\s\S]*?\n}\n[\s\S]*?stdout\?: string/);
 assert.doesNotMatch(typesSource, /export interface ToolCallViewModel[\s\S]*?\n}\n[\s\S]*?stderr\?: string/);
 
-assert.match(adapterSource, /function buildRuntimeTimelineOrder/);
-assert.match(adapterSource, /node\.kind === 'assistant_step'/);
-assert.match(adapterSource, /node\.kind === 'turn_terminal'/);
-assert.match(adapterSource, /sequence: runtimeOrder\.sequenceByToolCallID\.get\(toolCall\.id\)/);
-assert.match(adapterSource, /sequence: runtimeOrder\.sequenceByPermissionID\.get\(permission\.id\)/);
-assert.match(adapterSource, /summary: missingFinal[\s\S]*?Turn ended without a final assistant message\./);
 assert.match(adapterSource, /function mapToolCall\(toolCall: RuntimeToolCallDTO\): ToolCallViewModel/);
 assert.doesNotMatch(adapterSource, /toolCall:\s*{\s*\.\.\.toolCall/s);
 assert.doesNotMatch(adapterSource, /stdout:\s*toolCall\.stdout/);
 assert.doesNotMatch(adapterSource, /stderr:\s*toolCall\.stderr/);
-assert.match(adapterSource, /if \(typeof left\.sequence === 'number' && typeof right\.sequence === 'number'/);
+assert.doesNotMatch(adapterSource, /buildRuntimeTimelineOrder|mergeNormalizedTimeline|mapNormalizedInputTimeline/);
+
+assert.match(turnProjectionSource, /Object\.values\(store\.turnsById\)/);
+assert.match(turnProjectionSource, /turn\.userMessageId/);
+assert.match(turnProjectionSource, /turn\.latestAssistantMessageId/);
+assert.match(turnProjectionSource, /item\.phase === 'final'/);
+assert.match(timelineSource, /<ProcessDisclosure/);
+assert.match(timelineSource, /<TimelineMessage/);
+assert.match(disclosureSource, /shouldAutoOpenProcess/);
 
 assert.doesNotMatch(toolCardSource, /toolCall\.stdout/);
 assert.doesNotMatch(toolCardSource, /toolCall\.stderr/);
 assert.doesNotMatch(toolCardSource, /extractWrappedOutput/);
 
 assert.match(shellSource, /id: userID,[\s\S]*status: 'success'/);
-assert.match(shellSource, /const nextViewModel = await adapter\.sendPrompt\(optimisticViewModel, prompt\)/);
-assert.match(adapterSource, /if \(hasRuntimeActivity && isOptimisticTimelineItem\(item\)\)/);
+assert.match(shellSource, /const nextViewModel = await adapter\.sendPrompt\(optimisticViewModel, prompt/);
+assert.doesNotMatch(shellSource, /selectConversationTimeline|timeline:/);
 assert.match(adapterSource, /!isOptimisticConversationMessage\(message\)/);
 assert.match(adapterSource, /runtimeActionRefreshTargets\(response\)/);
 assert.doesNotMatch(adapterSource, /response\.action\.(?:source|reason|evidence|payload)/);
