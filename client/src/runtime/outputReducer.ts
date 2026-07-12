@@ -9,6 +9,7 @@ export function hydrateOutputStore(snapshot: RuntimeOutputSnapshot | undefined, 
   const store = createOutputStore(snapshot.sessionId);
   store.cursor = snapshot.cursor;
   store.version = snapshot.version;
+  store.todos = snapshot.todos;
   store.optimisticByClientRequestId = { ...(previous?.sessionId === snapshot.sessionId ? previous.optimisticByClientRequestId : {}) };
   // Fresh snapshots supersede any live streaming buffers; the snapshot's
   // messages/items already carry the accumulated content.
@@ -176,6 +177,9 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
   }
   if (event.agentTask) {
     next.agentTasksById[event.agentTask.id] = { ...next.agentTasksById[event.agentTask.id], ...event.agentTask };
+  }
+  if (event.todos) {
+    next.todos = event.todos;
   }
   return next;
 }

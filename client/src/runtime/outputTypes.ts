@@ -289,7 +289,7 @@ export interface RuntimeOutputSnapshot {
   permissions?: RuntimeOutputPermission[];
   hooks?: unknown[];
   agentTasks?: RuntimeAgentTaskOutput[];
-  todos?: unknown;
+  todos?: RuntimeOutputTodoSummary;
   compact?: unknown[];
 }
 
@@ -311,7 +311,7 @@ export interface RuntimeOutputEvent {
   permission?: RuntimeOutputPermission;
   hook?: unknown;
   agentTask?: RuntimeAgentTaskOutput;
-  todos?: unknown;
+  todos?: RuntimeOutputTodoSummary;
   compact?: unknown;
   textDelta?: RuntimeOutputTextDelta;
 }
@@ -329,6 +329,28 @@ export interface RuntimeStreamingState {
   thinking: string;
   textLen: number;
   thinkingLen: number;
+}
+
+export interface RuntimeOutputTodo {
+  id?: string;
+  content?: string;
+  status?: string;
+  activeForm?: string;
+  active_form?: string;
+  createdAt?: number;
+  updatedAt?: number;
+  source?: { kind?: string; label?: string; ref?: string };
+}
+
+export interface RuntimeOutputTodoSummary {
+  sessionId?: string;
+  turnId?: string;
+  todos?: RuntimeOutputTodo[];
+  pending?: number;
+  inProgress?: number;
+  completed?: number;
+  total?: number;
+  updatedAt?: number;
 }
 
 export interface RuntimeOutputEventsResponse {
@@ -358,6 +380,7 @@ export interface OutputStore {
   toolResultsById: Record<string, RuntimeOutputToolResult>;
   permissionsById: Record<string, RuntimeOutputPermission>;
   agentTasksById: Record<string, RuntimeAgentTaskOutput>;
+  todos?: RuntimeOutputTodoSummary;
   optimisticByClientRequestId: Record<string, OptimisticUserSubmit>;
   appliedEventIds: Record<string, true>;
   entitySequenceByKey: Record<string, number>;

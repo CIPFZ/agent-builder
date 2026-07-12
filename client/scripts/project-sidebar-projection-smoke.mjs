@@ -27,8 +27,8 @@ const checks = [
     ok: sidebar.includes("session.scope === 'project'") && sidebar.includes('session.projectId === project.id'),
   },
   {
-    name: 'new chat uses draft path instead of CreateSession persistence',
-    ok: adapter.includes("bridge.NewChat('')") && !adapter.includes('await bridge.CreateSession'),
+    name: 'new chat is a local draft and does not mutate runtime session state',
+    ok: !adapter.includes('startConversationDraft') && !adapter.includes("bridge.NewChat('')") && !adapter.includes('await bridge.CreateSession'),
   },
 ];
 

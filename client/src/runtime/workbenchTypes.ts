@@ -108,6 +108,10 @@ export interface NewConversationDraftViewModel {
   projectId?: string;
 }
 
+export type ConversationTargetViewModel =
+  | { kind: 'draft'; scope: 'project' | 'standalone'; projectId?: string }
+  | { kind: 'session'; sessionId: string };
+
 export interface SidebarActionViewModel {
   id: string;
   label: string;
@@ -1258,7 +1262,7 @@ export interface WorkbenchViewModel {
   currentProject: ProjectViewModel;
   projects: ProjectViewModel[];
   sessions: SessionViewModel[];
-  newConversationDraft?: NewConversationDraftViewModel;
+  conversationTarget: ConversationTargetViewModel;
   sidebarActions: SidebarActionViewModel[];
   conversation: ConversationMessageViewModel[];
   outputStore?: OutputStore;
@@ -1266,7 +1270,6 @@ export interface WorkbenchViewModel {
   runProjection?: RunProjectionViewModel;
   agentTasks?: AgentTaskViewModel[];
   agentRoles?: AgentRoleViewModel[];
-  todos?: TodoSummaryViewModel;
   reactCallchain?: ReactCallchainViewModel;
   contextDiagnostics?: ContextDiagnosticsViewModel;
   recovery?: RecoveryStatusViewModel;
@@ -1309,7 +1312,6 @@ export interface WorkbenchAdapter {
   openProjectInExplorer: (request: ProjectActionRequestViewModel) => Promise<void>;
   removeProject: (current: WorkbenchViewModel, request: ProjectActionRequestViewModel) => Promise<WorkbenchViewModel>;
   selectProjectDirectory: () => Promise<string>;
-  createSession: (current: WorkbenchViewModel, target?: NewConversationDraftViewModel) => Promise<WorkbenchViewModel>;
   selectSession: (current: WorkbenchViewModel, sessionID: string) => Promise<WorkbenchViewModel>;
   renameSession: (current: WorkbenchViewModel, sessionID: string, title: string) => Promise<WorkbenchViewModel>;
   deleteSession: (current: WorkbenchViewModel, sessionID: string) => Promise<WorkbenchViewModel>;

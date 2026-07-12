@@ -13,6 +13,7 @@ import type {
 import type { OutputStore } from '../../runtime/outputTypes.ts';
 import { addOptimisticUserSubmit, applyOutputEvents } from '../../runtime/outputReducer.ts';
 import { createOutputStore } from '../../runtime/outputStore.ts';
+import { createConversationSubmitQueue } from '../../runtime/conversationSubmitQueue.ts';
 import { installWebviewCursorRecovery, nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
 import { selectConversationMessages, selectPendingPermissions } from '../../runtime/outputSelectors.ts';
 import { runtimeEventCoveredByOutputStream, runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
@@ -113,7 +114,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const viewModelRef = useRef(viewModel);
   const modeRef = useRef(mode);
   const sessionMutationSeqRef = useRef(0);
-  const newConversationDraftSeqRef = useRef(0);
+  const promptSubmitQueueRef = useRef(createConversationSubmitQueue());
   // Most-recently-seen output store per session. Switching back to a session
   // renders its cached conversation instantly (no blank/loading flash) while
   // the authoritative hydrate catches up in the background.
@@ -429,19 +430,14 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     [adapter],
   );
 
-  const createSession = (target?: NewConversationDraftViewModel) => {
-    const draftSeq = ++newConversationDraftSeqRef.current;
-    // Entering the draft surface changes the active conversation context;
-    // bump the mutation epoch so in-flight refreshes for the previous
-    // session are discarded instead of restoring its content.
+  const startConversationDraft = (target?: NewConversationDraftViewModel) => {
     sessionMutationSeqRef.current += 1;
     const currentViewModel = viewModelRef.current;
-    const currentMode = modeRef.current;
     const draftTarget = target ?? defaultDraftTarget(currentViewModel);
     const draftViewModel: WorkbenchViewModel = {
       ...currentViewModel,
       mode: 'new-chat',
-      newConversationDraft: draftTarget,
+      conversationTarget: { kind: 'draft', scope: draftTarget.scope, projectId: draftTarget.projectId },
       sessions: currentViewModel.sessions.map((session) => ({ ...session, active: false })),
       conversation: [],
       // The output store must not leak across conversations: a stale store
@@ -459,38 +455,16 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     setSwitchingSessionID('');
     setMode('new-chat');
     setViewModel(draftViewModel);
-    void adapter
-      .createSession(draftViewModel, draftTarget)
-      .then((nextViewModel) => {
-        if (newConversationDraftSeqRef.current !== draftSeq) {
-          return;
-        }
-        modeRef.current = nextViewModel.mode;
-        viewModelRef.current = nextViewModel;
-        setMode(nextViewModel.mode);
-        setViewModel(nextViewModel);
-      })
-      .catch((error) => {
-        if (newConversationDraftSeqRef.current !== draftSeq) {
-          return;
-        }
-        console.warn('[workbench] start new conversation draft failed', error);
-        modeRef.current = currentMode;
-        viewModelRef.current = currentViewModel;
-        setMode(currentMode);
-        setViewModel(currentViewModel);
-      });
   };
 
   const updateNewConversationDraft = (target: NewConversationDraftViewModel) => {
-    newConversationDraftSeqRef.current += 1;
     sessionMutationSeqRef.current += 1;
     const current = viewModelRef.current;
     const leavingActiveSession = current.sessions.some((session) => session.active);
     const next: WorkbenchViewModel = {
       ...current,
       mode: 'new-chat',
-      newConversationDraft: target,
+      conversationTarget: { kind: 'draft', scope: target.scope, projectId: target.projectId },
       sessions: current.sessions.map((session) => ({ ...session, active: false })),
       conversation: leavingActiveSession ? [] : current.conversation,
       outputStore: leavingActiveSession ? createOutputStore('') : current.outputStore,
@@ -509,13 +483,21 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   };
 
   const openProject = async (request: OpenProjectRequestViewModel) => {
-    const nextViewModel = await adapter.openProject({ ...viewModel, mode }, request);
+    const mutationSeq = ++sessionMutationSeqRef.current;
+    const nextViewModel = await adapter.openProject({ ...viewModelRef.current, mode: modeRef.current }, request);
+    if (sessionMutationSeqRef.current !== mutationSeq) return;
+    modeRef.current = nextViewModel.mode;
+    viewModelRef.current = nextViewModel;
     setMode(nextViewModel.mode);
     setViewModel(nextViewModel);
   };
 
   const createProject = async (request: CreateProjectRequestViewModel) => {
-    const nextViewModel = await adapter.createProject({ ...viewModel, mode }, request);
+    const mutationSeq = ++sessionMutationSeqRef.current;
+    const nextViewModel = await adapter.createProject({ ...viewModelRef.current, mode: modeRef.current }, request);
+    if (sessionMutationSeqRef.current !== mutationSeq) return;
+    modeRef.current = nextViewModel.mode;
+    viewModelRef.current = nextViewModel;
     setMode(nextViewModel.mode);
     setViewModel(nextViewModel);
   };
@@ -539,14 +521,13 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const selectProjectDirectory = () => adapter.selectProjectDirectory();
 
   const selectSession = (sessionID: string) => {
-    newConversationDraftSeqRef.current += 1;
     const mutationSeq = ++sessionMutationSeqRef.current;
     const currentViewModel = viewModelRef.current;
     const cachedStore = sessionStoreCacheRef.current.get(sessionID);
     const optimisticViewModel: WorkbenchViewModel = {
       ...currentViewModel,
       mode: 'new-chat',
-      newConversationDraft: undefined,
+      conversationTarget: { kind: 'session', sessionId: sessionID },
       sessions: currentViewModel.sessions.map((session) => ({ ...session, active: session.id === sessionID })),
       conversation: cachedStore ? selectConversationMessages(cachedStore) : [],
       outputStore: cachedStore ?? createOutputStore(sessionID),
@@ -570,7 +551,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         }
         setSwitchingSessionID('');
         modeRef.current = nextViewModel.mode;
-        viewModelRef.current = { ...nextViewModel, newConversationDraft: undefined };
+        viewModelRef.current = { ...nextViewModel, conversationTarget: { kind: 'session', sessionId: sessionID } };
         setMode(nextViewModel.mode);
         setViewModel(viewModelRef.current);
       })
@@ -595,7 +576,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
 
   const deleteSession = (sessionID: string) => {
     sessionStoreCacheRef.current.delete(sessionID);
-    newConversationDraftSeqRef.current += 1;
     const mutationSeq = ++sessionMutationSeqRef.current;
     const currentViewModel = viewModelRef.current;
     const currentMode = modeRef.current;
@@ -603,7 +583,12 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     const optimisticViewModel: WorkbenchViewModel = {
       ...currentViewModel,
       mode: wasActive ? 'new-chat' : currentMode,
-      newConversationDraft: wasActive ? defaultDraftTarget(currentViewModel) : currentViewModel.newConversationDraft,
+      conversationTarget: wasActive
+        ? (() => {
+            const draft = defaultDraftTarget(currentViewModel);
+            return { kind: 'draft' as const, scope: draft.scope, projectId: draft.projectId };
+          })()
+        : currentViewModel.conversationTarget,
       sessions: currentViewModel.sessions.filter((session) => session.id !== sessionID),
       conversation: wasActive ? [] : currentViewModel.conversation,
       outputStore: wasActive ? createOutputStore('') : currentViewModel.outputStore,
@@ -642,16 +627,19 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       });
   };
 
-  const sendPrompt = async (prompt: string) => {
-    // Submitting may create a brand new session (draft flow); treat it as a
-    // conversation-context mutation so stale in-flight refreshes are dropped.
-    const mutationSeq = ++sessionMutationSeqRef.current;
+  const sendPrompt = (prompt: string) => {
+    // Serialize the draft -> session transition. Each queued submit re-reads
+    // viewModelRef only after the preceding submit has stored its session id.
+    const conversationEpoch = sessionMutationSeqRef.current;
+    return promptSubmitQueueRef.current.enqueue(async () => {
+    if (sessionMutationSeqRef.current !== conversationEpoch) {
+      return;
+    }
     const currentViewModel = viewModelRef.current;
     const currentMode = modeRef.current;
     const createdAt = Date.now();
     const clientRequestId = `prompt-${createdAt}`;
     const userID = `local-${createdAt}`;
-    const loadingID = `loading-${createdAt}`;
     const activeSessionId = currentViewModel.sessions.find((session) => session.active)?.id ?? '';
     // Never seed the optimistic submit into a store that belongs to another
     // session (e.g. a stale store surviving a draft transition): the stream
@@ -681,21 +669,13 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           clientRequestId,
           status: 'success',
         },
-        {
-          id: loadingID,
-          role: 'assistant',
-          content: '正在生成回复...',
-          createdAt,
-          clientRequestId,
-          status: 'loading',
-        },
       ],
     };
     viewModelRef.current = optimisticViewModel;
     setViewModel(optimisticViewModel);
     try {
       const nextViewModel = await adapter.sendPrompt(optimisticViewModel, prompt, { clientRequestId });
-      if (sessionMutationSeqRef.current !== mutationSeq) {
+      if (sessionMutationSeqRef.current !== conversationEpoch) {
         return;
       }
       modeRef.current = nextViewModel.mode;
@@ -704,7 +684,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       setMode(nextViewModel.mode);
       setViewModel(nextViewModel);
     } catch (error) {
-      if (sessionMutationSeqRef.current !== mutationSeq) {
+      if (sessionMutationSeqRef.current !== conversationEpoch) {
         return;
       }
       const failedOutputStore = {
@@ -723,13 +703,16 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         outputStore: failedOutputStore,
         composer: { ...optimisticViewModel.composer, busy: false },
         conversation: failedOutputStore.sessionId ? selectConversationMessages(failedOutputStore) : optimisticViewModel.conversation.map((message) =>
-          message.id === loadingID ? { ...message, content: sendPromptErrorMessage(error), status: 'error', error: sendPromptErrorMessage(error) } : message,
+          message.clientRequestId === clientRequestId
+            ? { ...message, status: 'error', error: sendPromptErrorMessage(error) }
+            : message,
         ),
       };
       viewModelRef.current = failedViewModel;
       setSwitchingSessionID('');
       setViewModel(failedViewModel);
     }
+    });
   };
 
   const cancelTurn = async () => {
@@ -1084,7 +1067,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         onProjectOpenInExplorer={openProjectInExplorer}
         onProjectRemove={removeProject}
         onProjectDirectorySelect={selectProjectDirectory}
-        onSessionCreate={createSession}
+        onSessionCreate={startConversationDraft}
         onSessionRename={renameSession}
         onSessionDelete={deleteSession}
         onSessionSelect={selectSession}

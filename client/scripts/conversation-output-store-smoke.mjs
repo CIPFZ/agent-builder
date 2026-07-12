@@ -12,7 +12,7 @@ await mkdir(path.join(tempDir, 'timeline'), { recursive: true });
 await mkdir(path.join(tempDir, 'todos'), { recursive: true });
 await mkdir(path.join(tempDir, 'tools'), { recursive: true });
 
-for (const name of ['outputStore', 'outputReducer', 'outputSelectors']) {
+for (const name of ['outputStore', 'outputReducer', 'outputSelectors', 'todoOutput']) {
   const source = await readFile(path.join(root, 'src', 'runtime', `${name}.ts`), 'utf8');
   const transpiled = ts.transpileModule(source, {
     compilerOptions: {
@@ -71,6 +71,7 @@ const { selectConversationTurns } = await import(pathToFileURL(path.join(tempDir
 const { shouldAutoOpenProcess } = await import(pathToFileURL(path.join(tempDir, 'timeline', 'processDisclosurePolicy.mjs')).href);
 const { todoDisplayModel } = await import(pathToFileURL(path.join(tempDir, 'todos', 'todoDisplayPolicy.mjs')).href);
 const { boundedText } = await import(pathToFileURL(path.join(tempDir, 'tools', 'toolOutputPreview.mjs')).href);
+const { mapRuntimeTodoSummary, selectSessionTodos } = await import(pathToFileURL(path.join(tempDir, 'todoOutput.mjs')).href);
 
 assert.equal(shouldAutoOpenProcess({ status: 'running', itemStatuses: [] }), true, 'running process auto-opens');
 assert.equal(shouldAutoOpenProcess({ status: 'queued', itemStatuses: [] }), true, 'queued process auto-opens');
@@ -120,11 +121,14 @@ const snapshot = {
     { id: 'tool-1', sessionId: 'session-runtime', turnId: 'turn-1', name: 'view', source: 'builtin', kind: 'file_read', status: 'completed', quiet: true, groupable: true, display: { kind: 'file_read', title: 'Read file' }, startedAt: 21, finishedAt: 22 },
     { id: 'tool-2', sessionId: 'session-runtime', turnId: 'turn-1', name: 'view', source: 'builtin', kind: 'file_read', status: 'completed', quiet: true, groupable: true, display: { kind: 'file_read', title: 'Read file' }, startedAt: 23, finishedAt: 24 },
   ],
+  todos: { sessionId: 'session-runtime', turnId: 'turn-1', todos: [{ content: 'Inspect repository', status: 'in_progress', activeForm: 'Inspecting repository' }], updatedAt: 30 },
 };
 
 let optimisticStore = createOutputStore('session-runtime');
 optimisticStore = addOptimisticUserSubmit(optimisticStore, { clientRequestId: 'client-A', prompt: 'run tools', createdAt: 5, status: 'submitting' });
 optimisticStore = hydrateOutputStore(snapshot, optimisticStore);
+assert.equal(mapRuntimeTodoSummary(optimisticStore.todos)?.items[0]?.activeForm, 'Inspecting repository', 'snapshot todos survive output hydration');
+assert.equal(selectSessionTodos(optimisticStore, 'other-session'), undefined, 'todo selector rejects a stale store from another session');
 
 const runtimeTimeline = selectProjectedConversationItems(optimisticStore);
 assert.deepEqual(runtimeTimeline.map((item) => item.id), ['item-user', 'item-exp', 'item-tool-group', 'item-stale-progress', 'item-assistant-final'], 'runtime sequence controls item ordering');
@@ -153,6 +157,12 @@ optimisticStore = applyOutputEvent(optimisticStore, {
   turn: { id: 'turn-1', sessionId: 'session-runtime', status: 'running' },
 });
 assert.equal(selectConversationTurns(optimisticStore)[0].status, 'completed', 'delayed active state cannot overwrite terminal turn state');
+
+optimisticStore = applyOutputEvent(optimisticStore, {
+  id: 'todo-updated', sequence: 1000, sessionId: 'session-runtime', turnId: 'turn-1', kind: 'todo.updated', entityId: 'todo-summary-session-runtime', operation: 'update',
+  todos: { sessionId: 'session-runtime', turnId: 'turn-1', todos: [{ content: 'Inspect repository', status: 'completed' }], updatedAt: 41 },
+});
+assert.equal(mapRuntimeTodoSummary(optimisticStore.todos)?.completed, 1, 'live todo.updated event updates the output store');
 
 // ── 2. Empty-items runtime snapshot must not fall back to any legacy path.
 

@@ -1,4 +1,4 @@
-import { Button, Dropdown, message } from 'antd';
+import { Button, Dropdown, Flex, message } from 'antd';
 import Sender from '@ant-design/x/es/sender';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -18,7 +18,7 @@ interface ComposerProps {
   composer: ComposerViewModel;
   project: ProjectViewModel;
   projects: ProjectViewModel[];
-  newConversationDraft?: NewConversationDraftViewModel;
+  draftTarget?: NewConversationDraftViewModel;
   showProjectContext: boolean;
   onNewConversationDraftChange: (target: NewConversationDraftViewModel) => void;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
@@ -41,7 +41,7 @@ export function Composer({
   composer,
   project,
   projects,
-  newConversationDraft,
+  draftTarget,
   showProjectContext,
   onNewConversationDraftChange,
   onModelSelect,
@@ -56,7 +56,7 @@ export function Composer({
   const selectedProviderID = composer.selectedModel?.configuredProviderId;
   const projectOptions = projects.length > 0 ? projects : project.id ? [project] : [];
   const activeDraftTarget =
-    newConversationDraft ?? (project.id ? { active: true, scope: 'project' as const, projectId: project.id } : { active: true, scope: 'standalone' as const });
+    draftTarget ?? (project.id ? { active: true, scope: 'project' as const, projectId: project.id } : { active: true, scope: 'standalone' as const });
   const selectedDraftProject = activeDraftTarget.scope === 'project'
     ? projectOptions.find((item) => item.id === activeDraftTarget.projectId) ?? project
     : undefined;
@@ -215,7 +215,7 @@ export function Composer({
             : `上下文即将用尽（剩余 ${contextUsage.percentLeft}%），请使用 /compact 手动压缩`}
         </div>
       )}
-      <div className={styles.composerShell}>
+      <div className={`${styles.composerShell} ${showProjectContext || draftTarget ? styles.composerShellWithContext : ''}`}>
         <Sender
           autoSize={{ minRows: 1, maxRows: 8 }}
           className={styles.sender}
@@ -243,25 +243,25 @@ export function Composer({
           suffix={false}
           value={draft}
         />
-        {(showProjectContext || newConversationDraft) && (
-          <div className={styles.limitBar} data-testid="composer-limit-bar">
-            <Dropdown menu={projectTargetMenu} trigger={['click']}>
-              <Button className={styles.limitButton} type="text">
-                {activeDraftTarget.scope === 'project' ? <FolderOpenOutlined /> : <StopOutlined />}
-                <span>{draftTargetLabel}</span>
-                <DownOutlined className={styles.chevron} />
-              </Button>
-            </Dropdown>
-            {activeDraftTarget.scope === 'project' && selectedDraftProject?.isGitRepository && selectedDraftProject.branch && (
-              <Dropdown menu={menu} trigger={['click']}>
+        {(showProjectContext || draftTarget) && (
+          <Flex align="center" className={styles.limitBar} data-testid="composer-limit-bar" gap={12}>
+              <Dropdown menu={projectTargetMenu} trigger={['click']}>
                 <Button className={styles.limitButton} type="text">
-                  <BranchesOutlined />
-                  <span>{selectedDraftProject.branch}</span>
+                  {activeDraftTarget.scope === 'project' ? <FolderOpenOutlined /> : <StopOutlined />}
+                  <span>{draftTargetLabel}</span>
                   <DownOutlined className={styles.chevron} />
                 </Button>
               </Dropdown>
-            )}
-          </div>
+              {activeDraftTarget.scope === 'project' && selectedDraftProject?.isGitRepository && selectedDraftProject.branch && (
+                <Dropdown menu={menu} trigger={['click']}>
+                  <Button className={styles.limitButton} type="text">
+                    <BranchesOutlined />
+                    <span>{selectedDraftProject.branch}</span>
+                    <DownOutlined className={styles.chevron} />
+                  </Button>
+                </Dropdown>
+              )}
+          </Flex>
         )}
       </div>
     </div>

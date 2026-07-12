@@ -1042,6 +1042,56 @@ func TestRuntimeBridgeForwardsMCPRequestDecision(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsConfiguredProviderWrites(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		saveConfiguredProviderResp: RuntimeConfiguredProviderResponse{Provider: RuntimeConfiguredProvider{
+			ID:         "provider-1",
+			ProviderID: "openai",
+			Name:       "OpenAI",
+			Enabled:    true,
+		}},
+		deleteConfiguredProviders: RuntimeConfiguredProvidersResponse{Providers: []RuntimeConfiguredProvider{{
+			ID:         "provider-2",
+			ProviderID: "anthropic",
+			Name:       "Anthropic",
+			Enabled:    false,
+		}}},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	saved, err := bridge.SaveConfiguredProvider(context.Background(), RuntimeConfiguredProviderRequest{
+		ID:         "provider-1",
+		ProviderID: "openai",
+		Name:       "OpenAI",
+		Enabled:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.saveConfiguredProviderCalls != 1 {
+		t.Fatalf("save calls = %d, want 1", service.saveConfiguredProviderCalls)
+	}
+	if service.saveConfiguredProviderReq.ProviderID != "openai" || service.saveConfiguredProviderReq.Name != "OpenAI" || !service.saveConfiguredProviderReq.Enabled {
+		t.Fatalf("save request = %#v", service.saveConfiguredProviderReq)
+	}
+	if saved.Provider.ID != "provider-1" || saved.Provider.ProviderID != "openai" || !saved.Provider.Enabled {
+		t.Fatalf("save response = %#v", saved.Provider)
+	}
+
+	deleted, err := bridge.DeleteConfiguredProvider(context.Background(), "provider-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.deleteConfiguredProviderID != "provider-2" {
+		t.Fatalf("delete id = %q", service.deleteConfiguredProviderID)
+	}
+	if len(deleted.Providers) != 1 || deleted.Providers[0].ID != "provider-2" {
+		t.Fatalf("delete response = %#v", deleted)
+	}
+}
+
 func TestRuntimeBridgeForwardsAgentTaskReadsAndOutput(t *testing.T) {
 	t.Parallel()
 
@@ -1163,15 +1213,20 @@ type recordingRuntimeService struct {
 	resumeInterruptedTurnReq    RuntimeResumeInterruptedTurnRequest
 	discardInterruptedTurnID    string
 	retryRecoverableErrorID     string
-	terminalResponse            RuntimeTerminalResponse
-	sessionTerminals            RuntimeSessionTerminalsResponse
-	sessionTerminalsID          string
-	createdTerminal             RuntimeTerminalCreateRequest
-	terminalInputID             string
-	terminalInput               runtime.RuntimeTerminalInputRequest
-	terminalResizeID            string
-	terminalResize              runtime.RuntimeTerminalResizeRequest
-	deletedTerminalID           string
+	terminalResponse             RuntimeTerminalResponse
+	sessionTerminals             RuntimeSessionTerminalsResponse
+	sessionTerminalsID           string
+	createdTerminal              RuntimeTerminalCreateRequest
+	terminalInputID              string
+	terminalInput                runtime.RuntimeTerminalInputRequest
+	terminalResizeID             string
+	terminalResize               runtime.RuntimeTerminalResizeRequest
+	deletedTerminalID            string
+	saveConfiguredProviderReq    RuntimeConfiguredProviderRequest
+	saveConfiguredProviderCalls  int
+	saveConfiguredProviderResp   RuntimeConfiguredProviderResponse
+	deleteConfiguredProviderID   string
+	deleteConfiguredProviders    RuntimeConfiguredProvidersResponse
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -1251,12 +1306,23 @@ func (s *recordingRuntimeService) ConfiguredProviders(context.Context) (RuntimeC
 	return RuntimeConfiguredProvidersResponse{}, nil
 }
 
-func (s *recordingRuntimeService) SaveConfiguredProvider(context.Context, RuntimeConfiguredProviderRequest) (RuntimeConfiguredProviderResponse, error) {
-	return RuntimeConfiguredProviderResponse{}, nil
+func (s *recordingRuntimeService) SaveConfiguredProvider(_ context.Context, req RuntimeConfiguredProviderRequest) (RuntimeConfiguredProviderResponse, error) {
+	s.saveConfiguredProviderReq = req
+	s.saveConfiguredProviderCalls++
+	if s.saveConfiguredProviderResp.Provider.ID == "" {
+		s.saveConfiguredProviderResp = RuntimeConfiguredProviderResponse{Provider: RuntimeConfiguredProvider{
+			ID:         req.ID,
+			ProviderID: req.ProviderID,
+			Name:       req.Name,
+			Enabled:    req.Enabled,
+		}}
+	}
+	return s.saveConfiguredProviderResp, nil
 }
 
-func (s *recordingRuntimeService) DeleteConfiguredProvider(context.Context, string) (RuntimeConfiguredProvidersResponse, error) {
-	return RuntimeConfiguredProvidersResponse{}, nil
+func (s *recordingRuntimeService) DeleteConfiguredProvider(_ context.Context, providerID string) (RuntimeConfiguredProvidersResponse, error) {
+	s.deleteConfiguredProviderID = providerID
+	return s.deleteConfiguredProviders, nil
 }
 
 func (s *recordingRuntimeService) DiscoverConfiguredProviderModels(context.Context, string) (RuntimeProviderModelDiscoveryResponse, error) {

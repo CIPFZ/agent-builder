@@ -109,6 +109,11 @@
   color: rgb(13 13 13 / 42%);
 }
 
+.processTraceStandalone {
+  min-height: 28px;
+  padding: 4px 12px;
+}
+
 .processTrace[data-process-status='failed'] .processTraceLabel,
 .processTrace[data-process-has-failures='true'] .processTraceLabel {
   color: var(--ant-color-error);

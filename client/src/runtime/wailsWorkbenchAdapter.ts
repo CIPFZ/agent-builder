@@ -35,6 +35,7 @@ import type {
   ProjectMemoryUpdateViewModel,
   ProviderTypeViewModel,
   OpenProjectRequestViewModel,
+  NewConversationDraftViewModel,
   RenameProjectRequestViewModel,
   RuntimeMCPPromptViewModel,
   RuntimeMCPResourceViewModel,
@@ -50,8 +51,6 @@ import type {
   RunSchedulerPlanRequestViewModel,
   RunSchedulerTaskCandidateViewModel,
   ToolCallViewModel,
-  TodoItemViewModel,
-  TodoSummaryViewModel,
   RuntimeUserInputRequestViewModel,
   RuntimeSkillViewModel,
   SettingsOptionViewModel,
@@ -63,7 +62,7 @@ import type {
 import { runtimeActionRefreshTargets, type RuntimeActionRefreshTarget, type RuntimeWriteActionResponseDTO } from './actionRefreshSelector.ts';
 import { hydrateOutputStore } from './outputReducer.ts';
 import { selectConversationMessages, selectPendingPermissions } from './outputSelectors.ts';
-import { createOutputStore } from './outputStore.ts';
+import { retargetOutputStore } from './outputStore.ts';
 import type { RuntimeOutputSnapshot } from './outputTypes.ts';
 import { getInitialWorkbenchViewModel, staticWorkbenchAdapter } from './staticWorkbenchAdapter.tsx';
 
@@ -1454,36 +1453,6 @@ interface RuntimeAgentRolesResponseDTO {
   roles?: RuntimeAgentRoleDTO[];
 }
 
-interface RuntimeTodoDTO {
-  id?: string;
-  content?: string;
-  status?: string;
-  activeForm?: string;
-  active_form?: string;
-  createdAt?: number;
-  updatedAt?: number;
-  source?: {
-    kind?: string;
-    label?: string;
-    ref?: string;
-  };
-}
-
-interface RuntimeTodoSummaryDTO {
-  sessionId?: string;
-  turnId?: string;
-  todos?: RuntimeTodoDTO[];
-  pending?: number;
-  inProgress?: number;
-  completed?: number;
-  total?: number;
-  updatedAt?: number;
-}
-
-interface RuntimeTodosResponseDTO {
-  summary?: RuntimeTodoSummaryDTO;
-}
-
 interface RuntimeRunSchedulerPlanRequestDTO {
   runId?: string;
   sessionId?: string;
@@ -1731,8 +1700,6 @@ interface RuntimeBridgeModule {
   ResumeRunCheckpoint?: (runID: string, checkpointID: string) => Promise<RuntimeRunResumeResponseDTO>;
   ExecuteRunTask?: (runID: string, taskID: string) => Promise<RuntimeRunSchedulerExecuteTaskResponseDTO>;
   SessionAgentTasks?: (sessionID: string) => Promise<RuntimeAgentTasksResponseDTO>;
-  SessionTodos?: (sessionID: string) => Promise<RuntimeTodosResponseDTO>;
-  TurnTodos?: (turnID: string) => Promise<RuntimeTodosResponseDTO>;
   AgentTask?: (taskID: string) => Promise<RuntimeAgentTaskResponseDTO>;
   AgentRoles?: () => Promise<RuntimeAgentRolesResponseDTO>;
   AgentTaskFollowUp?: (taskID: string, req: { direction: string; kind: string; contentSummary: string }) => Promise<RuntimeAgentTaskMessageResponseDTO>;
@@ -1769,7 +1736,6 @@ const wailsRuntimePath = '/wails/runtime.js';
 const runtimeBridgeTimeoutMS = 750;
 let runtimeLatestEventSequence = 0;
 let runtimeActivityRefreshHint: RuntimeEventViewModel | undefined;
-let forceDraftChatSubmit = false;
 let wailsRuntimePromise: Promise<WailsRuntimeModule> | undefined;
 
 function loadRuntimeBridge() {
@@ -1866,7 +1832,7 @@ function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: st
     projectId: session.scope === 'standalone' ? undefined : session.projectId,
     scope: session.scope === 'standalone' ? 'standalone' as const : 'project' as const,
     updatedLabel: formatUpdatedLabel(session.updatedAt),
-    active: session.active || session.id === activeSessionID,
+    active: session.id === activeSessionID,
     busy: activeTurnBySession.has(session.id),
     activeTurnId: activeTurnBySession.get(session.id)?.id,
   }));
@@ -1915,13 +1881,6 @@ function mapProjectFromStatus(status?: RuntimeStatusDTO, current?: WorkbenchView
   };
 }
 
-function defaultDraftTarget(current: WorkbenchViewModel): NonNullable<WorkbenchViewModel['newConversationDraft']> {
-  if (current.currentProject.id) {
-    return { active: true, scope: 'project', projectId: current.currentProject.id };
-  }
-  return { active: true, scope: 'standalone' };
-}
-
 function optimisticDraftSessionTitle(prompt: string) {
   const title = prompt.trim().replace(/\s+/g, ' ');
   return title.length > 32 ? `${title.slice(0, 32)}...` : title || 'New chat';
@@ -1931,7 +1890,7 @@ function sessionsAfterDraftSubmit(
   current: WorkbenchViewModel,
   sessionID: string | undefined,
   prompt: string,
-  draftTarget: WorkbenchViewModel['newConversationDraft'],
+  draftTarget: NewConversationDraftViewModel | undefined,
   turnID: string | undefined,
 ) {
   if (!sessionID) {
@@ -1967,7 +1926,7 @@ function sessionsAfterDraftSubmit(
 function toRuntimeUserInputRequest(
   input: RuntimeUserInputRequestViewModel,
   activeSessionID: string | undefined,
-  draftTarget: WorkbenchViewModel['newConversationDraft'],
+  draftTarget: NewConversationDraftViewModel | undefined,
 ): RuntimeUserInputRequestDTO {
   return {
     sessionId: activeSessionID,
@@ -3379,57 +3338,6 @@ async function hydrateAgentTasks(bridge: RuntimeBridgeModule, sessionID?: string
   return detailed.filter((task): task is AgentTaskViewModel => Boolean(task));
 }
 
-async function hydrateTodos(bridge: RuntimeBridgeModule, sessionID?: string): Promise<TodoSummaryViewModel | undefined> {
-  if (!sessionID || !bridge.SessionTodos) {
-    return undefined;
-  }
-  const response = await optionalRuntimeRequest(() => bridge.SessionTodos?.(sessionID) ?? Promise.resolve(undefined));
-  return mapTodoSummary(response?.summary, sessionID);
-}
-
-function mapTodoSummary(summary?: RuntimeTodoSummaryDTO, fallbackSessionID = ''): TodoSummaryViewModel | undefined {
-  if (!summary) {
-    return undefined;
-  }
-  const items = (Array.isArray(summary.todos) ? summary.todos : []).map(mapTodoItem).filter((item): item is TodoItemViewModel => Boolean(item));
-  const pending = items.filter((item) => item.status === 'pending').length;
-  const inProgress = items.filter((item) => item.status === 'in_progress').length;
-  const completed = items.filter((item) => item.status === 'completed').length;
-  return {
-    sessionId: summary.sessionId || fallbackSessionID,
-    turnId: summary.turnId,
-    items,
-    pending,
-    inProgress,
-    completed,
-    total: items.length,
-    updatedAt: summary.updatedAt,
-  };
-}
-
-function mapTodoItem(todo: RuntimeTodoDTO, index: number): TodoItemViewModel | undefined {
-  const content = todo.content?.trim();
-  if (!content) {
-    return undefined;
-  }
-  const source = todo.source?.kind
-    ? {
-        kind: todo.source.kind,
-        label: todo.source.label,
-        ref: todo.source.ref,
-      }
-    : undefined;
-  return {
-    id: todo.id || `todo:${index + 1}:${content}`,
-    content,
-    status: todo.status || 'pending',
-    activeForm: todo.activeForm || todo.active_form,
-    createdAt: todo.createdAt,
-    updatedAt: todo.updatedAt,
-    source,
-  };
-}
-
 async function hydrateAgentRoles(bridge: RuntimeBridgeModule): Promise<AgentRoleViewModel[] | undefined> {
   if (!bridge.AgentRoles) {
     return undefined;
@@ -3567,7 +3475,7 @@ async function hydrateWorkbenchForAction(current: WorkbenchViewModel, bridge: Ru
   return hydrateWorkbench(current, bridge, { refreshTargets });
 }
 
-async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBridgeModule, hydrateOptions: RuntimeHydrateOptions = {}) {
+async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBridgeModule, hydrateOptions: RuntimeHydrateOptions = {}): Promise<WorkbenchViewModel> {
   const refreshTargets = hydrateOptions.refreshTargets;
   const fullHydration = !refreshTargets || refreshTargets.length === 0;
   const refreshActivity = actionTargetsInclude(
@@ -3620,7 +3528,13 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const projectedProjectsResponse: RuntimeProjectsResponseDTO | undefined = Array.isArray(sidebarProjection?.projects)
     ? { projects: sidebarProjection.projects }
     : projectsResponse;
-  const activeSessionID = sidebarProjection?.activeSessionId || status?.sessionId || projectedSessionsResponse?.sessions?.find((session) => session.active)?.id;
+  const runtimeActiveSessionID = sidebarProjection?.activeSessionId || status?.sessionId || projectedSessionsResponse?.sessions?.find((session) => session.active)?.id;
+  const isExplicitDraft = current.mode === 'new-chat' && current.conversationTarget.kind === 'draft';
+  const activeSessionID = isExplicitDraft
+    ? undefined
+    : current.conversationTarget.kind === 'session'
+      ? current.conversationTarget.sessionId
+      : runtimeActiveSessionID;
   // Batch A: independent hydration requests that only depend on activeSessionID /
   // fullHydration / refreshActivity / refreshRuns — fired together to cut round trips.
   const [
@@ -3630,7 +3544,6 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     activity,
     runProjection,
     agentTasks,
-    todos,
     agentRoles,
     contextUsage,
   ] = await Promise.all([
@@ -3651,7 +3564,6 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       ? optionalRuntimeRequest(() => bridge.RunProjection?.({ sessionId: activeSessionID, limit: 24 }) ?? Promise.resolve(undefined))
       : Promise.resolve(undefined),
     activeSessionID ? hydrateAgentTasks(bridge, activeSessionID) : Promise.resolve(undefined),
-    activeSessionID ? hydrateTodos(bridge, activeSessionID) : Promise.resolve(undefined),
     fullHydration ? hydrateAgentRoles(bridge) : Promise.resolve(undefined),
     activeSessionID ? optionalRuntimeRequest(() => bridge.SessionContextUsage?.(activeSessionID) ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ])
@@ -3712,13 +3624,15 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     currentProject,
     projects,
     sessions: mapSessions(projectedSessionsResponse, activeSessionID, activeTurns),
+    conversationTarget: activeSessionID
+      ? { kind: 'session' as const, sessionId: activeSessionID }
+      : current.conversationTarget,
     conversation,
     outputStore,
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
     runProjection: mapRunProjection(runProjection, schedulerTaskCandidates) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
     agentTasks: agentTasks ?? (activeSessionID ? current.agentTasks?.filter((task) => task.parentSessionId === activeSessionID || task.childSessionId === activeSessionID) : []),
     agentRoles: agentRoles ?? current.agentRoles,
-    todos: todos ?? (current.todos?.sessionId === activeSessionID ? current.todos : undefined),
     reactCallchain: mapReactCallchain(reactCallchainDTO, hookExecutions) ?? (current.reactCallchain?.sessionId === activeSessionID ? current.reactCallchain : undefined),
     contextDiagnostics,
     recovery: recoveryStatus ? mapRecoveryStatus(recoveryStatus) : current.recovery,
@@ -4019,6 +3933,17 @@ function resetConversationRuntimeState(current: WorkbenchViewModel): WorkbenchVi
   };
 }
 
+function bindDraftToCurrentProject(current: WorkbenchViewModel): WorkbenchViewModel {
+  const projectId = current.currentProject.id;
+  return {
+    ...current,
+    conversationTarget: projectId
+      ? { kind: 'draft', scope: 'project', projectId }
+      : { kind: 'draft', scope: 'standalone' },
+    sessions: current.sessions.map((session) => ({ ...session, active: false })),
+  };
+}
+
 export const wailsWorkbenchAdapter: WorkbenchAdapter = {
   async loadInitialViewModel(mode = 'project') {
     const initial = getInitialWorkbenchViewModel(mode);
@@ -4039,7 +3964,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     const bridge = await loadRuntimeBridge();
     if (bridge?.OpenProject) {
       await bridge.OpenProject(request);
-      return hydrateWorkbench(nextBase, bridge);
+      return bindDraftToCurrentProject(await hydrateWorkbench(nextBase, bridge));
     }
     throw new Error('open project Wails binding is unavailable');
   },
@@ -4048,7 +3973,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     const bridge = await loadRuntimeBridge();
     if (bridge?.CreateProject) {
       await bridge.CreateProject(request);
-      return hydrateWorkbench(nextBase, bridge);
+      return bindDraftToCurrentProject(await hydrateWorkbench(nextBase, bridge));
     }
     throw new Error('create project Wails binding is unavailable');
   },
@@ -4134,29 +4059,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     }
     return mapHookExecution(response.execution);
   },
-  async createSession(current, target) {
-    forceDraftChatSubmit = false;
-    const draft = target ?? current.newConversationDraft ?? defaultDraftTarget(current);
-    const draftViewModel = resetConversationRuntimeState({
-      ...current,
-      mode: 'new-chat',
-      newConversationDraft: draft,
-      sessions: current.sessions.map((session) => ({ ...session, active: false })),
-    });
-    return withBridge(
-      async (bridge) => {
-        // A new conversation is intentionally only a draft until its first
-        // prompt is submitted, but the runtime must still clear its active
-        // session. Otherwise the next event-driven hydration reads the old
-        // activeSessionId and visibly switches the UI back to that session.
-        await bridge.NewChat('');
-        return draftViewModel;
-      },
-      () => staticWorkbenchAdapter.createSession(draftViewModel, draft),
-    );
-  },
   async selectSession(current, sessionID) {
-    forceDraftChatSubmit = false;
     return withBridge(
       async (bridge) => {
         await bridge.SelectSession(sessionID);
@@ -4242,40 +4145,17 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
   },
   async submitUserInput(current, input) {
     const prompt = input.items.map((item) => item.text).filter(Boolean).join('\n\n').trim();
-    const activeSessionID = forceDraftChatSubmit || current.newConversationDraft ? undefined : current.sessions.find((session) => session.active)?.id;
-    const draftTarget = activeSessionID ? undefined : (current.newConversationDraft ?? defaultDraftTarget(current));
+    const target = current.conversationTarget;
+    const activeSessionID = target.kind === 'session' ? target.sessionId : undefined;
+    const draftTarget: NewConversationDraftViewModel | undefined = target.kind === 'draft'
+      ? { active: true, scope: target.scope, projectId: target.projectId }
+      : undefined;
+    if (target.kind === 'session' && !target.sessionId) {
+      throw new Error('invalid conversation state: session target is missing sessionId');
+    }
 
     return withBridge(
       async (bridge) => {
-        const existingLoading = current.conversation.findLast((message) => message.status === 'loading' && message.role === 'assistant');
-        const hasOptimisticPrompt = current.conversation.some((message) => message.role === 'user' && message.content === prompt);
-        const loadingID = existingLoading?.id ?? `loading-${Date.now()}`;
-        const optimistic = {
-          ...current,
-          composer: { ...current.composer, busy: true },
-          conversation: current.conversation.some((message) => message.id === loadingID)
-            ? current.conversation
-            : [
-                ...current.conversation,
-                ...(hasOptimisticPrompt
-                  ? []
-                  : [
-                      {
-                        id: `local-${Date.now()}`,
-                        role: 'user' as const,
-                        content: prompt,
-                        createdAt: Date.now(),
-                        status: 'success' as const,
-                      },
-                    ]),
-                {
-                  id: loadingID,
-                  role: 'assistant' as const,
-                  content: '正在生成回复...',
-                  status: 'loading' as const,
-                },
-              ],
-        };
         try {
           const response = await runtimeRequestWithTimeout(
             () =>
@@ -4291,26 +4171,35 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
             '运行时响应超时，请稍后刷新会话查看结果。',
           );
           const responseSessionID = response.status.sessionId || activeSessionID;
-          forceDraftChatSubmit = false;
+          if (!responseSessionID) {
+            throw new Error('runtime did not return a sessionId for the submitted turn');
+          }
           const busyAfterSubmit = Boolean(response.turnId);
           const normalizedConversation = mapNormalizedInputConversation(response, prompt);
           const normalizedOnly = !response.turnId && response.normalizedInput;
-          const nextOutputStore =
-            responseSessionID && current.outputStore?.sessionId !== responseSessionID
-              ? createOutputStore(responseSessionID)
-              : current.outputStore;
+          const adoptedOutputStore = retargetOutputStore(current.outputStore, responseSessionID);
+          // A draft has no session stream until SubmitUserInput returns the
+          // authoritative id. Read the initial snapshot before rendering the
+          // adopted session so events emitted during that handshake window
+          // cannot leave the local loading placeholder stranded.
+          const initialOutputSnapshot = bridge.SessionOutput
+            ? await optionalRuntimeRequest(() => bridge.SessionOutput!(responseSessionID, { snapshot: true }))
+            : undefined;
+          const nextOutputStore = initialOutputSnapshot
+            ? hydrateOutputStore(initialOutputSnapshot, adoptedOutputStore)
+            : adoptedOutputStore;
           return {
-            ...optimistic,
+            ...current,
             mode: 'new-chat',
-            newConversationDraft: undefined,
+            conversationTarget: { kind: 'session', sessionId: responseSessionID },
             sessions: sessionsAfterDraftSubmit(current, responseSessionID, prompt, draftTarget, response.turnId),
             outputStore: nextOutputStore,
             conversation:
               normalizedOnly
                 ? mergeNormalizedConversation(current.conversation, normalizedConversation)
-                : optimistic.conversation,
+                : selectConversationMessages(nextOutputStore),
             composer: {
-              ...optimistic.composer,
+              ...current.composer,
               busy: busyAfterSubmit,
               activeTurnId: busyAfterSubmit ? response.turnId : undefined,
             },
@@ -4318,19 +4207,12 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         } catch (error) {
           const message = runtimeErrorMessage(error);
           return {
-            ...optimistic,
+            ...current,
             mode: 'new-chat',
-            newConversationDraft: draftTarget,
-            conversation: optimistic.conversation.map((item) =>
-              item.id === loadingID
-                ? {
-                    ...item,
-                    content: message,
-                    status: 'error' as const,
-                    error: message,
-                  }
-                : item,
-            ),
+            conversationTarget: target,
+            conversation: current.conversation.map((item) => item.clientRequestId === input.options?.clientRequestId
+              ? { ...item, status: 'error' as const, error: message }
+              : item),
             composer: { ...current.composer, busy: false, activeTurnId: undefined },
           };
         }

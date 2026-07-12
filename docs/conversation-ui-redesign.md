@@ -233,3 +233,43 @@ Post-completion review:
   state, including terminal-to-terminal races and stale deletes.
 - Added regression coverage for listener-before-start ordering, Wails-only
   transport, preserved delta fragments, and entity sequence monotonicity.
+- Replaced the draft/session inference and race workaround with one explicit
+  conversation target. Starting a new conversation is now a local draft only;
+  its first submit omits `sessionId`, then atomically records the runtime's
+  returned id. Every later submit must use that id and can only create a Turn.
+- Serialized consecutive draft submits across that atomic transition, so two
+  immediate sends issue one session-creating request followed by one request
+  addressed to the returned session. Removed adapter-owned assistant loading;
+  Wails session-output events now exclusively create and settle assistant rows.
+- Added regression coverage for `2 sends = 1 Session / 2 Turns`, preservation
+  of the optimistic user request while adopting the returned session id, and
+  Wails-driven assistant loading convergence.
+- Redesigned the empty conversation surface as one centered starting workspace
+  instead of separating the heading and bottom composer. The introduction,
+  workflow cue, composer, model controls, and project context now read as one
+  responsive visual group; active conversations retain the existing layout.
+- Replaced the generic exploration/processing pair with phase-aware process
+  copy: thinking, tool use, reply composition, and permission waiting. Empty
+  active progress/narration placeholders are suppressed so one turn displays
+  one status line until real process content is available.
+- Simplified the empty-state introduction by removing the decorative mark and
+  low-value workflow labels. The draft composer now uses one shared outer
+  border and focus treatment, with the project selector attached as its footer
+  instead of rendering a second framed Sender inside a card.
+- Scoped the combined Sender/project-context treatment strictly to local draft
+  conversations; active and historical sessions render the standard Sender
+  alone. Opening or creating a project now atomically rebinds the local draft
+  target to the hydrated project id instead of retaining standalone scope.
+- Closed the first-submit output hydration gap by reading the new session's
+  Wails `SessionOutput` snapshot immediately after the runtime returns its id,
+  then subscribing from that cursor. Removed the synthetic assistant loading
+  row so missed handshake events cannot leave "generating" stranded onscreen.
+- Restored TodoWrite visibility on the Wails-only output path. Structured todo
+  summaries now hydrate into `OutputStore`, update from live `todo.updated`
+  events, and project directly into the Todo task bar instead of depending on
+  a later full-workbench refresh that the session stream intentionally skips.
+- Removed the duplicate active-session Todo state from `WorkbenchViewModel`,
+  Shell event handling, and adapter `SessionTodos` hydration. Workspace now
+  selects Todo state only from the active session's OutputStore; ownership
+  checks reject stale stores during session switches while the standalone Go
+  query remains available for diagnostics and non-UI consumers.

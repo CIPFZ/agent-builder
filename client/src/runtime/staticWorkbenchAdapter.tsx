@@ -73,14 +73,13 @@ export function getInitialWorkbenchViewModel(mode: WorkbenchMode = 'project'): W
     },
     projects: [],
     sessions: [],
-    newConversationDraft: undefined,
+    conversationTarget: { kind: 'draft', scope: 'standalone' },
     sidebarActions,
     conversation: [],
     turnDiagnostics: undefined,
     runProjection: undefined,
     agentTasks: [],
     agentRoles: [],
-    todos: undefined,
     reactCallchain: undefined,
     contextDiagnostics: undefined,
     recovery: {
@@ -145,9 +144,6 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
     return runtimeUnavailable();
   },
   async selectProjectDirectory() {
-    return runtimeUnavailable();
-  },
-  async createSession() {
     return runtimeUnavailable();
   },
   async selectSession() {

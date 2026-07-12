@@ -36,6 +36,7 @@ import { TerminalPane } from './TerminalPane.tsx';
 import { disposeTerminalRuntime } from './terminalRuntime.ts';
 import { useStickToBottom } from './useStickToBottom.ts';
 import { nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
+import { selectSessionTodos } from '../../runtime/todoOutput.ts';
 import styles from './Workspace.module.css';
 
 type RightPanelKind = 'review' | 'files' | 'terminal' | 'tasks';
@@ -144,9 +145,17 @@ export function Workspace({
   const hasTimeline = conversationTurns.length > 0;
   const hasConversation = viewModel.conversation.length > 0 || hasTimeline;
   const activeSession = viewModel.sessions.find((session) => session.active);
+  const sessionTodos = selectSessionTodos(viewModel.outputStore, activeSession?.id);
   const isDraftSurface = !activeSession && !hasConversation && !switchingSessionID;
-  const composerDraftTarget =
-    viewModel.newConversationDraft ?? (isDraftSurface ? defaultComposerDraftTarget(viewModel) : undefined);
+  const composerDraftTarget = isDraftSurface
+    ? viewModel.conversationTarget.kind === 'draft'
+      ? {
+          active: true,
+          scope: viewModel.conversationTarget.scope,
+          projectId: viewModel.conversationTarget.projectId,
+        }
+      : defaultComposerDraftTarget(viewModel)
+    : undefined;
   const activePendingPermission = activeSession?.id
     ? viewModel.pendingPermissions.find((permission) => permission.sessionId === activeSession.id)
     : viewModel.pendingPermissions[0];
@@ -168,10 +177,10 @@ export function Workspace({
   const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
   const activeSessionID = activeSession?.id ?? '';
   const hasAgentTasks = Boolean(viewModel.agentTasks?.length);
-  const todoTurn = viewModel.todos?.turnId
-    ? conversationTurns.find((turn) => turn.id === viewModel.todos?.turnId)
+  const todoTurn = sessionTodos?.turnId
+    ? conversationTurns.find((turn) => turn.id === sessionTodos.turnId)
     : undefined;
-  const showTodoAction = shouldShowTodoTaskBar(viewModel.todos, todoTurn?.status);
+  const showTodoAction = shouldShowTodoTaskBar(sessionTodos, todoTurn?.status);
   const showJumpAction = hasConversation && showJumpToBottom;
   const replaceTerminalTabs = useCallback((terminals: TerminalViewModel[]) => {
     setRightPanelTabs((current) => {
@@ -572,7 +581,7 @@ export function Workspace({
         <div
           ref={hasConversation || isSessionSwitching ? scrollContainerRef : undefined}
           data-testid={hasConversation || isSessionSwitching ? 'conversation-scroll-container' : undefined}
-          className={hasConversation || isSessionSwitching ? styles.chatContent : styles.content}
+          className={hasConversation || isSessionSwitching ? styles.chatContent : `${styles.content} ${styles.startContent}`}
           onKeyDown={hasConversation || isSessionSwitching ? handleScrollKeyDown : undefined}
           onPointerDown={hasConversation || isSessionSwitching ? handleScrollPointerDown : undefined}
           onScroll={hasConversation || isSessionSwitching ? handleScroll : undefined}
@@ -607,13 +616,18 @@ export function Workspace({
               <span>正在加载对话...</span>
             </div>
           ) : (
-            <h1 className={styles.title}>{title}</h1>
+            <section className={styles.startIntro} aria-labelledby="conversation-start-title">
+              <h1 className={styles.title} id="conversation-start-title">{title}</h1>
+              <p className={styles.startDescription}>
+                描述你想完成的目标，我会结合项目上下文一起规划、执行并交付结果。
+              </p>
+            </section>
           )}
           <ConversationDock
             actions={[
               showTodoAction && {
                 key: 'todos',
-                node: <TodoTaskBar todos={viewModel.todos} turnStatus={todoTurn?.status} />,
+                node: <TodoTaskBar todos={sessionTodos} turnStatus={todoTurn?.status} />,
                 pinned: true,
                 priority: 10,
               },
@@ -633,7 +647,7 @@ export function Workspace({
                 composer={viewModel.composer}
                 project={viewModel.currentProject}
                 projects={viewModel.projects}
-                newConversationDraft={composerDraftTarget}
+                draftTarget={composerDraftTarget}
                 showProjectContext={Boolean(composerDraftTarget)}
                 onNewConversationDraftChange={onNewConversationDraftChange}
                 onModelSelect={onModelSelect}

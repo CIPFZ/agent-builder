@@ -15,11 +15,12 @@ const narrationPath = resolve(repoRoot, 'client', 'src', 'features', 'timeline',
 const timelineStylePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'Timeline.module.css');
 const toolStylePath = resolve(repoRoot, 'client', 'src', 'features', 'tools', 'ToolCallCard.module.css');
 const workspacePath = resolve(repoRoot, 'client', 'src', 'features', 'workspace', 'Workspace.tsx');
+const composerPath = resolve(repoRoot, 'client', 'src', 'features', 'composer', 'Composer.tsx');
 const traceRowPath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'TraceRow.tsx');
 const traceRowStylePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'TraceRow.module.css');
 const outputStreamPath = resolve(repoRoot, 'client', 'src', 'runtime', 'outputStream.ts');
 
-const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource, narrationSource, timelineStyleSource, toolStyleSource, workspaceSource, traceRowSource, traceRowStyleSource, outputStreamSource] = await Promise.all([
+const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource, narrationSource, timelineStyleSource, toolStyleSource, workspaceSource, composerSource, traceRowSource, traceRowStyleSource, outputStreamSource] = await Promise.all([
   readFile(adapterPath, 'utf8'),
   readFile(typesPath, 'utf8'),
   readFile(toolCardPath, 'utf8'),
@@ -31,6 +32,7 @@ const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSo
   readFile(timelineStylePath, 'utf8'),
   readFile(toolStylePath, 'utf8'),
   readFile(workspacePath, 'utf8'),
+  readFile(composerPath, 'utf8'),
   readFile(traceRowPath, 'utf8'),
   readFile(traceRowStylePath, 'utf8'),
   readFile(outputStreamPath, 'utf8'),
@@ -55,6 +57,11 @@ assert.match(turnProjectionSource, /item\.phase === 'final'/);
 assert.match(timelineSource, /<ProcessDisclosure/);
 assert.match(timelineSource, /<TimelineMessage/);
 assert.match(disclosureSource, /shouldAutoOpenProcess/);
+assert.match(disclosureSource, /return '正在思考'/);
+assert.match(disclosureSource, /return '正在使用工具'/);
+assert.match(disclosureSource, /return '正在组织回复'/);
+assert.match(disclosureSource, /isRedundantActivePlaceholder/);
+assert.doesNotMatch(disclosureSource, /正在探索/);
 assert.doesNotMatch(disclosureSource, /failedCount: props\.exploration/);
 assert.match(disclosureSource, /data-testid="process-stream"/);
 assert.match(narrationSource, /data-testid="process-narration"/);
@@ -85,6 +92,11 @@ assert.match(timelineStyleSource, /\.processNarration\s*\{[^}]*var\(--ant-color-
 assert.match(timelineStyleSource, /\.assistantBubble\s+:global\(\.ant-bubble-content\)\s*\{[^}]*var\(--ant-color-text\)/s);
 assert.doesNotMatch(toolCardSource, /failureExcerpt/);
 assert.match(workspaceSource, /data-testid=\{hasConversation \|\| isSessionSwitching \? 'conversation-scroll-container'/);
+assert.doesNotMatch(workspaceSource, /startMark|startCapabilities|梳理需求|执行任务|检查结果/);
+assert.match(workspaceSource, /className=\{styles\.startIntro\}/);
+assert.match(workspaceSource, /const composerDraftTarget = isDraftSurface/);
+assert.match(composerSource, /<Flex align="center" className=\{styles\.limitBar\}/);
+assert.match(timelineStyleSource, /\.processTraceStandalone/);
 
 assert.doesNotMatch(toolCardSource, /toolCall\.stdout/);
 assert.doesNotMatch(toolCardSource, /toolCall\.stderr/);
@@ -103,10 +115,25 @@ assert.match(workspaceSource, /activeSession\?\.id[\s\S]*permission\.sessionId =
 assert.ok(outputStreamSource.indexOf('Events.On(SESSION_OUTPUT_STREAM_EVENT') < outputStreamSource.indexOf('StartSessionOutputStream({'), 'session listener is registered before stream start');
 assert.ok(adapterSource.indexOf("Events.On(eventName") < adapterSource.indexOf('StartRuntimeEventStream({ streamId'), 'runtime listener is registered before stream start');
 assert.doesNotMatch(outputStreamSource, /EventSource|SessionOutputEvents/);
-assert.match(workspaceSource, /viewModel\.todos\?\.turnId\s*\?\s*conversationTurns\.find/);
+assert.match(workspaceSource, /sessionTodos\?\.turnId\s*\?\s*conversationTurns\.find/);
 assert.doesNotMatch(workspaceSource, /todoTurn[\s\S]{0,240}\?\?\s*conversationTurns/);
+assert.match(adapterSource, /const target = current\.conversationTarget/);
+assert.match(adapterSource, /target\.kind === 'session' \? target\.sessionId : undefined/);
+assert.match(adapterSource, /conversationTarget: \{ kind: 'session', sessionId: responseSessionID \}/);
+assert.match(adapterSource, /bindDraftToCurrentProject\(await hydrateWorkbench\(nextBase, bridge\)\)/);
+assert.doesNotMatch(adapterSource, /forceDraftChatSubmit|bridge\.NewChat\(''\)/);
+assert.match(shellSource, /createConversationSubmitQueue\(\)/);
+assert.match(shellSource, /promptSubmitQueueRef\.current\.enqueue/);
+assert.match(adapterSource, /retargetOutputStore\(current\.outputStore, responseSessionID\)/);
+assert.match(adapterSource, /bridge\.SessionOutput!\(responseSessionID, \{ snapshot: true \}\)/);
+assert.match(adapterSource, /hydrateOutputStore\(initialOutputSnapshot, adoptedOutputStore\)/);
+assert.doesNotMatch(adapterSource, /role: 'assistant' as const,[\s\S]{0,160}status: 'loading' as const/);
 
 assert.match(shellSource, /id: userID,[\s\S]*status: 'success'/);
+assert.match(workspaceSource, /selectSessionTodos\(viewModel\.outputStore, activeSession\?\.id\)/);
+assert.doesNotMatch(shellSource, /todos: mapRuntimeTodoSummary/);
+assert.doesNotMatch(adapterSource, /SessionTodos|TurnTodos|hydrateTodos/);
+assert.doesNotMatch(shellSource, /正在生成回复|loadingID/);
 assert.match(shellSource, /const nextViewModel = await adapter\.sendPrompt\(optimisticViewModel, prompt/);
 assert.doesNotMatch(shellSource, /selectConversationTimeline|timeline:/);
 assert.match(adapterSource, /!isOptimisticConversationMessage\(message\)/);

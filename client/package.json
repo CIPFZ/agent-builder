@@ -27,6 +27,7 @@
     "smoke:phase55-terminal": "node scripts/phase55-terminal-ownership-adapter-smoke.mjs",
     "smoke:project-sidebar": "node scripts/project-sidebar-projection-smoke.mjs",
     "smoke:conversation-output": "node scripts/conversation-output-store-smoke.mjs",
+    "smoke:conversation-target": "node scripts/conversation-target-submit-smoke.mjs",
     "smoke:markdown-message": "node scripts/markdown-message-smoke.mjs"
   },
   "dependencies": {

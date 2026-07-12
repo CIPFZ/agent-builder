@@ -17,3 +17,13 @@ export function createOutputStore(sessionId = ''): OutputStore {
     streamingByMessageId: {},
   };
 }
+
+export function retargetOutputStore(store: OutputStore | undefined, sessionId: string): OutputStore {
+  if (store?.sessionId === sessionId) {
+    return store;
+  }
+  return {
+    ...createOutputStore(sessionId),
+    optimisticByClientRequestId: { ...(store?.optimisticByClientRequestId ?? {}) },
+  };
+}

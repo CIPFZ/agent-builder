@@ -20,11 +20,22 @@ interface ProcessDisclosureProps {
 }
 
 export function ProcessDisclosure(props: ProcessDisclosureProps) {
-  const groupedItems = compactProcessItems(props.items);
+  const detailItems = props.items.filter((item) => !isRedundantActivePlaceholder(item));
+  const groupedItems = compactProcessItems(detailItems);
   const autoOpen = shouldAutoOpenProcess({ status: props.status, explorationStatus: props.exploration?.status, itemStatuses: props.items.map((item) => item.status) });
   const [open, setOpen] = useLatchedOpen(autoOpen, props.turnId);
+  const sectionProps = {
+    className: styles.processTrace,
+    'data-testid': 'process-trace',
+    'data-process-label': processSummary(props),
+    'data-process-status': props.status,
+    'data-process-has-failures': (props.exploration?.failedCount ?? 0) > 0 ? 'true' : undefined,
+  };
+  if (groupedItems.length === 0) {
+    return <section {...sectionProps}><div className={styles.processTraceStandalone}><ProcessLabel {...props} /></div></section>;
+  }
   return (
-    <section className={styles.processTrace} data-testid="process-trace" data-process-label={processSummary(props)} data-process-status={props.status} data-process-has-failures={(props.exploration?.failedCount ?? 0) > 0 ? 'true' : undefined}>
+    <section {...sectionProps}>
       <Collapse ghost size="small" activeKey={open ? ['trace'] : []} expandIcon={({ isActive }) => <DownOutlined rotate={isActive ? 180 : 0} />} items={[{ key: 'trace', label: <ProcessLabel {...props} />, children: <div className={styles.processStream} data-testid="process-stream">{groupedItems.map((item) => <div key={item.id} className={styles.processStreamItem}>{props.renderItem(item)}</div>)}</div> }]} onChange={(keys) => setOpen(Array.isArray(keys) ? keys.includes('trace') : keys === 'trace')} />
     </section>
   );
@@ -32,18 +43,30 @@ export function ProcessDisclosure(props: ProcessDisclosureProps) {
 
 function ProcessLabel(props: ProcessDisclosureProps) {
   const status = props.exploration?.status ?? props.status;
-  const verb = useMinDisplay(explorationStatusVerb(status, props.exploration?.failedCount), 700);
+  const verb = useMinDisplay(processStatusVerb(props), 700);
   const duration = props.exploration?.elapsedMs ? formatElapsed(props.exploration.elapsedMs) : blockDuration(props);
   return <span className={styles.processTraceLabel} data-testid="process-trace-label" data-exploration-status={status}><span>{verb}</span>{duration ? <span>{duration}</span> : null}{props.exploration?.subagentCount ? <span>{props.exploration.subagentCount} 个子任务</span> : null}</span>;
 }
 
-function explorationStatusVerb(status?: string, failedCount?: number) {
-  if (failedCount) return '部分失败';
-  if (status === 'exploring' || status === 'running' || status === 'queued' || status === 'waiting_permission') return '正在探索';
+function processStatusVerb(props: ProcessDisclosureProps) {
+  const status = props.exploration?.status ?? props.status;
+  if (props.exploration?.failedCount) return '部分失败';
+  if (status === 'waiting_permission' || props.items.some((item) => item.status === 'waiting_permission')) return '等待确认';
+  if (props.items.some((item) => (item.kind === 'tool_call' || item.kind === 'tool_group') && isActiveProcessStatus(item.status))) return '正在使用工具';
+  if (props.items.some((item) => (item.kind === 'assistant_message' || item.kind === 'message') && (item.status === 'running' || item.status === 'streaming'))) return '正在组织回复';
+  if (status === 'exploring' || status === 'running' || status === 'queued') return '正在思考';
   if (status === 'done' || status === 'completed' || status === 'success') return '已完成';
   if (status === 'failed') return '失败';
   if (status === 'interrupted') return '已中断';
-  return '探索';
+  if (status === 'cancelled') return '已取消';
+  return '处理过程';
+}
+
+function isRedundantActivePlaceholder(item: ConversationTimelineItemViewModel) {
+  if (!isActiveProcessStatus(item.status)) return false;
+  if (item.kind === 'progress' || item.kind === 'turn_progress') return true;
+  const isNarration = item.kind === 'thinking' || item.kind === 'assistant_thinking' || item.kind === 'message' || item.kind === 'assistant_message';
+  return isNarration && !item.content?.trim() && !(item.source === 'react_callchain' && item.title);
 }
 
 function processSummary(props: ProcessDisclosureProps) {
