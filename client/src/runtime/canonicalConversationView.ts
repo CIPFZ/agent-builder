@@ -1,4 +1,4 @@
-import { selectCanonicalConversationTurns, type CanonicalProcessEntity } from './canonicalConversationSelectors.ts';
+import { selectCanonicalConversationTurns, selectOwnedClientRequestIds, type CanonicalProcessEntity } from './canonicalConversationSelectors.ts';
 import { canonicalToolGroupKey } from './canonicalConversationPresentation.ts';
 import { groupCanonicalProcess } from './canonicalConversationPresentation.ts';
 import type { CanonicalConversationStore } from './canonicalConversationStore.ts';
@@ -21,7 +21,7 @@ export function selectCanonicalConversationTurnViewModels(store?: CanonicalConve
       startedAt: turn.startedAt, finishedAt: turn.finishedAt, error: turn.error,
     };
   });
-  const echoed = new Set(Object.values(store?.messagesById ?? {}).map((message) => message.clientRequestId).filter(Boolean));
+  const echoed = selectOwnedClientRequestIds(store);
   for (const submit of Object.values(optimistic ?? {})) {
     if (echoed.has(submit.clientRequestId) || (store?.sessionId && submit.sessionId && submit.sessionId !== store.sessionId)) continue;
     turns.push({ id: `optimistic:${submit.clientRequestId}`, sessionId: submit.sessionId || store?.sessionId || '', status: submit.status === 'error' ? 'failed' : 'queued', startedAt: submit.createdAt, user: { id: `optimistic-message:${submit.clientRequestId}`, kind: 'user_message', sessionId: submit.sessionId, role: 'user', content: submit.prompt, status: submit.status === 'error' ? 'error' : 'loading', createdAt: submit.createdAt, clientRequestId: submit.clientRequestId, error: submit.error }, process: { status: submit.status === 'error' ? 'failed' : 'queued', items: [], startedAt: submit.createdAt, finishedAt: undefined, hasFailure: submit.status === 'error' }, error: submit.error });

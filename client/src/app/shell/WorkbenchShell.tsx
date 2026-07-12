@@ -12,6 +12,7 @@ import type {
 } from '../../runtime/workbenchTypes.ts';
 import { createConversationSubmitQueue } from '../../runtime/conversationSubmitQueue.ts';
 import { createCanonicalConversationCoordinator } from '../../runtime/canonicalConversationCoordinator.ts';
+import { selectOwnedClientRequestIds } from '../../runtime/canonicalConversationSelectors.ts';
 import { installWebviewCursorRecovery, nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
 import { runtimeEventCoveredByOutputStream, runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
 import { PluginCenter } from '../../features/plugins/PluginCenter.tsx';
@@ -981,7 +982,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
 
 function pruneEchoedOptimisticSubmits(submits: WorkbenchViewModel['optimisticConversationByClientRequestId'], store: import('../../runtime/canonicalConversationStore.ts').CanonicalConversationStore) {
   if (!submits) return undefined;
-  const echoed = new Set(Object.values(store.messagesById).map((message) => message.clientRequestId).filter(Boolean));
+  const echoed = selectOwnedClientRequestIds(store);
   const next = Object.fromEntries(Object.entries(submits).filter(([id, submit]) => !echoed.has(id) && (!submit.sessionId || submit.sessionId === store.sessionId)));
   return Object.keys(next).length ? next : undefined;
 }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { applyCanonicalConversationBatch, createCanonicalConversationStore, hydrateCanonicalConversationStore } from '../src/runtime/canonicalConversationStore.ts';
 import { selectCanonicalConversationTurns, selectTodoPlanForTurn } from '../src/runtime/canonicalConversationSelectors.ts';
 import { canonicalToolGroupKey, groupCanonicalProcess } from '../src/runtime/canonicalConversationPresentation.ts';
+import { selectCanonicalConversationTurnViewModels } from '../src/runtime/canonicalConversationView.ts';
 
 const meta = (id, turnId = 'turn-1', revision = '1', activitySequence = '1') => ({ id, sessionId: 'session-1', turnId, revision, activitySequence, createdAt: 1, updatedAt: 1 });
 const turn = (revision = '1') => ({ ...meta('turn-1', undefined, revision), status: 'running', userMessageId: 'user-1', finalMessageId: 'final-1' });
@@ -63,5 +64,12 @@ assert.notEqual(collisionItems[0].key, collisionItems[1].key, 'cross-type IDs ca
 
 const todoStore = hydrateCanonicalConversationStore(snapshot('full', '10', { todoPlans: [{ ...meta('todo-1'), ownerTurnId: 'turn-1', status: 'running', items: [] }, { ...meta('todo-other', 'turn-2'), ownerTurnId: 'turn-2', status: 'running', items: [] }] }));
 assert.equal(selectTodoPlanForTurn(todoStore, 'turn-1').id, 'todo-1');
+
+const optimistic = { 'request-1': { clientRequestId: 'request-1', sessionId: 'session-1', prompt: 'stay visible', createdAt: 1, status: 'submitting' } };
+const echoedUser = { ...message('user-echo', 'intermediate'), role: 'user', clientRequestId: 'request-1' };
+const messageFirst = hydrateCanonicalConversationStore(snapshot('full', '20', { turns: [{ ...turn(), userMessageId: undefined, finalMessageId: undefined }], messages: [echoedUser], toolCalls: [] }));
+assert.equal(selectCanonicalConversationTurnViewModels(messageFirst, undefined, optimistic).some((item) => item.id === 'optimistic:request-1'), true, 'bare Message echo cannot remove optimism before Turn ownership arrives');
+const turnOwned = hydrateCanonicalConversationStore(snapshot('full', '21', { turns: [{ ...turn(), userMessageId: 'user-echo', finalMessageId: undefined }], messages: [echoedUser], toolCalls: [] }), messageFirst);
+assert.equal(selectCanonicalConversationTurnViewModels(turnOwned, undefined, optimistic).some((item) => item.id === 'optimistic:request-1'), false, 'owned canonical user message settles optimism without a duplicate');
 assert.equal(createCanonicalConversationStore('session-1').cursor, '0');
 console.log('canonical conversation store smoke passed');

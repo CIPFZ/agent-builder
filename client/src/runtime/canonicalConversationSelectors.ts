@@ -19,6 +19,19 @@ export function selectCanonicalConversationTurns(store?: CanonicalConversationSt
     .map((turn) => selectCanonicalTurn(store, turn));
 }
 
+// An optimistic submit is settled only after a canonical Turn owns its echoed
+// user message. Message and Turn entities can arrive in separate atomic
+// batches; treating a bare Message echo as rendered creates a visible gap.
+export function selectOwnedClientRequestIds(store?: CanonicalConversationStore): Set<string> {
+  const owned = new Set<string>();
+  if (!store?.sessionId) return owned;
+  for (const turn of Object.values(store.turnsById)) {
+    const message = ownedMessage(store, turn, turn.userMessageId);
+    if (message?.clientRequestId) owned.add(message.clientRequestId);
+  }
+  return owned;
+}
+
 export function selectCanonicalTurn(store: CanonicalConversationStore, turn: CanonicalTurn): CanonicalTurnProjection {
   const user = ownedMessage(store, turn, turn.userMessageId);
   const finalCandidate = ownedMessage(store, turn, turn.finalMessageId);
