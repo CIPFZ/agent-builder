@@ -132,7 +132,6 @@ type RuntimeCanonicalMessage struct {
 	AssistantStepID string `json:"assistantStepId,omitempty"`
 	Status          string `json:"status"`
 	Content         string `json:"content,omitempty"`
-	PartsJSON       string `json:"partsJson,omitempty"`
 	ClientRequestID string `json:"clientRequestId,omitempty"`
 	Error           string `json:"error,omitempty"`
 }

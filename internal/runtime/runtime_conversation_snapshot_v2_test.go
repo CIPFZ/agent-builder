@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/CIPFZ/agent-builder/internal/message"
@@ -62,6 +63,16 @@ func TestCanonicalMessagePhaseReadsSnakeCaseWithoutBypassingFinalGate(t *testing
 	msg.Metadata["conversation_phase"] = "final"
 	if got := canonicalMessagePhase(msg, turn, []RuntimeMessage{msg}); got != RuntimeConversationPhaseIntermediate {
 		t.Fatalf("metadata bypassed final gate: %q", got)
+	}
+}
+
+func TestCanonicalMessageTransportDoesNotDuplicateStructuredParts(t *testing.T) {
+	encoded, err := json.Marshal(RuntimeCanonicalMessage{RuntimeConversationEntityMeta: RuntimeConversationEntityMeta{ID: "message-1", SessionID: "session-1", ActivitySequence: "1", Revision: "1"}, Role: "assistant", Status: "completed", Content: "visible text"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "partsJson") {
+		t.Fatalf("canonical message duplicated structured parts: %s", encoded)
 	}
 }
 

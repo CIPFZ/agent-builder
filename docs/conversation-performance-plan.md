@@ -5,7 +5,7 @@
 - `[x]` Investigation and root-cause confirmation
 - `[~]` Phase 1: bounded conversation loading and rendering
 - `[~]` Phase 2: indexed projections and event allocation reduction
-- `[ ]` Phase 3: durable large-content references and conversation search
+- `[~]` Phase 3: durable large-content references and conversation search
 - `[ ]` Phase 4: profiling gates and long-session regression coverage
 
 ## Problem statement
@@ -123,6 +123,18 @@ Implementation progress:
 - Add SQLite-backed conversation search returning Turn/Message IDs, snippets,
   and timestamps.
 - Add a Runtime query that loads a bounded window around a target Turn.
+
+Implementation progress:
+
+- Removed canonical `Message.partsJson`. The field had no React consumer and
+  duplicated persisted structured parts, including potentially large tool and
+  binary payloads, alongside canonical Message text and ToolResult entities.
+  Persisted message parts and model-context assembly remain unchanged.
+- Existing ToolResult transport remains bounded to a 4 KiB preview and durable
+  output references. General Runtime refs already spill payloads larger than
+  8 KiB to file storage and expose an explicit content-read operation.
+- Remaining Phase 3 work is applying the same reference boundary to unusually
+  large visible Message text, plus indexed search and target-Turn windows.
 
 ## Phase 4: measurement and regression gates
 

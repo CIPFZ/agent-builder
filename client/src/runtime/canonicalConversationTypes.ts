@@ -43,7 +43,7 @@ export interface CanonicalConversationEventsResponse { schemaVersion: typeof CAN
 export type CanonicalConversationEventBatch = CanonicalConversationEventsResponse;
 
 export interface CanonicalTurn extends CanonicalEntityMeta { status: string; userMessageId?: string; finalMessageId?: string; startedAt?: number; finishedAt?: number; error?: string }
-export interface CanonicalMessage extends CanonicalEntityMeta { role: string; phase?: CanonicalMessagePhase; assistantStepId?: string; status: string; content?: string; partsJson?: string; clientRequestId?: string; error?: string }
+export interface CanonicalMessage extends CanonicalEntityMeta { role: string; phase?: CanonicalMessagePhase; assistantStepId?: string; status: string; content?: string; clientRequestId?: string; error?: string }
 export interface CanonicalAssistantStep extends CanonicalEntityMeta { messageId: string; index: number; status: string; startedAt?: number; finishedAt?: number }
 export interface CanonicalToolCall extends CanonicalEntityMeta { messageId?: string; assistantStepId?: string; parentToolCallId?: string; roundId?: string; name: string; source: string; kind?: string; status: string; inputJson?: string; command?: string; targets?: string[]; workingDir?: string; risk?: string; resultIds?: string[]; startedAt?: number; finishedAt?: number; exitCode?: number; error?: string }
 export interface CanonicalToolResult extends CanonicalEntityMeta { toolCallId: string; ordinal: number; status: string; contentPreview?: string; errorPreview?: string; outputRefs?: string[]; artifactRefs?: string[]; diffRefs?: string[]; deliveredToModel?: boolean }

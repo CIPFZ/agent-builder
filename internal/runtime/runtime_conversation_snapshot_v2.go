@@ -223,12 +223,11 @@ func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Contex
 	for _, msg := range messagesResp.Messages {
 		tid := messageTurn[msg.ID]
 		phase := canonicalMessagePhase(msg, turnByID[tid], messagesResp.Messages)
-		parts, _ := json.Marshal(msg.Parts)
 		meta := canonicalMeta("message", msg.ID, sessionID, tid, msg.CreatedAt, msg.UpdatedAt, ranges)
 		if phase == RuntimeConversationPhaseFinal {
 			meta.Revision = maxDecimal(meta.Revision, strconv.FormatInt(ranges["turn:"+tid].last, 10))
 		}
-		cm := RuntimeCanonicalMessage{RuntimeConversationEntityMeta: meta, Role: msg.Role, Phase: phase, AssistantStepID: stepByMessage[msg.ID], Status: ternary(msg.Finished, "completed", "streaming"), Content: msg.Content, PartsJSON: string(parts), ClientRequestID: msg.ClientRequestID, Error: msg.Error}
+		cm := RuntimeCanonicalMessage{RuntimeConversationEntityMeta: meta, Role: msg.Role, Phase: phase, AssistantStepID: stepByMessage[msg.ID], Status: ternary(msg.Finished, "completed", "streaming"), Content: msg.Content, ClientRequestID: msg.ClientRequestID, Error: msg.Error}
 		snapshot.Messages = append(snapshot.Messages, cm)
 		if msg.Role == "assistant" {
 			seenStep[tid]++
