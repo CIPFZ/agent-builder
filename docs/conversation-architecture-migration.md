@@ -18,8 +18,8 @@ and commit reference after every phase.
 | 1. Contract | `[x]` | `83e62781` | Versioned Go/TypeScript contracts, validation, and shared fixture completed and independently reviewed. |
 | 2. Runtime snapshot | `[x]` | `30476cf0` | Persisted-only canonical snapshot, stable semantic identity/order, Wails bridge, recovery tests, and independent review completed. |
 | 3. Entity stream | `[x]` | `204608d2` | Persistent atomic entity outbox, materialized snapshot state, recovery cursors, Wails stream, and shadow comparison completed. |
-| 4. Frontend store | `[x]` | `(this phase commit)` | Normalized reducer, revision-safe snapshot merge, pure Turn selector, stable presentation grouping, tests, and independent review completed. |
-| 5. Convergence | `[ ]` | — | Make the Session stream the only live conversation writer. |
+| 4. Frontend store | `[x]` | `cdd76802` | Normalized reducer, revision-safe snapshot merge, pure Turn selector, stable presentation grouping, tests, and independent review completed. |
+| 5. Convergence | `[~]` | — | In progress: make the Session stream the only live conversation writer. |
 | 6. Structured activity | `[ ]` | — | Migrate Todo, Permission, Subagent, and Agent Team. |
 | 7. Cutover | `[ ]` | — | Remove the old projection and verify end to end. |
 
@@ -516,7 +516,7 @@ Independent review notes:
   to the smoke suite. The second review approved Phase 4 with no remaining
   blocking findings.
 
-### Phase 5: Conversation convergence `[ ]`
+### Phase 5: Conversation convergence `[~]`
 
 Deliverables:
 
