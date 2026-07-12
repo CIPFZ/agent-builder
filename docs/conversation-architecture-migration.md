@@ -20,8 +20,8 @@ and commit reference after every phase.
 | 3. Entity stream | `[x]` | `204608d2` | Persistent atomic entity outbox, materialized snapshot state, recovery cursors, Wails stream, and shadow comparison completed. |
 | 4. Frontend store | `[x]` | `cdd76802` | Normalized reducer, revision-safe snapshot merge, pure Turn selector, stable presentation grouping, tests, and independent review completed. |
 | 5. Convergence | `[x]` | `faf0344c` | Canonical-mode Session stream is the only live writer; refresh, switching, reconnect, and explicit recovery converge by cursor. |
-| 6. Structured activity | `[x]` | `(this phase commit)` | Todo, Permission, Subagent, Agent Team, and semantic notices now share canonical ownership and projections. |
-| 7. Cutover | `[ ]` | — | Remove the old projection and verify end to end. |
+| 6. Structured activity | `[x]` | `96b556ee` | Todo, Permission, Subagent, Agent Team, and semantic notices now share canonical ownership and projections. |
+| 7. Cutover | `[~]` | — | In progress: remove legacy projection/adapters and verify canonical cutover end to end. |
 
 ## Why this migration exists
 
@@ -629,7 +629,7 @@ Independent review notes:
 - Final review approved Phase 6 with no remaining blocking findings after the
   historical reconciliation/restart tests and bounded-message tests passed.
 
-### Phase 7: Cutover `[ ]`
+### Phase 7: Cutover `[~]`
 
 Deliverables:
 
