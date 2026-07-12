@@ -88,6 +88,7 @@ interface WorkspaceProps {
   onTerminalSubscribe: (terminalID: string, onEvent: (event: TerminalEventViewModel) => void) => Promise<() => void> | (() => void);
   onHookExecutionLoad?: (executionID: string) => Promise<HookExecutionViewModel>;
   onConversationLoadEarlier?: (sessionID: string) => Promise<boolean>;
+  onMessageContentLoad?: (sessionID: string, messageID: string) => Promise<string>;
 }
 
 export function Workspace({
@@ -120,6 +121,7 @@ export function Workspace({
   onTerminalSubscribe,
   onHookExecutionLoad,
   onConversationLoadEarlier,
+  onMessageContentLoad,
 }: WorkspaceProps) {
   const [messageApi, messageContextHolder] = antdMessage.useMessage();
   const [renameOpen, setRenameOpen] = useState(false);
@@ -625,7 +627,7 @@ export function Workspace({
             <div className={styles.timelineLayout}>
               <div className={styles.timelineColumn}>
                 {loadingEarlierConversation && <div className={styles.historyLoading} role="status">正在加载更早的对话...</div>}
-                <Timeline turns={conversationTurns} hookExecutions={viewModel.canonicalConversationStore ? undefined : viewModel.hookExecutions} onAgentTaskOpen={openAgentTask} onHookExecutionLoad={onHookExecutionLoad} />
+                <Timeline turns={conversationTurns} hookExecutions={viewModel.canonicalConversationStore ? undefined : viewModel.hookExecutions} onAgentTaskOpen={openAgentTask} onHookExecutionLoad={onHookExecutionLoad} onMessageContentLoad={onMessageContentLoad} />
               </div>
             </div>
           ) : viewModel.conversation.length > 0 ? (

@@ -9,12 +9,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/CIPFZ/agent-builder/internal/message"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 type canonicalEventRange struct{ first, last int64 }
+
+const canonicalMessageContentLimit = 64 * 1024
 
 // SessionConversationSnapshotV2 builds the canonical conversation solely from
 // persisted stores. It deliberately does not call the legacy output/activity
@@ -227,7 +231,8 @@ func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Contex
 		if phase == RuntimeConversationPhaseFinal {
 			meta.Revision = maxDecimal(meta.Revision, strconv.FormatInt(ranges["turn:"+tid].last, 10))
 		}
-		cm := RuntimeCanonicalMessage{RuntimeConversationEntityMeta: meta, Role: msg.Role, Phase: phase, AssistantStepID: stepByMessage[msg.ID], Status: ternary(msg.Finished, "completed", "streaming"), Content: msg.Content, ClientRequestID: msg.ClientRequestID, Error: msg.Error}
+		content, truncated := boundedUTF8Content(msg.Content, canonicalMessageContentLimit)
+		cm := RuntimeCanonicalMessage{RuntimeConversationEntityMeta: meta, Role: msg.Role, Phase: phase, AssistantStepID: stepByMessage[msg.ID], Status: ternary(msg.Finished, "completed", "streaming"), Content: content, ContentLength: len(msg.Content), ContentTruncated: truncated, ClientRequestID: msg.ClientRequestID, Error: msg.Error}
 		snapshot.Messages = append(snapshot.Messages, cm)
 		if msg.Role == "assistant" {
 			seenStep[tid]++
@@ -302,6 +307,28 @@ func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Contex
 		return RuntimeCanonicalConversationSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+func (r *runtimeService) SessionConversationMessageContentV2(ctx context.Context, sessionID, messageID string) (RuntimeCanonicalMessageContentResponseV2, error) {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
+		return RuntimeCanonicalMessageContentResponseV2{}, err
+	}
+	sessionID, messageID = strings.TrimSpace(sessionID), strings.TrimSpace(messageID)
+	if sessionID == "" || messageID == "" {
+		return RuntimeCanonicalMessageContentResponseV2{}, errors.New("session id and message id are required")
+	}
+	r.mu.Lock()
+	workspaceID := r.workspace.ID
+	r.mu.Unlock()
+	msg, err := r.runtime.GetSessionMessage(ctx, workspaceID, sessionID, messageID)
+	if err != nil {
+		return RuntimeCanonicalMessageContentResponseV2{}, err
+	}
+	if msg.IsSummaryMessage || msg.Role == message.System {
+		return RuntimeCanonicalMessageContentResponseV2{}, errors.New("message is not part of the display conversation")
+	}
+	content := toRuntimeMessage(toAPITypeMessage(msg)).Content
+	return RuntimeCanonicalMessageContentResponseV2{SchemaVersion: RuntimeConversationSchemaVersion, SessionID: sessionID, MessageID: messageID, Content: content}, nil
 }
 
 func canonicalEventRanges(events []RuntimeEvent) map[string]canonicalEventRange {
@@ -735,6 +762,16 @@ func boundedPreview(v string, n int) string {
 		return v
 	}
 	return v[:n]
+}
+func boundedUTF8Content(v string, n int) (string, bool) {
+	if len(v) <= n {
+		return v, false
+	}
+	end := n
+	for end > 0 && !utf8.ValidString(v[:end]) {
+		end--
+	}
+	return v[:end], true
 }
 func validJSONObjectOrEmpty(v string) string {
 	var decoded any

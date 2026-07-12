@@ -243,6 +243,8 @@ export interface ConversationTimelineItemViewModel {
   role?: 'user' | 'assistant' | 'tool' | 'system';
   title?: string;
   content?: string;
+  contentLength?: number;
+  contentTruncated?: boolean;
   summary?: string;
   status?: string;
   phase?: 'intermediate' | 'final';
@@ -1313,6 +1315,7 @@ export interface WorkbenchAdapter {
   fetchContextUsage?: (sessionID: string) => Promise<ContextUsageViewModel | undefined>;
   subscribeRuntimeEvents?: (onEvent: (event: RuntimeEventViewModel) => void) => Promise<() => void> | (() => void);
   fetchCanonicalConversationSnapshot?: (sessionID: string, request?: CanonicalConversationSnapshotRequest) => Promise<CanonicalConversationSnapshot>;
+  fetchCanonicalMessageContent?: (sessionID: string, messageID: string) => Promise<string>;
   subscribeCanonicalConversation?: (
     sessionID: string,
     after: string,

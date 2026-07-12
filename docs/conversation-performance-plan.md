@@ -133,8 +133,12 @@ Implementation progress:
 - Existing ToolResult transport remains bounded to a 4 KiB preview and durable
   output references. General Runtime refs already spill payloads larger than
   8 KiB to file storage and expose an explicit content-read operation.
-- Remaining Phase 3 work is applying the same reference boundary to unusually
-  large visible Message text, plus indexed search and target-Turn windows.
+- Canonical Message text is capped at 64 KiB per entity with byte length and
+  truncation metadata. Truncated Messages expose an explicit Wails-only read
+  of the full persisted content, scoped by both Session ID and Message ID;
+  Runtime rejects cross-Session reads. The Timeline loads this content only
+  when requested and then uses it for rendering and copy actions.
+- Remaining Phase 3 work is indexed search and target-Turn windows.
 
 ## Phase 4: measurement and regression gates
 

@@ -18,6 +18,7 @@ interface TimelineProps {
   hookExecutions?: HookExecutionSummaryViewModel;
   onAgentTaskOpen?: (taskID: string) => void;
   onHookExecutionLoad?: (executionID: string) => Promise<HookExecutionViewModel>;
+  onMessageContentLoad?: (sessionID: string, messageID: string) => Promise<string>;
 }
 
 interface TimelineTurnBlock {
@@ -34,7 +35,7 @@ interface TimelineTurnBlock {
   finishedAt?: number;
 }
 
-export function Timeline({ turns, hookExecutions, onAgentTaskOpen, onHookExecutionLoad }: TimelineProps) {
+export function Timeline({ turns, hookExecutions, onAgentTaskOpen, onHookExecutionLoad, onMessageContentLoad }: TimelineProps) {
   const [messageApi, messageContextHolder] = message.useMessage();
   const [selectedHookExecution, setSelectedHookExecution] = useState<HookExecutionViewModel | undefined>();
   const blocks: TimelineTurnBlock[] = turns.map((turn) => ({
@@ -68,6 +69,7 @@ export function Timeline({ turns, hookExecutions, onAgentTaskOpen, onHookExecuti
           messageApi={messageApi}
           onAgentTaskOpen={onAgentTaskOpen}
           onHookOpen={setSelectedHookExecution}
+          onMessageContentLoad={onMessageContentLoad}
         />
       ))}
       <HookExecutionDetailDrawer
@@ -87,12 +89,14 @@ const VirtualizedTurnBlock = memo(function VirtualizedTurnBlock({
   messageApi,
   onAgentTaskOpen,
   onHookOpen,
+  onMessageContentLoad,
 }: {
   block: TimelineTurnBlock;
   hookExecutions?: HookExecutionSummaryViewModel;
   messageApi: ReturnType<typeof message.useMessage>[0];
   onAgentTaskOpen?: (taskID: string) => void;
   onHookOpen?: (execution: HookExecutionViewModel) => void;
+  onMessageContentLoad?: (sessionID: string, messageID: string) => Promise<string>;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [nearViewport, setNearViewport] = useState(true);
@@ -129,7 +133,7 @@ const VirtualizedTurnBlock = memo(function VirtualizedTurnBlock({
       data-turn-mounted={mounted}
       style={!mounted && measuredHeight !== undefined ? { height: measuredHeight } : undefined}
     >
-      {mounted && <TurnBlock block={block} hookExecutions={hookExecutions} messageApi={messageApi} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} />}
+      {mounted && <TurnBlock block={block} hookExecutions={hookExecutions} messageApi={messageApi} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} onMessageContentLoad={onMessageContentLoad} />}
     </div>
   );
 }, (previous, next) => (
@@ -139,6 +143,7 @@ const VirtualizedTurnBlock = memo(function VirtualizedTurnBlock({
   previous.messageApi === next.messageApi &&
   previous.onAgentTaskOpen === next.onAgentTaskOpen &&
   previous.onHookOpen === next.onHookOpen
+  && previous.onMessageContentLoad === next.onMessageContentLoad
 ));
 
 function TurnBlock({
@@ -147,17 +152,19 @@ function TurnBlock({
   messageApi,
   onAgentTaskOpen,
   onHookOpen,
+  onMessageContentLoad,
 }: {
   block: TimelineTurnBlock;
   hookExecutions?: HookExecutionSummaryViewModel;
   messageApi: ReturnType<typeof message.useMessage>[0];
   onAgentTaskOpen?: (taskID: string) => void;
   onHookOpen?: (execution: HookExecutionViewModel) => void;
+  onMessageContentLoad?: (sessionID: string, messageID: string) => Promise<string>;
 }) {
   const promptHooks = block.processItems.some((item) => item.kind === 'hook_run') ? [] : highSignalHooks(hookExecutions, block.turnId).filter((execution) => !execution.toolCallId);
   return (
     <section className={styles.turnBlock} data-testid="timeline-turn-block" data-turn-id={block.turnId}>
-      {block.userMessage && <TimelineMessage item={block.userMessage} messageApi={messageApi} />}
+      {block.userMessage && <TimelineMessage item={block.userMessage} messageApi={messageApi} onContentLoad={onMessageContentLoad} />}
       {promptHooks.map((execution) => (
         <HookTimelineRow key={execution.id} execution={execution} onOpen={onHookOpen} />
       ))}
@@ -173,7 +180,7 @@ function TurnBlock({
           renderItem={(item) => <TimelineProcessItem hookExecutions={hookExecutions} item={item} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} />}
         />
       )}
-      {block.finalMessage && <TimelineMessage item={block.finalMessage} messageApi={messageApi} />}
+      {block.finalMessage && <TimelineMessage item={block.finalMessage} messageApi={messageApi} onContentLoad={onMessageContentLoad} />}
       {block.looseItems.map((item) => (
         <TimelineProcessItem key={item.id} hookExecutions={hookExecutions} item={item} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} />
       ))}

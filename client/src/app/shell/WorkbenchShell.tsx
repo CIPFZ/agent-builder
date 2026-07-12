@@ -311,6 +311,11 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     [canonicalCoordinator],
   );
 
+  const loadCanonicalMessageContent = useCallback(
+    (sessionID: string, messageID: string) => adapter.fetchCanonicalMessageContent?.(sessionID, messageID) ?? Promise.reject(new Error('canonical message content API is unavailable')),
+    [adapter],
+  );
+
   const startConversationDraft = (target?: NewConversationDraftViewModel) => {
     sessionMutationSeqRef.current += 1;
     const currentViewModel = viewModelRef.current;
@@ -981,6 +986,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onTerminalSubscribe={subscribeTerminalEvents}
           onHookExecutionLoad={loadHookExecution}
           onConversationLoadEarlier={loadEarlierConversation}
+          onMessageContentLoad={loadCanonicalMessageContent}
         />
       )}
     </main>

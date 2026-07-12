@@ -60,7 +60,7 @@ function stringValue(value: unknown) { return typeof value === 'string' ? value 
 function numberValue(value: unknown) { return typeof value === 'number' ? value : undefined; }
 
 function projectMessage(message: CanonicalMessage): ConversationTimelineItemViewModel {
-  return { id: `message:${message.id}`, kind: message.role === 'user' ? 'user_message' : message.phase === 'reasoning' ? 'assistant_thinking' : 'assistant_message', sessionId: message.sessionId, turnId: message.turnId, messageId: message.id, role: message.role as 'user' | 'assistant' | 'tool' | 'system', phase: message.phase === 'final' ? 'final' : 'intermediate', content: message.content, status: message.status, createdAt: message.createdAt, updatedAt: message.updatedAt, clientRequestId: message.clientRequestId, error: message.error };
+  return { id: `message:${message.id}`, kind: message.role === 'user' ? 'user_message' : message.phase === 'reasoning' ? 'assistant_thinking' : 'assistant_message', sessionId: message.sessionId, turnId: message.turnId, messageId: message.id, role: message.role as 'user' | 'assistant' | 'tool' | 'system', phase: message.phase === 'final' ? 'final' : 'intermediate', content: message.content, contentLength: message.contentLength, contentTruncated: message.contentTruncated, status: message.status, createdAt: message.createdAt, updatedAt: message.updatedAt, clientRequestId: message.clientRequestId, error: message.error };
 }
 
 function projectTool(call: CanonicalToolCall, store: CanonicalConversationStore, structured: CanonicalStructuredActivity): ConversationTimelineItemViewModel {

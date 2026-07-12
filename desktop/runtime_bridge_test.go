@@ -1540,6 +1540,10 @@ func (s *recordingRuntimeService) ReadRefContent(context.Context, string) (Runti
 	return RuntimeRefContentResponse{}, nil
 }
 
+func (s *recordingRuntimeService) SessionConversationMessageContentV2(context.Context, string, string) (RuntimeCanonicalMessageContentResponseV2, error) {
+	return RuntimeCanonicalMessageContentResponseV2{}, nil
+}
+
 func (s *recordingRuntimeService) TurnCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error) {
 	return RuntimeCompactBoundariesResponse{}, nil
 }

@@ -6,9 +6,24 @@ import type { ConversationTimelineItemViewModel } from '../../runtime/workbenchT
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import styles from './Timeline.module.css';
 
-export function TimelineMessage({ item, messageApi }: { item: ConversationTimelineItemViewModel; messageApi: ReturnType<typeof message.useMessage>[0] }) {
+export function TimelineMessage({ item, messageApi, onContentLoad }: { item: ConversationTimelineItemViewModel; messageApi: ReturnType<typeof message.useMessage>[0]; onContentLoad?: (sessionID: string, messageID: string) => Promise<string> }) {
+  const [loaded, setLoaded] = useState<{ messageId?: string; updatedAt?: number; content: string }>();
+  const [loadingContent, setLoadingContent] = useState(false);
   const streaming = Boolean(item.streaming);
-  const displayContent = streaming ? completePartialMarkdown(item.content ?? '') : item.content;
+  const loadedContent = loaded && loaded.messageId === item.messageId && loaded.updatedAt === item.updatedAt ? loaded.content : undefined;
+  const content = loadedContent ?? item.content ?? '';
+  const displayContent = streaming ? completePartialMarkdown(content) : content;
+  const loadFullContent = async () => {
+    if (!item.contentTruncated || !item.sessionId || !item.messageId || !onContentLoad || loadingContent) return;
+    setLoadingContent(true);
+    try {
+      setLoaded({ messageId: item.messageId, updatedAt: item.updatedAt, content: await onContentLoad(item.sessionId, item.messageId) });
+    } catch {
+      void messageApi.error('加载完整消息失败');
+    } finally {
+      setLoadingContent(false);
+    }
+  };
   return (
     <Bubble
       className={[item.role === 'user' ? styles.userBubble : styles.assistantBubble, streaming ? styles.streamingBubble : undefined].filter(Boolean).join(' ')}
@@ -16,6 +31,7 @@ export function TimelineMessage({ item, messageApi }: { item: ConversationTimeli
       content={
         <span data-testid="timeline-message" data-streaming={streaming ? 'true' : undefined}>
           <MarkdownMessage content={displayContent} role={item.role} />
+          {item.contentTruncated && loadedContent === undefined ? <Button loading={loadingContent} size="small" type="link" onClick={() => void loadFullContent()}>加载完整消息</Button> : null}
           {streaming ? <span className={styles.streamingCursor} aria-hidden="true">▌</span> : null}
         </span>
       }
@@ -23,7 +39,7 @@ export function TimelineMessage({ item, messageApi }: { item: ConversationTimeli
       variant={item.role === 'user' ? 'filled' : 'borderless'}
       footer={
         (item.role === 'user' || item.role === 'assistant') && isCompleteMessage(item)
-          ? <MessageFooter align={item.role === 'user' ? 'end' : 'start'} content={item.content ?? ''} createdAt={item.createdAt} messageApi={messageApi} />
+          ? <MessageFooter align={item.role === 'user' ? 'end' : 'start'} content={content} createdAt={item.createdAt} messageApi={messageApi} />
           : item.status === 'error' ? <Tag color="error">失败</Tag> : undefined
       }
     />

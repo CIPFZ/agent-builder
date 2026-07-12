@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/CIPFZ/agent-builder/internal/message"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
@@ -73,6 +74,43 @@ func TestCanonicalMessageTransportDoesNotDuplicateStructuredParts(t *testing.T) 
 	}
 	if strings.Contains(string(encoded), "partsJson") {
 		t.Fatalf("canonical message duplicated structured parts: %s", encoded)
+	}
+}
+
+func TestCanonicalMessageContentIsBoundedAndUTF8Safe(t *testing.T) {
+	content := strings.Repeat("界", canonicalMessageContentLimit)
+	preview, truncated := boundedUTF8Content(content, canonicalMessageContentLimit)
+	if !truncated || len(preview) > canonicalMessageContentLimit || !utf8.ValidString(preview) {
+		t.Fatalf("invalid bounded content: bytes=%d truncated=%v valid=%v", len(preview), truncated, utf8.ValidString(preview))
+	}
+}
+
+func TestSessionConversationMessageContentV2EnforcesSessionOwnership(t *testing.T) {
+	h := newRuntimeScenarioHarness(t)
+	h.attachBackend()
+	first, err := h.service.runtime.CreateSession(h.ctx, h.service.workspace.ID, "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := h.service.runtime.CreateSession(h.ctx, h.service.workspace.ID, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := h.service.runtime.GetWorkspace(h.service.workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := strings.Repeat("large", canonicalMessageContentLimit)
+	msg, err := ws.Messages.Create(h.ctx, first.ID, message.CreateMessageParams{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: content}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := h.service.SessionConversationMessageContentV2(h.ctx, first.ID, msg.ID)
+	if err != nil || response.Content != content || response.MessageID != msg.ID {
+		t.Fatalf("content response=%#v err=%v", response, err)
+	}
+	if _, err := h.service.SessionConversationMessageContentV2(h.ctx, second.ID, msg.ID); err == nil {
+		t.Fatal("cross-Session message read was allowed")
 	}
 }
 

@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
 	"github.com/CIPFZ/agent-builder/internal/message"
@@ -11,6 +12,22 @@ import (
 // CreateSession creates a new session in the given workspace.
 func (b *Service) CreateSession(ctx context.Context, workspaceID, title string) (session.Session, error) {
 	return b.CreateSessionWithScope(ctx, workspaceID, title, "", "standalone")
+}
+
+// GetSessionMessage reads one persisted Message and enforces Session ownership.
+func (b *Service) GetSessionMessage(ctx context.Context, workspaceID, sessionID, messageID string) (message.Message, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return message.Message{}, err
+	}
+	msg, err := ws.Messages.Get(ctx, messageID)
+	if err != nil {
+		return message.Message{}, err
+	}
+	if msg.SessionID != sessionID {
+		return message.Message{}, fmt.Errorf("message %q does not belong to session %q", messageID, sessionID)
+	}
+	return msg, nil
 }
 
 // CreateSessionWithScope creates a new session in the given workspace with

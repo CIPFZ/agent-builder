@@ -65,6 +65,13 @@ type RuntimeCanonicalConversationSnapshotRequest struct {
 	Before string `json:"before,omitempty"`
 }
 
+type RuntimeCanonicalMessageContentResponseV2 struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	SessionID     string `json:"sessionId"`
+	MessageID     string `json:"messageId"`
+	Content       string `json:"content"`
+}
+
 type RuntimeCanonicalConversationEventsRequestV2 struct {
 	After          string `json:"after"`
 	LimitRawEvents int    `json:"limitRawEvents,omitempty"`
@@ -127,13 +134,15 @@ type RuntimeCanonicalTurn struct {
 
 type RuntimeCanonicalMessage struct {
 	RuntimeConversationEntityMeta
-	Role            string `json:"role"`
-	Phase           string `json:"phase,omitempty"`
-	AssistantStepID string `json:"assistantStepId,omitempty"`
-	Status          string `json:"status"`
-	Content         string `json:"content,omitempty"`
-	ClientRequestID string `json:"clientRequestId,omitempty"`
-	Error           string `json:"error,omitempty"`
+	Role             string `json:"role"`
+	Phase            string `json:"phase,omitempty"`
+	AssistantStepID  string `json:"assistantStepId,omitempty"`
+	Status           string `json:"status"`
+	Content          string `json:"content,omitempty"`
+	ContentLength    int    `json:"contentLength,omitempty"`
+	ContentTruncated bool   `json:"contentTruncated,omitempty"`
+	ClientRequestID  string `json:"clientRequestId,omitempty"`
+	Error            string `json:"error,omitempty"`
 }
 
 type RuntimeCanonicalAssistantStep struct {

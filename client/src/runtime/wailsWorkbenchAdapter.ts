@@ -1673,6 +1673,7 @@ interface RuntimeBridgeModule {
   SessionMessages?: (sessionID: string) => Promise<RuntimeMessagesResponseDTO>;
   SessionContextUsage?: (sessionID: string) => Promise<RuntimeContextUsageDTO>;
   SessionConversationSnapshotV2?: (sessionID: string, req: CanonicalConversationSnapshotRequest) => Promise<CanonicalConversationSnapshot>;
+  SessionConversationMessageContentV2?: (sessionID: string, messageID: string) => Promise<{ schemaVersion: 2; sessionId: string; messageId: string; content: string }>;
   SessionConversationEventsV2?: (sessionID: string, req: CanonicalConversationEventsRequest) => Promise<CanonicalConversationEventsResponse>;
   StartSessionConversationStreamV2?: (req: { sessionId: string; streamId?: string; after: string }) => Promise<{ streamId: string; eventName: string }>;
   StopSessionConversationStreamV2?: (req: { streamId: string }) => Promise<boolean>;
@@ -4019,6 +4020,13 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     const bridge = await loadRuntimeBridge();
     if (!bridge?.SessionConversationSnapshotV2) throw new Error('canonical conversation snapshot API is unavailable');
     return bridge.SessionConversationSnapshotV2(sessionID, request);
+  },
+  async fetchCanonicalMessageContent(sessionID, messageID) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.SessionConversationMessageContentV2) throw new Error('canonical message content API is unavailable');
+    const response = await bridge.SessionConversationMessageContentV2(sessionID, messageID);
+    if (response.sessionId !== sessionID || response.messageId !== messageID) throw new Error('canonical message content response mismatch');
+    return response.content;
   },
   async subscribeCanonicalConversation(sessionID, after, handlers) {
     const bridge = await loadRuntimeBridge();
