@@ -226,7 +226,7 @@ Independent review notes:
 - Final diff review confirmed no JSX, CSS, disclosure behavior, Todo dock, or
   Agent panel changes; Phase 0 is presentation-contract-only.
 
-### Phase 1: Flat outer process disclosure `[ ]`
+### Phase 1: Flat outer process disclosure `[x]`
 
 - Implement the per-Turn `auto/manual_open/manual_closed` state machine.
 - Add one flat summary header around `processStream`; do not use nested Ant
@@ -238,6 +238,45 @@ Independent review notes:
 
 Exit gate: completion does not jump the viewport; expanding tool groups/details
 does not add left indentation; Todo remains unchanged.
+
+Implementation evidence:
+
+- `processDisclosurePolicy.ts` now owns the pure per-Turn
+  `auto/manual_open/manual_closed` reducer and its one-shot safe-completion
+  transition.
+- `ProcessDisclosure.tsx` uses an accessible native disclosure button and a
+  retained process body controlled by `hidden`; the outer boundary does not
+  use Ant Collapse or its content padding.
+- `Workspace` forwards the existing sticky-bottom `pinned` intent through
+  `Timeline`. Safe completion auto-collapses only on its first transition
+  while pinned; an unpinned reader consumes that transition without layout
+  movement, so later repinning cannot collapse older content unexpectedly.
+- Running, streaming, queued, permission-waiting, terminal-without-final, and
+  failed/interrupted attention remain open in automatic mode. Manual choices
+  latch for the Turn and ignore late entity revisions.
+- The disclosure chevron is positioned outside the content edge, leaving the
+  summary label, process stream, groups, and rows on one flat reading boundary.
+
+Verification:
+
+- `cd client && npm.cmd run smoke:process-disclosure-policy`
+- `cd client && npm.cmd run smoke:conversation-presentation-model`
+- `cd client && npm.cmd run lint`
+- `cd client && npm.cmd run build`
+- `cd client && npm.cmd run smoke:canonical-conversation-store`
+- `cd client && npm.cmd run smoke:canonical-conversation-convergence`
+- `cd client && npm.cmd run smoke:canonical-structured-activity`
+- `cd client && npm.cmd run smoke:canonical-conversation-cutover`
+- `cd client && npm.cmd run smoke:conversation-contract-v2`
+
+Independent review notes:
+
+- Review added the missing terminal-without-final gate so a Turn cannot fold
+  before the final response exists.
+- Review verified canonical tool-group status propagates active/failure member
+  state and that late non-attention revisions do not replay auto-collapse.
+- Final scope review found no Todo capsule, Agent aggregation, Agent panel, or
+  canonical store/Wails writer changes.
 
 ### Phase 2: Agent timeline projection `[ ]`
 

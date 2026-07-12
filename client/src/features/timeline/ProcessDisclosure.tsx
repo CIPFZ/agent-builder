@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useReducer, type ReactNode } from 'react';
 import type { ConversationTimelineItemViewModel } from '../../runtime/workbenchTypes.ts';
 import type { RuntimeExplorationSummary } from '../../runtime/conversationPresentationTypes.ts';
 import { compactProcessItems } from './processGrouping.ts';
 import type { RenderTimelineItem } from './processGrouping.ts';
-import { isActiveProcessStatus } from './processDisclosurePolicy.ts';
+import { initialProcessDisclosureState, isActiveProcessStatus, reduceProcessDisclosure, type ProcessDisclosureSignal } from './processDisclosurePolicy.ts';
 import styles from './Timeline.module.css';
 
 interface ProcessDisclosureProps {
@@ -12,6 +12,8 @@ interface ProcessDisclosureProps {
   startedAt?: number;
   finishedAt?: number;
   exploration?: RuntimeExplorationSummary;
+  hasFinalResponse: boolean;
+  pinned: boolean;
   items: ConversationTimelineItemViewModel[];
   renderItem: (item: RenderTimelineItem) => ReactNode;
 }
@@ -19,24 +21,43 @@ interface ProcessDisclosureProps {
 export function ProcessDisclosure(props: ProcessDisclosureProps) {
   const detailItems = props.items.filter((item) => !isRedundantActivePlaceholder(item));
   const groupedItems = compactProcessItems(detailItems);
+  const itemStatusKey = detailItems.map((item) => item.status).join('|');
+  const hasPendingPermission = detailItems.some((item) => (item.kind === 'permission' || item.kind === 'permission_request') && isPendingStatus(item.permission?.status ?? item.status));
+  const explorationStatus = props.exploration?.status;
+  const signal: ProcessDisclosureSignal = {
+    status: props.status,
+    hasFinalResponse: props.hasFinalResponse,
+    explorationStatus,
+    itemStatuses: itemStatusKey.split('|'),
+    hasPendingPermission,
+    pinned: props.pinned,
+  };
+  const [disclosure, dispatch] = useReducer(reduceProcessDisclosure, signal, initialProcessDisclosureState);
+  useLayoutEffect(() => {
+    dispatch({ type: 'sync', signal: { status: props.status, hasFinalResponse: props.hasFinalResponse, explorationStatus, itemStatuses: itemStatusKey.split('|'), hasPendingPermission, pinned: props.pinned } });
+  }, [props.status, props.hasFinalResponse, explorationStatus, itemStatusKey, hasPendingPermission, props.pinned]);
   const sectionProps = {
     className: styles.processTrace,
     'data-testid': 'process-trace',
     'data-process-label': [processLabel(props.status), props.turnId].filter(Boolean).join(' '),
     'data-process-status': props.status,
+    'data-process-disclosure-mode': disclosure.mode,
+    'data-process-open': disclosure.open,
   };
   if (groupedItems.length === 0) {
     return <section {...sectionProps}><div className={styles.processTraceStandalone}><ProcessLabel {...props} /></div></section>;
   }
   return (
     <section {...sectionProps}>
-      <div className={styles.processTraceHeader}><ProcessLabel {...props} /></div>
-      <div className={styles.processStream} data-testid="process-stream">
+      <button className={styles.processTraceHeader} type="button" aria-expanded={disclosure.open} onClick={() => dispatch({ type: 'manual', open: !disclosure.open })}><span className={styles.processTraceChevron} aria-hidden="true">›</span><ProcessLabel {...props} /></button>
+      <div className={styles.processStream} data-testid="process-stream" hidden={!disclosure.open}>
         {groupedItems.map((item) => <div key={item.id} className={styles.processStreamItem}>{props.renderItem(item)}</div>)}
       </div>
     </section>
   );
 }
+
+function isPendingStatus(status?: string) { return status === 'pending' || status === 'requested' || status === 'waiting' || status === 'waiting_permission'; }
 
 function ProcessLabel(props: ProcessDisclosureProps) {
   const status = props.exploration?.status ?? props.status;

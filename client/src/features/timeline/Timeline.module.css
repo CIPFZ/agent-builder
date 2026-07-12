@@ -113,10 +113,37 @@
 }
 
 .processTraceHeader {
+  position: relative;
   display: flex;
+  width: fit-content;
+  max-width: 100%;
   min-height: 28px;
   align-items: center;
   padding: 2px 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.processTraceHeader:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--ant-color-primary-border);
+  outline-offset: 2px;
+}
+
+.processTraceChevron {
+  position: absolute;
+  left: -16px;
+  display: inline-block;
+  color: var(--ant-color-text-tertiary);
+  transform: rotate(0deg);
+  transition: transform 0.15s ease;
+}
+
+.processTrace[data-process-open='true'] .processTraceChevron {
+  transform: rotate(90deg);
 }
 
 .processTrace[data-process-status='failed'] .processTraceLabel,
@@ -155,6 +182,10 @@
   flex-direction: column;
   gap: 6px;
   padding: 6px 0 2px;
+}
+
+.processStream[hidden] {
+  display: none;
 }
 
 .processStreamItem {
