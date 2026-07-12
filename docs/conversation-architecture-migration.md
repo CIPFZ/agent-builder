@@ -17,8 +17,8 @@ and commit reference after every phase.
 | Plan | `[x]` | `6c58cadd` | Persist architecture, contracts, phases, and acceptance gates; independently reviewed. |
 | 1. Contract | `[x]` | `83e62781` | Versioned Go/TypeScript contracts, validation, and shared fixture completed and independently reviewed. |
 | 2. Runtime snapshot | `[x]` | `30476cf0` | Persisted-only canonical snapshot, stable semantic identity/order, Wails bridge, recovery tests, and independent review completed. |
-| 3. Entity stream | `[x]` | recorded by this commit | Persistent atomic entity outbox, materialized snapshot state, recovery cursors, Wails stream, and shadow comparison completed. |
-| 4. Frontend store | `[ ]` | — | Normalize entities and group for presentation exactly once. |
+| 3. Entity stream | `[x]` | `204608d2` | Persistent atomic entity outbox, materialized snapshot state, recovery cursors, Wails stream, and shadow comparison completed. |
+| 4. Frontend store | `[~]` | — | In progress: normalized canonical reducer, revision-safe snapshot merge, pure Turn selector, and one presentation grouping pass. |
 | 5. Convergence | `[ ]` | — | Make the Session stream the only live conversation writer. |
 | 6. Structured activity | `[ ]` | — | Migrate Todo, Permission, Subagent, and Agent Team. |
 | 7. Cutover | `[ ]` | — | Remove the old projection and verify end to end. |
@@ -469,7 +469,7 @@ Independent review notes:
 - Third review ran focused Runtime/Desktop tests and approved Phase 3 with no
   remaining blocking findings.
 
-### Phase 4: Frontend normalized store `[ ]`
+### Phase 4: Frontend normalized store `[~]`
 
 Deliverables:
 
