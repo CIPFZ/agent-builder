@@ -16,7 +16,7 @@ and commit reference after every phase.
 | Baseline | `[x]` | `50377c48` | Preserve current UI and convergence mitigations before migration. |
 | Plan | `[x]` | `6c58cadd` | Persist architecture, contracts, phases, and acceptance gates; independently reviewed. |
 | 1. Contract | `[x]` | recorded by this commit | Versioned Go/TypeScript contracts, validation, and shared fixture completed and independently reviewed. |
-| 2. Runtime snapshot | `[ ]` | — | Add a semantic snapshot without UI grouping. |
+| 2. Runtime snapshot | `[x]` | recorded by this commit | Persisted-only canonical snapshot, stable semantic identity/order, Wails bridge, recovery tests, and independent review completed. |
 | 3. Entity stream | `[ ]` | — | Add revisioned canonical upsert/delete events. |
 | 4. Frontend store | `[ ]` | — | Normalize entities and group for presentation exactly once. |
 | 5. Convergence | `[ ]` | — | Make the Session stream the only live conversation writer. |
@@ -299,7 +299,7 @@ Independent review notes:
   never ambiguous `null` values.
 - Added required event creation timestamp. Review approved after these changes.
 
-### Phase 2: Runtime canonical snapshot `[ ]`
+### Phase 2: Runtime canonical snapshot `[x]`
 
 Deliverables:
 
@@ -310,6 +310,69 @@ Deliverables:
 
 Exit gate: process entity IDs are identical before/after final response and on
 Session reopen.
+
+Implementation decisions:
+
+- Canonical activity sequence/revision come from the first/latest persisted
+  Runtime event affecting an entity. Legacy rows without events use revision
+  `0` plus deterministic `(createdAt, entity-rank, id)` ordering; timestamps
+  never masquerade as event cursors.
+- The canonical full snapshot reads persisted stores only. Active in-memory
+  request state cannot make the same cursor return a different snapshot.
+- Message phase prefers persisted semantic metadata. The compatibility fallback
+  recognizes final only for a finished terminal Turn assistant message without
+  tool-use completion; all other assistant messages are intermediate.
+- AssistantStep and ToolResult use one shared stable derivation rule for full
+  and window snapshots.
+- Existing Todo rows cannot satisfy stable identity. Phase 2 therefore adds
+  minimum plan/item identity and persists full structured `todo.updated`
+  evidence. Legacy Todo data is not presented as canonical until rewritten by
+  the identified format; no content hash or array index is treated as a stable
+  canonical identity.
+
+Implementation evidence:
+
+- Persisted-only mapper and RuntimeService entry point:
+  `internal/runtime/runtime_conversation_snapshot_v2.go`.
+- Wails transport-only forwarding: `desktop/runtime_bridge.go`; the TypeScript
+  bridge surface mirrors the v2 request/snapshot without becoming a state
+  authority.
+- Event-index metadata uses the first/latest relevant persisted event as
+  `activitySequence`/`revision`, encoded as decimal strings. Unrelated events
+  do not mutate entity revisions.
+- Tool calls are read by Session rather than by known Turns, preserving
+  orphaned/recovery-state persisted calls.
+- Final-message resolution requires a terminal Turn, a finished assistant
+  message, and no `tool_use`/tool-call part. Persisted snake_case and camelCase
+  phase metadata cannot bypass this gate.
+- Todo item UUIDs and a stable Session plan ID are persisted; the first rich
+  Todo event owns plan creation/Turn identity and the latest event owns its
+  revision/update state. Legacy Todo payloads without item IDs are omitted.
+- All canonical collections use deterministic ordering before any window is
+  selected; window filtering preserves full-snapshot IDs, indexes, and
+  revisions.
+
+Verification:
+
+- `go test ./...`
+- `go build ./...`
+- `cd client && npm.cmd run build`
+- `cd client && npm.cmd run lint`
+- `cd client && npm.cmd run smoke:conversation-contract-v2`
+
+Focused coverage includes finalization identity stability, persisted-only
+same-cursor behavior, full/window equivalence, sequence values above
+JavaScript's safe integer range, Todo recovery, orphan ToolCalls, and
+byte-identical reconstruction after Runtime service restart.
+
+Independent review notes:
+
+- Initial review blocked submission on final-phase gate bypass, unstable Todo
+  creation metadata, incomplete deterministic sorting, and Turn-scoped tool
+  loading that could omit recovered calls.
+- All four findings were corrected and regression tests were added.
+- Follow-up review ran the Go suite and frontend build/lint and approved Phase
+  2 with no remaining blocking findings.
 
 ### Phase 3: Canonical entity stream `[ ]`
 

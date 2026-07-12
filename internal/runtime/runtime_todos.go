@@ -61,6 +61,7 @@ func runtimeTodoSummary(sessionID, turnID string, todos []session.Todo, updatedA
 	}
 	for _, todo := range todos {
 		summary.Todos = append(summary.Todos, RuntimeTodo{
+			ID:         todo.ID,
 			Content:    todo.Content,
 			Status:     string(todo.Status),
 			ActiveForm: todo.ActiveForm,
@@ -106,12 +107,14 @@ func (r *runtimeService) recordTodoUpdate(update tools.TodoUpdatedEvent) Runtime
 		TurnID:     update.TurnID,
 		ToolCallID: update.ToolCallID,
 		Payload: map[string]any{
+			"plan_id":        update.PlanID,
 			"session_id":     update.SessionID,
 			"turn_id":        update.TurnID,
 			"pending":        summary.Pending,
 			"in_progress":    summary.InProgress,
 			"completed":      summary.Completed,
 			"total":          summary.Total,
+			"todos":          update.Todos,
 			"just_completed": update.JustCompleted,
 			"just_started":   update.JustStarted,
 			"summary":        summaryText,

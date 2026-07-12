@@ -279,6 +279,22 @@ func TestSessionOutputBatchPreservesDeltaFragments(t *testing.T) {
 	}
 }
 
+func TestSessionConversationSnapshotV2ForwardsToRuntime(t *testing.T) {
+	service := &recordingRuntimeService{}
+	bridge := &RuntimeBridge{service: service}
+	req := RuntimeCanonicalConversationSnapshotRequest{Scope: runtime.RuntimeConversationScopeWindow, Limit: 12, Before: "turn-20"}
+	snapshot, err := bridge.SessionConversationSnapshotV2(context.Background(), "session-v2", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.conversationSnapshotSessionID != "session-v2" || service.conversationSnapshotRequest != req {
+		t.Fatalf("request not forwarded: session=%q req=%#v", service.conversationSnapshotSessionID, service.conversationSnapshotRequest)
+	}
+	if snapshot.SessionID != "session-v2" {
+		t.Fatalf("snapshot session = %q", snapshot.SessionID)
+	}
+}
+
 func TestStopSessionOutputStreamUnknownStreamIsNoop(t *testing.T) {
 	t.Parallel()
 
@@ -1124,109 +1140,111 @@ func TestRuntimeBridgeForwardsAgentTaskReadsAndOutput(t *testing.T) {
 }
 
 type recordingRuntimeService struct {
-	chatCalls                   int
-	chatRequests                []RuntimeChatRequest
-	userInputReq                RuntimeUserInputRequest
-	userInputResponse           RuntimeChatResponse
-	userInputID                 string
-	userInput                   RuntimeNormalizedInput
-	refreshedCapability         string
-	toolSearchQuery             string
-	replayExportRequest         runtime.RuntimeReplayExportRequest
-	mcpRequestDecision          runtime.RuntimeMCPRequestDecision
-	eventsAfter                 int64
-	status                      RuntimeStatus
-	openProjectReq              RuntimeOpenProjectRequest
-	createProjectReq            RuntimeCreateProjectRequest
-	renameProjectReq            RuntimeRenameProjectRequest
-	openProjectInExplorerReq    RuntimeProjectActionRequest
-	removeProjectReq            RuntimeProjectActionRequest
-	openProject                 RuntimeOpenProjectResponse
-	activity                    RuntimeSessionActivityResponse
-	output                      RuntimeOutputSnapshot
-	outputSessionID             string
-	outputRequest               RuntimeOutputRequest
-	outputEvents                RuntimeOutputEventsResponse
-	outputEventsSessionID       string
-	outputEventsAfter           string
-	outputStreamSessionID       string
-	outputStreamAfter           string
-	outputStreamEvents          []runtime.RuntimeOutputEvent
-	contextUsage                RuntimeContextUsage
-	contextUsageSessionID       string
-	contextGovernanceSettings   RuntimeContextGovernanceSettings
-	contextGovernanceSaveReq    RuntimeContextGovernanceSettings
-	contextGovernanceSaveCalls  int
-	activityWindow              RuntimeSessionActivityWindowResponse
-	turnActivity                RuntimeTurnActivityResponse
-	reactCallchain              RuntimeReactCallchainResponse
-	reactCallchainTurnID        string
-	sessionReactCallchain       RuntimeReactCallchainResponse
-	sessionReactCallchainID     string
-	sessionReactCallchainLimit  int
-	promptAssemblies            RuntimePromptAssembliesResponse
-	promptAssembliesTurnID      string
-	promptAssembliesSessionID   string
-	promptAssembliesLimit       int
-	eventsResponse              RuntimeEventsResponse
-	newChatTitle                string
-	createSessionReq            RuntimeSessionCreateRequest
-	sessionActivityID           string
-	sessionActivityWindowID     string
-	sessionActivityWindowCursor string
-	sessionActivityWindowLimit  int
-	turnActivityID              string
-	runProjectionRequest        RuntimeRunProjectionRequest
-	runProjection               RuntimeRunProjectionResponse
-	transitionHistoryReq        RuntimeRunTransitionHistoryRequest
-	transitionHistory           RuntimeRunTransitionHistoryResponse
-	runSchedulerPlanReq         RuntimeRunSchedulerPlanRequest
-	runSchedulerPlan            RuntimeRunSchedulerPlanResponse
-	executeRunID                string
-	executeTaskID               string
-	executeRunTask              RuntimeRunSchedulerExecuteTaskResponse
-	agentTaskSessionID          string
-	agentTasks                  RuntimeAgentTasksResponse
-	agentTaskOutputID           string
-	agentTaskOutput             RuntimeAgentTaskOutputResponse
-	todos                       RuntimeTodosResponse
-	todoSessionID               string
-	todoTurnID                  string
-	runs                        RuntimeRunsResponse
-	runCheckpointMarkersID      string
-	runCheckpointMarkers        RuntimeRunCheckpointMarkersResponse
-	runCheckpointMarkerRunID    string
-	runCheckpointMarkerID       string
-	runCheckpointMarker         RuntimeRunCheckpointMarkerResponse
-	run                         RuntimeRunResponse
-	runID                       string
-	ackRunID                    string
-	ackCheckpointID             string
-	discardRunID                string
-	discardCheckpointID         string
-	resumeRunID                 string
-	resumeCheckpointID          string
-	resume                      RuntimeRunResumeResponse
-	markInterruptedDoneID       string
-	markInterruptedDoneResponse RuntimeTurnResponse
-	resumeInterruptedTurnID     string
-	resumeInterruptedTurnReq    RuntimeResumeInterruptedTurnRequest
-	discardInterruptedTurnID    string
-	retryRecoverableErrorID     string
-	terminalResponse             RuntimeTerminalResponse
-	sessionTerminals             RuntimeSessionTerminalsResponse
-	sessionTerminalsID           string
-	createdTerminal              RuntimeTerminalCreateRequest
-	terminalInputID              string
-	terminalInput                runtime.RuntimeTerminalInputRequest
-	terminalResizeID             string
-	terminalResize               runtime.RuntimeTerminalResizeRequest
-	deletedTerminalID            string
-	saveConfiguredProviderReq    RuntimeConfiguredProviderRequest
-	saveConfiguredProviderCalls  int
-	saveConfiguredProviderResp   RuntimeConfiguredProviderResponse
-	deleteConfiguredProviderID   string
-	deleteConfiguredProviders    RuntimeConfiguredProvidersResponse
+	chatCalls                     int
+	chatRequests                  []RuntimeChatRequest
+	userInputReq                  RuntimeUserInputRequest
+	userInputResponse             RuntimeChatResponse
+	userInputID                   string
+	userInput                     RuntimeNormalizedInput
+	refreshedCapability           string
+	toolSearchQuery               string
+	replayExportRequest           runtime.RuntimeReplayExportRequest
+	mcpRequestDecision            runtime.RuntimeMCPRequestDecision
+	eventsAfter                   int64
+	status                        RuntimeStatus
+	openProjectReq                RuntimeOpenProjectRequest
+	createProjectReq              RuntimeCreateProjectRequest
+	renameProjectReq              RuntimeRenameProjectRequest
+	openProjectInExplorerReq      RuntimeProjectActionRequest
+	removeProjectReq              RuntimeProjectActionRequest
+	openProject                   RuntimeOpenProjectResponse
+	activity                      RuntimeSessionActivityResponse
+	output                        RuntimeOutputSnapshot
+	outputSessionID               string
+	outputRequest                 RuntimeOutputRequest
+	conversationSnapshotSessionID string
+	conversationSnapshotRequest   RuntimeCanonicalConversationSnapshotRequest
+	outputEvents                  RuntimeOutputEventsResponse
+	outputEventsSessionID         string
+	outputEventsAfter             string
+	outputStreamSessionID         string
+	outputStreamAfter             string
+	outputStreamEvents            []runtime.RuntimeOutputEvent
+	contextUsage                  RuntimeContextUsage
+	contextUsageSessionID         string
+	contextGovernanceSettings     RuntimeContextGovernanceSettings
+	contextGovernanceSaveReq      RuntimeContextGovernanceSettings
+	contextGovernanceSaveCalls    int
+	activityWindow                RuntimeSessionActivityWindowResponse
+	turnActivity                  RuntimeTurnActivityResponse
+	reactCallchain                RuntimeReactCallchainResponse
+	reactCallchainTurnID          string
+	sessionReactCallchain         RuntimeReactCallchainResponse
+	sessionReactCallchainID       string
+	sessionReactCallchainLimit    int
+	promptAssemblies              RuntimePromptAssembliesResponse
+	promptAssembliesTurnID        string
+	promptAssembliesSessionID     string
+	promptAssembliesLimit         int
+	eventsResponse                RuntimeEventsResponse
+	newChatTitle                  string
+	createSessionReq              RuntimeSessionCreateRequest
+	sessionActivityID             string
+	sessionActivityWindowID       string
+	sessionActivityWindowCursor   string
+	sessionActivityWindowLimit    int
+	turnActivityID                string
+	runProjectionRequest          RuntimeRunProjectionRequest
+	runProjection                 RuntimeRunProjectionResponse
+	transitionHistoryReq          RuntimeRunTransitionHistoryRequest
+	transitionHistory             RuntimeRunTransitionHistoryResponse
+	runSchedulerPlanReq           RuntimeRunSchedulerPlanRequest
+	runSchedulerPlan              RuntimeRunSchedulerPlanResponse
+	executeRunID                  string
+	executeTaskID                 string
+	executeRunTask                RuntimeRunSchedulerExecuteTaskResponse
+	agentTaskSessionID            string
+	agentTasks                    RuntimeAgentTasksResponse
+	agentTaskOutputID             string
+	agentTaskOutput               RuntimeAgentTaskOutputResponse
+	todos                         RuntimeTodosResponse
+	todoSessionID                 string
+	todoTurnID                    string
+	runs                          RuntimeRunsResponse
+	runCheckpointMarkersID        string
+	runCheckpointMarkers          RuntimeRunCheckpointMarkersResponse
+	runCheckpointMarkerRunID      string
+	runCheckpointMarkerID         string
+	runCheckpointMarker           RuntimeRunCheckpointMarkerResponse
+	run                           RuntimeRunResponse
+	runID                         string
+	ackRunID                      string
+	ackCheckpointID               string
+	discardRunID                  string
+	discardCheckpointID           string
+	resumeRunID                   string
+	resumeCheckpointID            string
+	resume                        RuntimeRunResumeResponse
+	markInterruptedDoneID         string
+	markInterruptedDoneResponse   RuntimeTurnResponse
+	resumeInterruptedTurnID       string
+	resumeInterruptedTurnReq      RuntimeResumeInterruptedTurnRequest
+	discardInterruptedTurnID      string
+	retryRecoverableErrorID       string
+	terminalResponse              RuntimeTerminalResponse
+	sessionTerminals              RuntimeSessionTerminalsResponse
+	sessionTerminalsID            string
+	createdTerminal               RuntimeTerminalCreateRequest
+	terminalInputID               string
+	terminalInput                 runtime.RuntimeTerminalInputRequest
+	terminalResizeID              string
+	terminalResize                runtime.RuntimeTerminalResizeRequest
+	deletedTerminalID             string
+	saveConfiguredProviderReq     RuntimeConfiguredProviderRequest
+	saveConfiguredProviderCalls   int
+	saveConfiguredProviderResp    RuntimeConfiguredProviderResponse
+	deleteConfiguredProviderID    string
+	deleteConfiguredProviders     RuntimeConfiguredProvidersResponse
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -1690,6 +1708,12 @@ func (s *recordingRuntimeService) SessionOutput(_ context.Context, sessionID str
 		s.output.SessionID = sessionID
 	}
 	return s.output, nil
+}
+
+func (s *recordingRuntimeService) SessionConversationSnapshotV2(_ context.Context, sessionID string, req RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error) {
+	s.conversationSnapshotSessionID = sessionID
+	s.conversationSnapshotRequest = req
+	return RuntimeCanonicalConversationSnapshot{SchemaVersion: runtime.RuntimeConversationSchemaVersion, SessionID: sessionID, Cursor: "0", Scope: runtime.RuntimeConversationScopeFull, Turns: []runtime.RuntimeCanonicalTurn{}, Messages: []runtime.RuntimeCanonicalMessage{}, AssistantSteps: []runtime.RuntimeCanonicalAssistantStep{}, ToolCalls: []runtime.RuntimeCanonicalToolCall{}, ToolResults: []runtime.RuntimeCanonicalToolResult{}, Permissions: []runtime.RuntimeCanonicalPermission{}, TodoPlans: []runtime.RuntimeCanonicalTodoPlan{}, AgentTasks: []runtime.RuntimeCanonicalAgentTask{}, Notices: []runtime.RuntimeCanonicalNotice{}}, nil
 }
 
 func (s *recordingRuntimeService) SessionOutputEvents(_ context.Context, sessionID string, after string) (RuntimeOutputEventsResponse, error) {

@@ -250,6 +250,8 @@ type RuntimeModelDiscoveryResponse = runtime.RuntimeModelDiscoveryResponse
 type RuntimeAuditEvent = runtime.RuntimeAuditEvent
 type RuntimeAuditResponse = runtime.RuntimeAuditResponse
 type RuntimeEvent = runtime.RuntimeEvent
+type RuntimeCanonicalConversationSnapshotRequest = runtime.RuntimeCanonicalConversationSnapshotRequest
+type RuntimeCanonicalConversationSnapshot = runtime.RuntimeCanonicalConversationSnapshot
 
 // RuntimeBridge is the Wails adapter. It intentionally delegates to
 // runtime.RuntimeService so desktop bindings do not become the business
@@ -1014,6 +1016,10 @@ func (r *RuntimeBridge) SessionOutput(ctx context.Context, sessionID string, req
 
 	return r.service.SessionOutput(ctx, sessionID, req)
 
+}
+
+func (r *RuntimeBridge) SessionConversationSnapshotV2(ctx context.Context, sessionID string, req RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error) {
+	return r.service.SessionConversationSnapshotV2(ctx, sessionID, req)
 }
 
 // StartSessionOutputStream opens a per-session push channel that batches

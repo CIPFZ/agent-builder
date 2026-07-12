@@ -178,6 +178,10 @@ func (s *Scheduler) ListCalls(ctx context.Context, turnID string) ([]ToolCall, e
 	return s.store.ListByTurn(ctx, turnID)
 }
 
+func (s *Scheduler) ListSessionCalls(ctx context.Context, sessionID string) ([]ToolCall, error) {
+	return s.store.ListBySession(ctx, sessionID)
+}
+
 func (s *Scheduler) CancelCall(ctx context.Context, id string) error {
 	call, err := s.store.Get(ctx, id)
 	if err != nil {

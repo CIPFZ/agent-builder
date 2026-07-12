@@ -64,6 +64,7 @@ import { hydrateOutputStore } from './outputReducer.ts';
 import { selectConversationMessages, selectPendingPermissions } from './outputSelectors.ts';
 import { retargetOutputStore } from './outputStore.ts';
 import type { RuntimeOutputSnapshot } from './outputTypes.ts';
+import type { CanonicalConversationSnapshot, CanonicalConversationSnapshotRequest } from './canonicalConversationTypes.ts';
 import { getInitialWorkbenchViewModel, staticWorkbenchAdapter } from './staticWorkbenchAdapter.tsx';
 
 interface RuntimeStatusDTO extends RuntimeWriteActionResponseDTO {
@@ -1676,6 +1677,7 @@ interface RuntimeBridgeModule {
   SessionMessages?: (sessionID: string) => Promise<RuntimeMessagesResponseDTO>;
   SessionContextUsage?: (sessionID: string) => Promise<RuntimeContextUsageDTO>;
   SessionOutput?: (sessionID: string, req: { snapshot?: boolean; cursor?: string; limit?: number }) => Promise<RuntimeOutputSnapshot>;
+  SessionConversationSnapshotV2?: (sessionID: string, req: CanonicalConversationSnapshotRequest) => Promise<CanonicalConversationSnapshot>;
   StartSessionOutputStream?: (req: { sessionId: string; streamId?: string; after?: string }) => Promise<{ streamId: string; eventName: string }>;
   StopSessionOutputStream?: (req: { streamId: string }) => Promise<boolean>;
   SessionActivity?: (sessionID: string) => Promise<RuntimeSessionActivityDTO>;

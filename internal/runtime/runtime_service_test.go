@@ -5230,6 +5230,10 @@ func (s *recordingRuntimeService) SessionOutput(_ context.Context, sessionID str
 	return s.output, nil
 }
 
+func (s *recordingRuntimeService) SessionConversationSnapshotV2(_ context.Context, sessionID string, req RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error) {
+	return RuntimeCanonicalConversationSnapshot{SchemaVersion: RuntimeConversationSchemaVersion, SessionID: sessionID, Cursor: "0", Scope: RuntimeConversationScopeFull, Turns: []RuntimeCanonicalTurn{}, Messages: []RuntimeCanonicalMessage{}, AssistantSteps: []RuntimeCanonicalAssistantStep{}, ToolCalls: []RuntimeCanonicalToolCall{}, ToolResults: []RuntimeCanonicalToolResult{}, Permissions: []RuntimeCanonicalPermission{}, TodoPlans: []RuntimeCanonicalTodoPlan{}, AgentTasks: []RuntimeCanonicalAgentTask{}, Notices: []RuntimeCanonicalNotice{}}, nil
+}
+
 func (s *recordingRuntimeService) SessionOutputEvents(_ context.Context, sessionID string, after string) (RuntimeOutputEventsResponse, error) {
 	s.outputEventsSession = sessionID
 	s.outputEventsAfter = after

@@ -31,6 +31,12 @@ export interface CanonicalConversationSnapshot {
   notices: CanonicalNotice[];
 }
 
+export interface CanonicalConversationSnapshotRequest {
+  scope?: CanonicalConversationScope;
+  limit?: number;
+  before?: string;
+}
+
 export interface CanonicalTurn extends CanonicalEntityMeta { status: string; userMessageId?: string; finalMessageId?: string; startedAt?: number; finishedAt?: number; error?: string }
 export interface CanonicalMessage extends CanonicalEntityMeta { role: string; phase?: CanonicalMessagePhase; assistantStepId?: string; status: string; content?: string; partsJson?: string; clientRequestId?: string; error?: string }
 export interface CanonicalAssistantStep extends CanonicalEntityMeta { messageId: string; index: number; status: string; startedAt?: number; finishedAt?: number }

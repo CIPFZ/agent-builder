@@ -10,6 +10,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/CIPFZ/agent-builder/internal/pubsub"
 	"github.com/CIPFZ/agent-builder/internal/session"
+	"github.com/google/uuid"
 )
 
 //go:embed todos.md
@@ -30,6 +31,7 @@ type TodoItem struct {
 }
 
 type TodoUpdatedEvent struct {
+	PlanID        string         `json:"plan_id"`
 	SessionID     string         `json:"session_id"`
 	TurnID        string         `json:"turn_id,omitempty"`
 	ToolCallID    string         `json:"tool_call_id,omitempty"`
@@ -79,8 +81,10 @@ func newTodosTool(name, description string, sessions session.Service) fantasy.Ag
 
 			isNew := len(currentSession.Todos) == 0
 			oldStatusByContent := make(map[string]session.TodoStatus)
+			oldIDByContent := make(map[string]string)
 			for _, todo := range currentSession.Todos {
 				oldStatusByContent[todo.Content] = todo.Status
+				oldIDByContent[todo.Content] = todo.ID
 			}
 
 			normalized, err := normalizeTodoItems(params.Todos)
@@ -94,7 +98,12 @@ func newTodosTool(name, description string, sessions session.Service) fantasy.Ag
 			completedCount := 0
 
 			for i, item := range normalized {
+				todoID := oldIDByContent[item.Content]
+				if todoID == "" {
+					todoID = uuid.NewString()
+				}
 				todos[i] = session.Todo{
+					ID:         todoID,
 					Content:    item.Content,
 					Status:     session.TodoStatus(item.Status),
 					ActiveForm: item.ActiveForm,
@@ -143,9 +152,11 @@ func newTodosTool(name, description string, sessions session.Service) fantasy.Ag
 				}
 			}
 
+			turnID := GetTurnFromContext(ctx)
 			todoUpdates.Publish(pubsub.UpdatedEvent, TodoUpdatedEvent{
+				PlanID:        "todo-plan:" + sessionID,
 				SessionID:     sessionID,
-				TurnID:        GetTurnFromContext(ctx),
+				TurnID:        turnID,
 				ToolCallID:    call.ID,
 				Todos:         todos,
 				Pending:       pendingCount,

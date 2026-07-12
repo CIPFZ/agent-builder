@@ -59,6 +59,12 @@ type RuntimeCanonicalConversationSnapshot struct {
 	Notices        []RuntimeCanonicalNotice        `json:"notices"`
 }
 
+type RuntimeCanonicalConversationSnapshotRequest struct {
+	Scope  string `json:"scope,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+	Before string `json:"before,omitempty"`
+}
+
 type RuntimeConversationWindow struct {
 	TurnIDs       []string `json:"turnIds,omitempty"`
 	BeforeCursor  string   `json:"beforeCursor,omitempty"`

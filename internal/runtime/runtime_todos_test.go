@@ -35,6 +35,7 @@ func TestRuntimeTodoUpdatedEvent(t *testing.T) {
 
 	service := newRuntimeService()
 	event := service.recordTodoUpdate(tools.TodoUpdatedEvent{
+		PlanID:     "todo-plan-1",
 		SessionID:  "session-1",
 		TurnID:     "turn-1",
 		ToolCallID: "tool-1",
@@ -46,6 +47,9 @@ func TestRuntimeTodoUpdatedEvent(t *testing.T) {
 		Total:      1,
 		UpdatedAt:  123,
 	})
+	if event.Payload["plan_id"] != "todo-plan-1" || event.Payload["todos"] == nil {
+		t.Fatalf("canonical todo evidence missing: %#v", event.Payload)
+	}
 
 	if event.Type != "todo.updated" || event.SessionID != "session-1" || event.TurnID != "turn-1" || event.ToolCallID != "tool-1" {
 		t.Fatalf("event = %#v", event)

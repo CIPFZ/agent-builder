@@ -110,6 +110,14 @@ func TestTodosToolUpdatesTodos(t *testing.T) {
 	require.Len(t, sessions.session.Todos, 1)
 	require.Equal(t, "Write report", sessions.session.Todos[0].Content)
 	require.Equal(t, session.TodoStatusInProgress, sessions.session.Todos[0].Status)
+	require.NotEmpty(t, sessions.session.Todos[0].ID)
+	stableID := sessions.session.Todos[0].ID
+
+	input, err = json.Marshal(TodosParams{Todos: []TodoItem{{Content: "Write report", Status: "completed", ActiveForm: "Writing report"}}})
+	require.NoError(t, err)
+	_, err = tool.Run(context.WithValue(context.Background(), SessionIDContextKey, "session-1"), fantasy.ToolCall{ID: "todo-call-2", Name: TodosToolName, Input: string(input)})
+	require.NoError(t, err)
+	require.Equal(t, stableID, sessions.session.Todos[0].ID, "Todo identity must survive status updates")
 }
 
 func TestTodosToolRejectsInvalidListsWithoutChangingSession(t *testing.T) {

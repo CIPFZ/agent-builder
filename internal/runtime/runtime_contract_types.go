@@ -1588,6 +1588,7 @@ type RuntimeAgentTaskResultResponse struct {
 }
 
 type RuntimeTodo struct {
+	ID         string `json:"id,omitempty"`
 	Content    string `json:"content"`
 	Status     string `json:"status"`
 	ActiveForm string `json:"activeForm,omitempty"`

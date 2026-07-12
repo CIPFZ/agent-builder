@@ -118,6 +118,7 @@ type RuntimeService interface {
 	SessionMessages(context.Context, string) (RuntimeMessagesResponse, error)
 	SessionContextUsage(context.Context, string) (RuntimeContextUsage, error)
 	SessionOutput(context.Context, string, RuntimeOutputRequest) (RuntimeOutputSnapshot, error)
+	SessionConversationSnapshotV2(context.Context, string, RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error)
 	SessionOutputEvents(context.Context, string, string) (RuntimeOutputEventsResponse, error)
 	SubscribeSessionOutputEvents(context.Context, string, string) (<-chan RuntimeOutputEvent, func())
 	SessionActivity(context.Context, string) (RuntimeSessionActivityResponse, error)

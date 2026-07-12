@@ -34,6 +34,7 @@ func HashID(id string) string {
 }
 
 type Todo struct {
+	ID         string     `json:"id,omitempty"`
 	Content    string     `json:"content"`
 	Status     TodoStatus `json:"status"`
 	ActiveForm string     `json:"active_form"`

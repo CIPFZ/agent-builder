@@ -14,6 +14,7 @@ type Store interface {
 	Upsert(context.Context, ToolCall) (ToolCall, error)
 	Get(context.Context, string) (ToolCall, error)
 	ListByTurn(context.Context, string) ([]ToolCall, error)
+	ListBySession(context.Context, string) ([]ToolCall, error)
 }
 
 type MemoryStore struct {
@@ -71,6 +72,24 @@ func (s *MemoryStore) ListByTurn(_ context.Context, turnID string) ([]ToolCall, 
 		}
 	}
 	sort.SliceStable(calls, func(i, j int) bool {
+		return calls[i].StartedAt.Before(calls[j].StartedAt)
+	})
+	return calls, nil
+}
+
+func (s *MemoryStore) ListBySession(_ context.Context, sessionID string) ([]ToolCall, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	calls := make([]ToolCall, 0)
+	for _, call := range s.calls {
+		if call.SessionID == sessionID {
+			calls = append(calls, call)
+		}
+	}
+	sort.SliceStable(calls, func(i, j int) bool {
+		if calls[i].StartedAt.Equal(calls[j].StartedAt) {
+			return calls[i].ID < calls[j].ID
+		}
 		return calls[i].StartedAt.Before(calls[j].StartedAt)
 	})
 	return calls, nil
