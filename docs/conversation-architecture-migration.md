@@ -21,7 +21,7 @@ and commit reference after every phase.
 | 4. Frontend store | `[x]` | `cdd76802` | Normalized reducer, revision-safe snapshot merge, pure Turn selector, stable presentation grouping, tests, and independent review completed. |
 | 5. Convergence | `[x]` | `faf0344c` | Canonical-mode Session stream is the only live writer; refresh, switching, reconnect, and explicit recovery converge by cursor. |
 | 6. Structured activity | `[x]` | `96b556ee` | Todo, Permission, Subagent, Agent Team, and semantic notices now share canonical ownership and projections. |
-| 7. Cutover | `[x]` | pending | Legacy projection/adapters removed; canonical product path, packaged WebView, automated gates, and independent review completed. |
+| 7. Cutover | `[x]` | `bbc3a702` | Legacy projection/adapters removed; canonical product path, packaged WebView, automated gates, and independent review completed. |
 
 ## Why this migration exists
 
