@@ -62,6 +62,26 @@ try {
       await ensurePackagedRuntimeStarted(page);
 
       await expect(page.getByText(manifest.finalText, { exact: true })).toBeVisible({ timeout: 30000 });
+      const process = page.locator(`[data-testid="timeline-turn-block"][data-turn-id="${manifest.completedTurnID}"] [data-testid="process-trace"]`);
+      await expect(process).toHaveAttribute('data-process-open', 'false');
+      await expect(page.getByTestId('agent-activity-monitor')).toBeVisible();
+      await expect(page.getByTestId('todo-task-bar')).toHaveCount(0);
+      await expect(process.getByTestId('todo-task-bar')).toHaveCount(0);
+      const processToggle = process.getByRole('button').first();
+      await processToggle.click();
+      await expect(page.getByText(manifest.processText, { exact: true })).toBeVisible();
+      const teamRow = page.getByTestId('timeline-agent-team-row');
+      await expect(teamRow).toHaveAttribute('data-team-id', manifest.teamID);
+      await teamRow.locator('button[aria-expanded]').click();
+      const member = teamRow.locator(`[data-task-id="${manifest.taskID}"]`);
+      await expect(member).toBeVisible();
+      await member.click();
+      await expect(page.locator(`[data-testid="agent-task-detail"][data-task-id="${manifest.taskID}"]`)).toBeVisible();
+      await processToggle.click();
+      await expect(process).toHaveAttribute('data-process-disclosure-mode', 'manual_closed');
+      await page.waitForTimeout(100);
+      const distanceToBottom = await page.getByTestId('conversation-scroll-container').evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight);
+      expect(distanceToBottom).toBeLessThanOrEqual(48);
       const conversation = await page.evaluate(async ({ bridgeModulePath, sessionID }) => {
         const bridge = await import(bridgeModulePath);
         return bridge.SessionConversationSnapshotV2(sessionID, {});
@@ -70,6 +90,7 @@ try {
       expect(conversation.sessionId).toBe(manifest.sessionID);
       expect(conversation.turns ?? []).toHaveLength(1);
       expect((conversation.messages ?? []).some((message) => message.role === 'assistant' && message.content === manifest.finalText)).toBe(true);
+      expect((conversation.agentTasks ?? []).some((task) => task.id === manifest.taskID && task.teamId === manifest.teamID)).toBe(true);
     } finally {
       await browser.close();
     }

@@ -717,3 +717,27 @@ Final verification and review:
    hash-recording follow-up may be included at the start of the next phase.
 
 Do not begin a later phase while an earlier phase is incomplete or blocked.
+
+## Post-cutover conversation presentation refinement
+
+The follow-up presentation implementation is tracked exclusively in
+`docs/conversation-presentation-implementation-plan.md`. Phases 0-5 completed
+the pure presentation contracts, flat outer process disclosure, canonical
+Agent/Team dual projection, persistent Agent monitor, independent Todo dock
+polish, and end-to-end verification.
+
+This refinement does not change the migration ownership boundary: the
+canonical Go store and atomic Wails entity stream remain the only conversation
+writers. React owns only disclosure mode, selection, grouping, labels, layout,
+and bounded detail presentation. Todo remains outside the process timeline,
+and timeline/monitor/Tasks views retain references to the same canonical
+AgentTask projections.
+
+Final verification included the presentation/canonical client smoke matrix,
+client lint/build, `go build ./...`, focused Runtime/Desktop canonical tests,
+and a production-tagged packaged WebView2 smoke covering historical process
+folding, manual disclosure, timeline-to-Agent-detail navigation, Wails V2
+readback, and scroll anchoring. The repository-wide Go suite was attempted and
+retained the already documented unrelated MCP replay/sandbox failures plus the
+ten-minute Runtime scenario-harness timeout; no presentation-focused Go test
+failed.

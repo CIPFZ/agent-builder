@@ -437,7 +437,7 @@ Independent review notes:
   state and confirmed no Runtime ownership, sticky-bottom, or manual process
   disclosure changes.
 
-### Phase 5: End-to-end verification `[ ]`
+### Phase 5: End-to-end verification `[x]`
 
 - Automated matrix: active -> completed, manual open/closed, failed,
   permission, Todo, Subagent, Team, late ToolResult, late Agent message,
@@ -448,6 +448,71 @@ Independent review notes:
 
 Exit gate: build/lint/smokes/Go tests and packaged scenarios pass; each phase is
 committed independently before the next begins.
+
+Automated verification matrix:
+
+| Scenario | Evidence |
+|---|---|
+| active -> completed; manual open/closed; failed; permission; reading anchor | `smoke:process-disclosure-policy` |
+| no-tool, multi-tool, failed-tool, Todo, Subagent, Team identities/order | `smoke:conversation-presentation-model` |
+| task/Team revision stability and timeline selection | `smoke:agent-timeline-projection` |
+| persistent summary, selection retention, Team/independent grouping, bounded details | `smoke:agent-monitor-panel` |
+| Todo/Permission/Agent combinations, compact completed Todo, responsive flat edges | `smoke:conversation-cross-surface-polish` |
+| late ToolResult/final, stale/window snapshots, tombstones, revisions | `smoke:canonical-conversation-store` |
+| Session A -> B -> A, reconnect, explicit recovery, single Wails writer | `smoke:canonical-conversation-convergence` |
+| late Agent messages, Todo/Permission ownership, Team projection, compact/recovery notices | `smoke:canonical-structured-activity` |
+| historical/reload/cutover and final-message ownership | `smoke:canonical-conversation-cutover`, `smoke:conversation-contract-v2` |
+| restart reconstruction, stream replay, bounded Agent messages, notices | focused canonical Runtime and Desktop Go tests |
+
+Packaged Wails verification:
+
+- `smoke:phase7-packaged` built the production-tagged Windows executable,
+  started its real WebView2 surface from a durable canonical Session, and read
+  the same V2 snapshot through generated Wails bindings.
+- The packaged DOM verified a historical completed process starts collapsed,
+  can be manually opened and closed, and exposes its intermediate process text.
+- A seeded canonical Team row expanded to its member; clicking that timeline
+  member opened the existing Tasks tab and selected the matching task detail.
+  The persistent Agent monitor remained visible while the process was folded.
+- Todo was absent from both packaged process boundaries, and post-collapse
+  distance-to-bottom remained within the 48px sticky threshold.
+- The packaged console emitted existing non-fatal 404 and 422 resource logs;
+  all presentation, Wails readback, and shutdown assertions passed.
+
+Verification commands and results:
+
+- `go build ./...` passed.
+- Focused canonical `internal/runtime` tests passed in 5.659s; focused Desktop
+  conversation/canonical tests passed in 5.120s on the final rerun.
+- Repository-wide `go test ./...` was attempted. All reported packages outside
+  `internal/runtime` passed, while that package retained unrelated pre-existing
+  failures in MCP replay/sandbox tests and timed out after ten minutes in
+  `TestRuntimeScenarioHarnessPolicyToolShellGolden`.
+- All presentation/canonical client smokes listed above, Markdown smoke, lint,
+  and production build passed.
+- `smoke:phase7-packaged` passed after its durable fixture was expanded with an
+  intermediate process message and explicit canonical Agent Team task.
+
+Remaining hands-on checks:
+
+- A durable seed cannot truthfully represent a live running Turn: Runtime
+  restart semantics interrupt/recover unfinished work. Running-process follow,
+  live Todo appearance/completion, and permission replacement are therefore
+  covered automatically by the pure state/projection matrix but still require
+  one interactive packaged provider run for final human visual confirmation.
+- During that run, confirm no perceived composer flash while Todo and
+  Permission appear/disappear and confirm reading an older Turn prevents live
+  completion from collapsing under the cursor.
+
+Independent review notes:
+
+- Final review confirmed the packaged fixture uses persisted Runtime entities
+  and the generated Wails V2 binding rather than a browser-owned mock.
+- Diff review found no new writer, Runtime ownership change, legacy fallback,
+  HTTP/SSE/polling path, or Todo timeline duplication.
+- The attempted durable-running fixture was rejected because it conflicts with
+  legitimate Runtime restart semantics; the limitation and manual follow-up
+  are recorded instead of claiming a false packaged pass.
 
 ## Recommended starting point
 
