@@ -36,6 +36,7 @@
     "smoke:markdown-message": "node scripts/markdown-message-smoke.mjs",
     "smoke:conversation-presentation-model": "node scripts/conversation-presentation-model-smoke.mjs",
     "smoke:process-disclosure-policy": "node scripts/process-disclosure-policy-smoke.mjs",
+    "smoke:timeline-virtualization": "node scripts/timeline-virtualization-smoke.mjs",
     "smoke:agent-timeline-projection": "node scripts/agent-timeline-projection-smoke.mjs",
     "smoke:agent-monitor-panel": "node scripts/agent-monitor-panel-smoke.mjs",
     "smoke:conversation-cross-surface-polish": "node scripts/conversation-cross-surface-polish-smoke.mjs"

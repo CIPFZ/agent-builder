@@ -13,6 +13,11 @@
   gap: 12px;
 }
 
+.turnViewport {
+  min-width: 0;
+  contain: layout style;
+}
+
 .assistantBubble {
   width: min(760px, 100%);
   max-width: 100%;

@@ -103,8 +103,16 @@ Implementation progress:
 - Live event batches clone only the entity dictionaries whose kinds occur in
   that batch; untouched dictionaries preserve referential identity.
 - Workspace canonical projections are memoized by normalized store identity.
-- Remaining Phase 2 work is Turn-level render reuse, streaming-event
-  coalescing, and mounted-Turn virtualization.
+- Turn projections expose semantic revision keys. Timeline memoizes Turn
+  wrappers by those keys so an update in one Turn does not rerender unrelated
+  Turn subtrees.
+- Completed Turns outside a 1,000 px viewport margin release their rendered
+  Markdown/tool subtree and retain a measured-height placeholder. Active
+  Turns remain mounted regardless of viewport position.
+- Runtime already bounds persisted `message.updated` amplification with a
+  250 ms coalescing window while keeping advisory text deltas outside the
+  canonical persisted cursor. Remaining Phase 2 work is profiler-backed
+  tuning of virtualization margins and placeholder behavior.
 
 ## Phase 3: content and navigation
 

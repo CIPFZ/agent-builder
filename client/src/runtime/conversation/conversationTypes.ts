@@ -21,6 +21,7 @@ export interface ConversationProcessViewModel {
 
 export interface ConversationTurnViewModel {
   id: string;
+  revisionKey: string;
   sessionId: string;
   status: ConversationTurnStatus;
   user?: ConversationTimelineItemViewModel;

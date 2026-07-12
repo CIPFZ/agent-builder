@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { message } from 'antd';
 import type { ConversationTimelineItemViewModel, HookExecutionSummaryViewModel, HookExecutionViewModel } from '../../runtime/workbenchTypes.ts';
 import type { ConversationTurnViewModel } from '../../runtime/conversation/conversationTypes.ts';
@@ -22,6 +22,7 @@ interface TimelineProps {
 
 interface TimelineTurnBlock {
   id: string;
+  revisionKey: string;
   turnId?: string;
   userMessage?: ConversationTimelineItemViewModel;
   explorationSummary?: ConversationTimelineItemViewModel;
@@ -38,6 +39,7 @@ export function Timeline({ turns, hookExecutions, onAgentTaskOpen, onHookExecuti
   const [selectedHookExecution, setSelectedHookExecution] = useState<HookExecutionViewModel | undefined>();
   const blocks: TimelineTurnBlock[] = turns.map((turn) => ({
     id: turn.id,
+    revisionKey: turn.revisionKey,
     turnId: turn.id,
     userMessage: turn.user,
     explorationSummary: turn.process.exploration ? {
@@ -59,7 +61,7 @@ export function Timeline({ turns, hookExecutions, onAgentTaskOpen, onHookExecuti
     <div className={styles.timeline} data-testid="conversation-timeline">
       {messageContextHolder}
       {blocks.map((block) => (
-        <TurnBlock
+        <VirtualizedTurnBlock
           key={block.id}
           block={block}
           hookExecutions={hookExecutions}
@@ -78,6 +80,66 @@ export function Timeline({ turns, hookExecutions, onAgentTaskOpen, onHookExecuti
     </div>
   );
 }
+
+const VirtualizedTurnBlock = memo(function VirtualizedTurnBlock({
+  block,
+  hookExecutions,
+  messageApi,
+  onAgentTaskOpen,
+  onHookOpen,
+}: {
+  block: TimelineTurnBlock;
+  hookExecutions?: HookExecutionSummaryViewModel;
+  messageApi: ReturnType<typeof message.useMessage>[0];
+  onAgentTaskOpen?: (taskID: string) => void;
+  onHookOpen?: (execution: HookExecutionViewModel) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [nearViewport, setNearViewport] = useState(true);
+  const [measuredHeight, setMeasuredHeight] = useState<number>();
+  const keepMounted = isActiveTurnStatus(block.status);
+  const mounted = keepMounted || nearViewport || measuredHeight === undefined || typeof IntersectionObserver === 'undefined';
+
+  useLayoutEffect(() => {
+    const node = containerRef.current;
+    if (!node || !mounted) return;
+    const measure = () => {
+      const height = node.getBoundingClientRect().height;
+      if (height > 0) setMeasuredHeight((current) => current === height ? current : height);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [block.revisionKey, mounted]);
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(([entry]) => setNearViewport(entry.isIntersecting), { rootMargin: '1000px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className={styles.turnViewport}
+      data-turn-mounted={mounted}
+      style={!mounted && measuredHeight !== undefined ? { height: measuredHeight } : undefined}
+    >
+      {mounted && <TurnBlock block={block} hookExecutions={hookExecutions} messageApi={messageApi} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} />}
+    </div>
+  );
+}, (previous, next) => (
+  previous.block.revisionKey === next.block.revisionKey &&
+  previous.block.status === next.block.status &&
+  previous.hookExecutions === next.hookExecutions &&
+  previous.messageApi === next.messageApi &&
+  previous.onAgentTaskOpen === next.onAgentTaskOpen &&
+  previous.onHookOpen === next.onHookOpen
+));
 
 function TurnBlock({
   block,
@@ -222,6 +284,10 @@ function isHighSignalHook(execution: HookExecutionViewModel) {
 
 function isContextGovernanceItem(item: ConversationTimelineItemViewModel) {
 	return item.kind === 'context_source';
+}
+
+function isActiveTurnStatus(status?: string) {
+  return status === 'queued' || status === 'running' || status === 'waiting_permission';
 }
 
 

@@ -15,7 +15,7 @@ export function selectCanonicalConversationTurnViewModels(store?: CanonicalConve
       ? projectToolGroup(item.key, item.tools, store!, structured)
       : projectProcessEntity(item.entity, store!, structured)).filter((item): item is ConversationTimelineItemViewModel => Boolean(item)));
     return {
-      id: turn.id, sessionId: turn.sessionId, status,
+      id: turn.id, revisionKey: turnRevisionKey(turn, user, final, process), sessionId: turn.sessionId, status,
       user: user ? projectMessage(user) : undefined,
       final: final ? projectMessage(final) : undefined,
       process: { status, items, startedAt: turn.startedAt, finishedAt: turn.finishedAt, hasFailure: status === 'failed' || items.some((item) => isFailure(item.status)) },
@@ -25,9 +25,13 @@ export function selectCanonicalConversationTurnViewModels(store?: CanonicalConve
   const echoed = selectOwnedClientRequestIds(store);
   for (const submit of Object.values(optimistic ?? {})) {
     if (echoed.has(submit.clientRequestId) || (store?.sessionId && submit.sessionId && submit.sessionId !== store.sessionId)) continue;
-    turns.push({ id: `optimistic:${submit.clientRequestId}`, sessionId: submit.sessionId || store?.sessionId || '', status: submit.status === 'error' ? 'failed' : 'queued', startedAt: submit.createdAt, user: { id: `optimistic-message:${submit.clientRequestId}`, kind: 'user_message', sessionId: submit.sessionId, role: 'user', content: submit.prompt, status: submit.status === 'error' ? 'error' : 'loading', createdAt: submit.createdAt, clientRequestId: submit.clientRequestId, error: submit.error }, process: { status: submit.status === 'error' ? 'failed' : 'queued', items: [], startedAt: submit.createdAt, finishedAt: undefined, hasFailure: submit.status === 'error' }, error: submit.error });
+    turns.push({ id: `optimistic:${submit.clientRequestId}`, revisionKey: `optimistic:${submit.status}:${submit.error ?? ''}`, sessionId: submit.sessionId || store?.sessionId || '', status: submit.status === 'error' ? 'failed' : 'queued', startedAt: submit.createdAt, user: { id: `optimistic-message:${submit.clientRequestId}`, kind: 'user_message', sessionId: submit.sessionId, role: 'user', content: submit.prompt, status: submit.status === 'error' ? 'error' : 'loading', createdAt: submit.createdAt, clientRequestId: submit.clientRequestId, error: submit.error }, process: { status: submit.status === 'error' ? 'failed' : 'queued', items: [], startedAt: submit.createdAt, finishedAt: undefined, hasFailure: submit.status === 'error' }, error: submit.error });
   }
   return turns.sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0) || left.id.localeCompare(right.id));
+}
+
+function turnRevisionKey(turn: { revision: string }, user: CanonicalMessage | undefined, final: CanonicalMessage | undefined, process: CanonicalProcessEntity[]) {
+  return [turn.revision, user?.revision ?? '', final?.revision ?? '', ...process.map((entity) => `${entity.id}:${entity.revision}`)].join('|');
 }
 
 function projectProcessEntity(entity: CanonicalProcessEntity, store: CanonicalConversationStore, structured: CanonicalStructuredActivity): ConversationTimelineItemViewModel | undefined {
