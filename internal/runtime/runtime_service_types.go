@@ -119,6 +119,7 @@ type RuntimeService interface {
 	SessionContextUsage(context.Context, string) (RuntimeContextUsage, error)
 	SessionConversationSnapshotV2(context.Context, string, RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error)
 	SessionConversationMessageContentV2(context.Context, string, string) (RuntimeCanonicalMessageContentResponseV2, error)
+	SearchSessionConversationV2(context.Context, string, RuntimeConversationSearchRequestV2) (RuntimeConversationSearchResponseV2, error)
 	SessionConversationEventsV2(context.Context, string, RuntimeCanonicalConversationEventsRequestV2) (RuntimeCanonicalConversationEventsResponseV2, error)
 	SubscribeSessionConversationEventsV2(context.Context, string, string) (<-chan RuntimeCanonicalConversationEventBatchV2, func())
 	SessionActivity(context.Context, string) (RuntimeSessionActivityResponse, error)

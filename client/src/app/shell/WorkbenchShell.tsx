@@ -316,6 +316,16 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     [adapter],
   );
 
+  const searchConversation = useCallback(
+    (sessionID: string, query: string) => adapter.searchConversation?.(sessionID, query) ?? Promise.resolve([]),
+    [adapter],
+  );
+
+  const openConversationSearchResult = useCallback(
+    (sessionID: string, turnID: string) => canonicalCoordinator?.loadAround(sessionID, turnID) ?? Promise.resolve(false),
+    [canonicalCoordinator],
+  );
+
   const startConversationDraft = (target?: NewConversationDraftViewModel) => {
     sessionMutationSeqRef.current += 1;
     const currentViewModel = viewModelRef.current;
@@ -987,6 +997,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onHookExecutionLoad={loadHookExecution}
           onConversationLoadEarlier={loadEarlierConversation}
           onMessageContentLoad={loadCanonicalMessageContent}
+          onConversationSearch={searchConversation}
+          onConversationSearchResultOpen={openConversationSearchResult}
         />
       )}
     </main>

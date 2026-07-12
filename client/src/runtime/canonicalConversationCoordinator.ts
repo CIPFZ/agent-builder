@@ -14,6 +14,7 @@ export interface CanonicalConversationCoordinatorDeps {
 export interface CanonicalConversationCoordinator {
   activate: (sessionId: string) => void;
   loadEarlier: (sessionId: string) => Promise<boolean>;
+  loadAround: (sessionId: string, turnId: string) => Promise<boolean>;
   evict: (sessionId: string) => void;
   stop: () => void;
   cached: (sessionId: string) => CanonicalConversationStore | undefined;
@@ -126,6 +127,18 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
       } finally {
         loadingEarlier.delete(sessionId);
       }
+    },
+    async loadAround(sessionId, turnId) {
+      if (sessionId !== activeSessionId || !turnId) return false;
+      const snapshot = await deps.fetchSnapshot(sessionId, { scope: 'window', limit: INITIAL_TURN_WINDOW, around: turnId });
+      if (sessionId !== activeSessionId) return false;
+      const base = cache.get(sessionId);
+      if (!base) return false;
+      const next = hydrateCanonicalConversationStore(snapshot, base);
+      if (next.recovery) return false;
+      remember(sessionId, next);
+      deps.onStore(next);
+      return true;
     },
     evict(sessionId) { loadingEarlier.delete(sessionId); cache.delete(sessionId); },
     stop() { activeSessionId = ''; recovering = false; retryAttempt = 0; generation += 1; clearRetry(); stopStream(); },

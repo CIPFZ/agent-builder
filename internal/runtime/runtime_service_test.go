@@ -5125,6 +5125,10 @@ func (s *recordingRuntimeService) SessionConversationMessageContentV2(context.Co
 	return RuntimeCanonicalMessageContentResponseV2{}, nil
 }
 
+func (s *recordingRuntimeService) SearchSessionConversationV2(context.Context, string, RuntimeConversationSearchRequestV2) (RuntimeConversationSearchResponseV2, error) {
+	return RuntimeConversationSearchResponseV2{}, nil
+}
+
 func (s *recordingRuntimeService) TurnCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error) {
 	return s.compactBoundaries, nil
 }

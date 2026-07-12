@@ -36,8 +36,11 @@ export interface CanonicalConversationSnapshotRequest {
   scope?: CanonicalConversationScope;
   limit?: number;
   before?: string;
+  around?: string;
 }
 export interface CanonicalMessageContentResponse { schemaVersion: typeof CANONICAL_CONVERSATION_SCHEMA_VERSION; sessionId: string; messageId: string; content: string }
+export interface ConversationSearchResult { messageId: string; turnId: string; role: string; snippet: string; createdAt: number }
+export interface ConversationSearchResponse { schemaVersion: typeof CANONICAL_CONVERSATION_SCHEMA_VERSION; sessionId: string; results: ConversationSearchResult[] }
 
 export interface CanonicalConversationEventsRequest { after: string; limitRawEvents?: number }
 export interface CanonicalConversationEventsResponse { schemaVersion: typeof CANONICAL_CONVERSATION_SCHEMA_VERSION; sessionId: string; afterCursor: string; cursor: string; events: CanonicalConversationEntityEvent[]; snapshotRequired?: boolean; reason?: string }

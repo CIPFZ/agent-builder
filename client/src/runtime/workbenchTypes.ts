@@ -1316,6 +1316,7 @@ export interface WorkbenchAdapter {
   subscribeRuntimeEvents?: (onEvent: (event: RuntimeEventViewModel) => void) => Promise<() => void> | (() => void);
   fetchCanonicalConversationSnapshot?: (sessionID: string, request?: CanonicalConversationSnapshotRequest) => Promise<CanonicalConversationSnapshot>;
   fetchCanonicalMessageContent?: (sessionID: string, messageID: string) => Promise<string>;
+  searchConversation?: (sessionID: string, query: string) => Promise<import('./canonicalConversationTypes.ts').ConversationSearchResult[]>;
   subscribeCanonicalConversation?: (
     sessionID: string,
     after: string,

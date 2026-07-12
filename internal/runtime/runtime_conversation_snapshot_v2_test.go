@@ -128,6 +128,49 @@ func TestCanonicalWindowFiltersAfterStableIdentityConstruction(t *testing.T) {
 	}
 }
 
+func TestCanonicalWindowCanCenterAroundTargetTurn(t *testing.T) {
+	s := RuntimeCanonicalConversationSnapshot{Scope: RuntimeConversationScopeFull, Messages: []RuntimeCanonicalMessage{}, AssistantSteps: []RuntimeCanonicalAssistantStep{}, ToolCalls: []RuntimeCanonicalToolCall{}, ToolResults: []RuntimeCanonicalToolResult{}, Permissions: []RuntimeCanonicalPermission{}, TodoPlans: []RuntimeCanonicalTodoPlan{}, AgentTasks: []RuntimeCanonicalAgentTask{}, Notices: []RuntimeCanonicalNotice{}}
+	for index := 0; index < 10; index++ {
+		s.Turns = append(s.Turns, RuntimeCanonicalTurn{RuntimeConversationEntityMeta: RuntimeConversationEntityMeta{ID: fmt.Sprintf("turn-%d", index)}})
+	}
+	applyCanonicalWindow(&s, RuntimeCanonicalConversationSnapshotRequest{Scope: RuntimeConversationScopeWindow, Limit: 3, Around: "turn-5"})
+	if len(s.Turns) != 3 || s.Turns[1].ID != "turn-5" {
+		t.Fatalf("around window=%#v", s.Turns)
+	}
+}
+
+func TestSearchSessionConversationV2ReturnsIndexedTurn(t *testing.T) {
+	h := newRuntimeScenarioHarness(t)
+	h.attachBackend()
+	session, err := h.service.runtime.CreateSession(h.ctx, h.service.workspace.ID, "search")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := h.service.runtime.GetWorkspace(h.service.workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := ws.Messages.Create(h.ctx, session.ID, message.CreateMessageParams{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "unique needle phrase"}}, Metadata: map[string]string{"turn_id": "turn-search"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.service.turns.Upsert(h.ctx, RuntimeTurn{ID: "turn-search", SessionID: session.ID, Status: "completed", UserMessageID: msg.ID, StartedAt: msg.CreatedAt, FinishedAt: msg.UpdatedAt}); err != nil {
+		t.Fatal(err)
+	}
+	h.service.publishRuntimeEvent(RuntimeEvent{Type: runtimeapi.EventTurnStarted, SessionID: session.ID, TurnID: "turn-search"})
+	h.service.publishRuntimeEvent(RuntimeEvent{Type: runtimeapi.EventMessageCreated, SessionID: session.ID, TurnID: "turn-search", MessageID: msg.ID})
+	if _, err := h.service.SessionConversationSnapshotV2(h.ctx, session.ID, RuntimeCanonicalConversationSnapshotRequest{Scope: RuntimeConversationScopeWindow, Limit: 10}); err != nil {
+		t.Fatal(err)
+	}
+	response, err := h.service.SearchSessionConversationV2(h.ctx, session.ID, RuntimeConversationSearchRequestV2{Query: "needle", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Results) != 1 || response.Results[0].MessageID != msg.ID || response.Results[0].TurnID != "turn-search" || !strings.Contains(response.Results[0].Snippet, "needle") {
+		t.Fatalf("search response=%#v", response)
+	}
+}
+
 func TestCanonicalTodoPlansRequirePersistedStableItemIDs(t *testing.T) {
 	events := []RuntimeEvent{{Sequence: 20, ID: "event-1", Type: "todo.updated", SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:00:00Z", Payload: map[string]any{"plan_id": "plan-1", "todos": []any{map[string]any{"id": "item-1", "content": "Do it", "status": "pending"}}}}}
 	plans := canonicalTodoPlans(events, "session-1", canonicalEventRanges(events), nil)

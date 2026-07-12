@@ -11,6 +11,7 @@ import {
   MoreOutlined,
   PlusOutlined,
   RightOutlined,
+  SearchOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
 import { useMemo } from 'react';
@@ -18,6 +19,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, UIEvent as React
 import { Button, Dropdown, Empty, Input, Modal, Tooltip, message as antdMessage } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
 import type { HookExecutionViewModel, NewConversationDraftViewModel, TerminalEventViewModel, TerminalViewModel, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
+import type { ConversationSearchResult } from '../../runtime/canonicalConversationTypes.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { AgentTaskPanel } from '../agentTasks/AgentTaskPanel.tsx';
 import { AgentActivityMonitor } from '../agentTasks/AgentActivityMonitor.tsx';
@@ -89,6 +91,8 @@ interface WorkspaceProps {
   onHookExecutionLoad?: (executionID: string) => Promise<HookExecutionViewModel>;
   onConversationLoadEarlier?: (sessionID: string) => Promise<boolean>;
   onMessageContentLoad?: (sessionID: string, messageID: string) => Promise<string>;
+  onConversationSearch?: (sessionID: string, query: string) => Promise<ConversationSearchResult[]>;
+  onConversationSearchResultOpen?: (sessionID: string, turnID: string) => Promise<boolean>;
 }
 
 export function Workspace({
@@ -122,6 +126,8 @@ export function Workspace({
   onHookExecutionLoad,
   onConversationLoadEarlier,
   onMessageContentLoad,
+  onConversationSearch,
+  onConversationSearchResultOpen,
 }: WorkspaceProps) {
   const [messageApi, messageContextHolder] = antdMessage.useMessage();
   const [renameOpen, setRenameOpen] = useState(false);
@@ -136,6 +142,10 @@ export function Workspace({
   const [rightPanelMaxValue, setRightPanelMaxValue] = useState(RIGHT_PANEL_MAX_WIDTH);
   const [selectedAgentTaskID, setSelectedAgentTaskID] = useState('');
   const [loadingEarlierConversation, setLoadingEarlierConversation] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<ConversationSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
   const rightPanelTabsRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const {
@@ -524,6 +534,24 @@ export function Workspace({
     setRenameTitle(activeSession.title);
     setRenameOpen(true);
   };
+  const runConversationSearch = async (query: string) => {
+    if (!activeSession?.id || !onConversationSearch || !query.trim()) { setSearchResults([]); return; }
+    setSearching(true);
+    try { setSearchResults(await onConversationSearch(activeSession.id, query.trim())); }
+    catch { void messageApi.error('搜索对话失败'); }
+    finally { setSearching(false); }
+  };
+  const openSearchResult = async (result: ConversationSearchResult) => {
+    if (!activeSession?.id || !onConversationSearchResultOpen) return;
+    if (!await onConversationSearchResultOpen(activeSession.id, result.turnId)) return;
+    setSearchOpen(false);
+    window.requestAnimationFrame(() => {
+      const node = workspaceRef.current?.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(result.turnId)}"]`);
+      node?.scrollIntoView({ block: 'center' });
+      node?.classList.add(styles.searchTargetTurn);
+      window.setTimeout(() => node?.classList.remove(styles.searchTargetTurn), 1800);
+    });
+  };
   const submitRename = async () => {
     if (!activeSession) {
       setRenameOpen(false);
@@ -577,6 +605,9 @@ export function Workspace({
           </Dropdown>
         </div>
         <div className={styles.headerActions} aria-label="工作区面板">
+          <Tooltip title="搜索当前对话">
+            <Button aria-label="搜索当前对话" className={styles.headerIconButton} disabled={!activeSession} icon={<SearchOutlined />} type="text" onClick={() => setSearchOpen(true)} />
+          </Tooltip>
           <AgentActivityMonitor summary={agentTaskPresentation.summary} onOpen={() => openSingletonPanel('tasks')} />
           <Tooltip title={rightPanelOpen ? '关闭右侧面板' : '打开右侧面板'}>
             <Button
@@ -589,6 +620,13 @@ export function Workspace({
           </Tooltip>
         </div>
       </header>
+      <Modal footer={null} open={searchOpen} title="搜索当前对话" onCancel={() => setSearchOpen(false)}>
+        <Input.Search autoFocus loading={searching} placeholder="输入关键词" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onSearch={(value) => void runConversationSearch(value)} />
+        <div className={styles.searchResults}>
+          {searchResults.map((result) => <button key={result.messageId} className={styles.searchResult} type="button" onClick={() => void openSearchResult(result)}><span>{result.role === 'user' ? '用户' : '助手'}</span><strong>{result.snippet}</strong></button>)}
+          {!searching && searchQuery.trim() && searchResults.length === 0 ? <div className={styles.searchEmpty}>没有匹配结果</div> : null}
+        </div>
+      </Modal>
       <Modal
         cancelText="取消"
         confirmLoading={renaming}

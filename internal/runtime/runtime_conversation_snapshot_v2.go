@@ -115,6 +115,12 @@ func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Contex
 	if req.Before != "" && req.Scope != RuntimeConversationScopeWindow {
 		return RuntimeCanonicalConversationSnapshot{}, errors.New("canonical conversation before turn requires window scope")
 	}
+	if req.Around != "" && req.Scope != RuntimeConversationScopeWindow {
+		return RuntimeCanonicalConversationSnapshot{}, errors.New("canonical conversation around turn requires window scope")
+	}
+	if req.Before != "" && req.Around != "" {
+		return RuntimeCanonicalConversationSnapshot{}, errors.New("canonical conversation before and around are mutually exclusive")
+	}
 
 	turns, err := r.turns.ListBySession(ctx, sessionID)
 	if err != nil {
@@ -300,6 +306,18 @@ func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Contex
 		}
 		if !found {
 			return RuntimeCanonicalConversationSnapshot{}, fmt.Errorf("canonical conversation before turn %q was not found", req.Before)
+		}
+	}
+	if req.Around != "" {
+		found := false
+		for _, turn := range snapshot.Turns {
+			if turn.ID == req.Around {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return RuntimeCanonicalConversationSnapshot{}, fmt.Errorf("canonical conversation around turn %q was not found", req.Around)
 		}
 	}
 	applyCanonicalWindow(&snapshot, req)
@@ -655,6 +673,18 @@ func applyCanonicalWindow(s *RuntimeCanonicalConversationSnapshot, req RuntimeCa
 		limit = 50
 	}
 	end := len(s.Turns)
+	if req.Around != "" {
+		for index, turn := range s.Turns {
+			if turn.ID == req.Around {
+				half := limit / 2
+				end = index + half + 1
+				if end > len(s.Turns) {
+					end = len(s.Turns)
+				}
+				break
+			}
+		}
+	}
 	if req.Before != "" {
 		for i, t := range s.Turns {
 			if t.ID == req.Before {

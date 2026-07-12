@@ -3,9 +3,9 @@
 ## Status
 
 - `[x]` Investigation and root-cause confirmation
-- `[~]` Phase 1: bounded conversation loading and rendering
-- `[~]` Phase 2: indexed projections and event allocation reduction
-- `[~]` Phase 3: durable large-content references and conversation search
+- `[x]` Phase 1: bounded conversation loading and rendering
+- `[x]` Phase 2: indexed projections and event allocation reduction
+- `[x]` Phase 3: durable large-content references and conversation search
 - `[ ]` Phase 4: profiling gates and long-session regression coverage
 
 ## Problem statement
@@ -138,7 +138,11 @@ Implementation progress:
   of the full persisted content, scoped by both Session ID and Message ID;
   Runtime rejects cross-Session reads. The Timeline loads this content only
   when requested and then uses it for rendering and copy actions.
-- Remaining Phase 3 work is indexed search and target-Turn windows.
+- Session search now queries the existing SQLite FTS5 message index and
+  returns at most 50 bounded result summaries with canonical Message/Turn IDs.
+  Selecting a result loads a 30-Turn window centered around the target,
+  preserves the live cursor/store, scrolls the Turn into view, and highlights
+  it temporarily. Search and navigation are Wails-only.
 
 ## Phase 4: measurement and regression gates
 

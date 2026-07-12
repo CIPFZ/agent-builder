@@ -63,6 +63,24 @@ type RuntimeCanonicalConversationSnapshotRequest struct {
 	Scope  string `json:"scope,omitempty"`
 	Limit  int    `json:"limit,omitempty"`
 	Before string `json:"before,omitempty"`
+	Around string `json:"around,omitempty"`
+}
+
+type RuntimeConversationSearchRequestV2 struct {
+	Query string `json:"query"`
+	Limit int    `json:"limit,omitempty"`
+}
+type RuntimeConversationSearchResultV2 struct {
+	MessageID string `json:"messageId"`
+	TurnID    string `json:"turnId"`
+	Role      string `json:"role"`
+	Snippet   string `json:"snippet"`
+	CreatedAt int64  `json:"createdAt"`
+}
+type RuntimeConversationSearchResponseV2 struct {
+	SchemaVersion int                                 `json:"schemaVersion"`
+	SessionID     string                              `json:"sessionId"`
+	Results       []RuntimeConversationSearchResultV2 `json:"results"`
 }
 
 type RuntimeCanonicalMessageContentResponseV2 struct {

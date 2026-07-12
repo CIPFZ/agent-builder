@@ -1674,6 +1674,7 @@ interface RuntimeBridgeModule {
   SessionContextUsage?: (sessionID: string) => Promise<RuntimeContextUsageDTO>;
   SessionConversationSnapshotV2?: (sessionID: string, req: CanonicalConversationSnapshotRequest) => Promise<CanonicalConversationSnapshot>;
   SessionConversationMessageContentV2?: (sessionID: string, messageID: string) => Promise<{ schemaVersion: 2; sessionId: string; messageId: string; content: string }>;
+  SearchSessionConversationV2?: (sessionID: string, req: { query: string; limit?: number }) => Promise<{ schemaVersion: 2; sessionId: string; results: import('./canonicalConversationTypes.ts').ConversationSearchResult[] }>;
   SessionConversationEventsV2?: (sessionID: string, req: CanonicalConversationEventsRequest) => Promise<CanonicalConversationEventsResponse>;
   StartSessionConversationStreamV2?: (req: { sessionId: string; streamId?: string; after: string }) => Promise<{ streamId: string; eventName: string }>;
   StopSessionConversationStreamV2?: (req: { streamId: string }) => Promise<boolean>;
@@ -4027,6 +4028,13 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     const response = await bridge.SessionConversationMessageContentV2(sessionID, messageID);
     if (response.sessionId !== sessionID || response.messageId !== messageID) throw new Error('canonical message content response mismatch');
     return response.content;
+  },
+  async searchConversation(sessionID, query) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.SearchSessionConversationV2) throw new Error('conversation search API is unavailable');
+    const response = await bridge.SearchSessionConversationV2(sessionID, { query, limit: 20 });
+    if (response.sessionId !== sessionID) throw new Error('conversation search response mismatch');
+    return response.results;
   },
   async subscribeCanonicalConversation(sessionID, after, handlers) {
     const bridge = await loadRuntimeBridge();

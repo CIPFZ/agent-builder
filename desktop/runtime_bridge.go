@@ -103,6 +103,8 @@ type RuntimeRefResponse = runtime.RuntimeRefResponse
 type RuntimeRefsResponse = runtime.RuntimeRefsResponse
 type RuntimeRefContentResponse = runtime.RuntimeRefContentResponse
 type RuntimeCanonicalMessageContentResponseV2 = runtime.RuntimeCanonicalMessageContentResponseV2
+type RuntimeConversationSearchRequestV2 = runtime.RuntimeConversationSearchRequestV2
+type RuntimeConversationSearchResponseV2 = runtime.RuntimeConversationSearchResponseV2
 type RuntimeCompactBoundary = runtime.RuntimeCompactBoundary
 type RuntimeCompactBoundariesResponse = runtime.RuntimeCompactBoundariesResponse
 type RuntimeCompactToolCallRef = runtime.RuntimeCompactToolCallRef
@@ -1012,6 +1014,10 @@ func (r *RuntimeBridge) SessionConversationSnapshotV2(ctx context.Context, sessi
 
 func (r *RuntimeBridge) SessionConversationMessageContentV2(ctx context.Context, sessionID, messageID string) (RuntimeCanonicalMessageContentResponseV2, error) {
 	return r.service.SessionConversationMessageContentV2(ctx, sessionID, messageID)
+}
+
+func (r *RuntimeBridge) SearchSessionConversationV2(ctx context.Context, sessionID string, req RuntimeConversationSearchRequestV2) (RuntimeConversationSearchResponseV2, error) {
+	return r.service.SearchSessionConversationV2(ctx, sessionID, req)
 }
 
 func (r *RuntimeBridge) SessionConversationEventsV2(ctx context.Context, sessionID string, req RuntimeCanonicalConversationEventsRequestV2) (RuntimeCanonicalConversationEventsResponseV2, error) {
