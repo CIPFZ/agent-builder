@@ -46,6 +46,21 @@
   gap: 6px;
 }
 
+.taskGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.taskGroupLabel {
+  overflow: hidden;
+  color: rgba(0, 0, 0, 0.48);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .taskButton {
   display: flex;
   flex-direction: column;
@@ -99,6 +114,11 @@
   flex-direction: column;
   min-width: 0;
   gap: 10px;
+  max-height: min(70vh, 720px);
+  padding-right: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .detailTitle {

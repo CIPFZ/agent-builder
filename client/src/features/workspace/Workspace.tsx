@@ -19,6 +19,7 @@ import Bubble from '@ant-design/x/es/bubble';
 import type { HookExecutionViewModel, NewConversationDraftViewModel, TerminalEventViewModel, TerminalViewModel, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { AgentTaskPanel } from '../agentTasks/AgentTaskPanel.tsx';
+import { AgentActivityMonitor } from '../agentTasks/AgentActivityMonitor.tsx';
 import { PermissionGate } from '../permissions/PermissionGate.tsx';
 import { RunProjectionPreview } from '../diagnostics/RunProjectionPreview.tsx';
 import { ReactCallchainInspector } from '../diagnostics/ReactCallchainInspector.tsx';
@@ -28,6 +29,7 @@ import { RecoveryCenter } from '../recovery/RecoveryCenter.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
 import { selectCanonicalConversationTurnViewModels } from '../../runtime/canonicalConversationView.ts';
 import { selectCanonicalStructuredActivity } from '../../runtime/canonicalStructuredActivity.ts';
+import { projectAgentTaskPanel } from '../../runtime/agentTaskPanelProjection.ts';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import { TodoTaskBar } from '../todos/TodoTaskBar.tsx';
 import { shouldShowTodoTaskBar } from '../todos/todoDisplayPolicy.ts';
@@ -181,6 +183,7 @@ export function Workspace({
   const activeSessionID = activeSession?.id ?? '';
   const displayAgentTasks = canonicalStructured.agentTasks;
   const hasAgentTasks = Boolean(displayAgentTasks?.length);
+  const agentTaskPresentation = projectAgentTaskPanel(activeSessionID || displayAgentTasks[0]?.parentSessionId || '', displayAgentTasks);
   const todoTurn = sessionTodos?.turnId
     ? conversationTurns.find((turn) => turn.id === sessionTodos.turnId)
     : undefined;
@@ -545,6 +548,7 @@ export function Workspace({
           </Dropdown>
         </div>
         <div className={styles.headerActions} aria-label="工作区面板">
+          <AgentActivityMonitor summary={agentTaskPresentation.summary} onOpen={() => openSingletonPanel('tasks')} />
           <Tooltip title={rightPanelOpen ? '关闭右侧面板' : '打开右侧面板'}>
             <Button
               aria-label={rightPanelOpen ? '关闭右侧面板' : '打开右侧面板'}

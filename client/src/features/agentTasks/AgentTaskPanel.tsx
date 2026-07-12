@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { BranchesOutlined } from '@ant-design/icons';
 import { Tag } from 'antd';
 import type { AgentRoleViewModel, AgentTaskViewModel } from '../../runtime/workbenchTypes.ts';
 import { AgentTaskDetail } from './AgentTaskDetail.tsx';
 import { AgentTaskList } from './AgentTaskList.tsx';
-import { compareAgentTasks, isFinalAgentTaskStatus } from './agentTaskUtils.ts';
+import { isFinalAgentTaskStatus } from './agentTaskUtils.ts';
+import { projectAgentTaskPanel } from '../../runtime/agentTaskPanelProjection.ts';
 import styles from './AgentTaskPanel.module.css';
 
 export function AgentTaskPanel({
@@ -23,7 +24,8 @@ export function AgentTaskPanel({
   onSelectTask?: (taskID: string) => void;
 }) {
   const [localSelectedTaskID, setLocalSelectedTaskID] = useState('');
-  const orderedTasks = useMemo(() => [...(tasks ?? [])].sort(compareAgentTasks), [tasks]);
+  const orderedTasks = tasks ?? [];
+  const projection = projectAgentTaskPanel(orderedTasks[0]?.parentSessionId ?? '', orderedTasks);
   const effectiveSelectedTaskID = selectedTaskID || localSelectedTaskID;
   const selectedTask = orderedTasks.find((task) => task.id === effectiveSelectedTaskID) ?? orderedTasks[0];
   const activeTasks = orderedTasks.filter((task) => !isFinalAgentTaskStatus(task.status));
@@ -52,7 +54,7 @@ export function AgentTaskPanel({
       </div>
 
       <div className={styles.body}>
-        <AgentTaskList roles={agentRoles} selectedTaskID={selectedTask?.id} tasks={orderedTasks} onSelect={selectTask} />
+        <AgentTaskList roles={agentRoles} selectedTaskID={selectedTask?.id} teams={projection.teams} independent={projection.independent} onSelect={selectTask} />
         <AgentTaskDetail roles={agentRoles} task={selectedTask} onCancelTask={onCancelTask} onFollowUp={onFollowUp} />
       </div>
     </section>

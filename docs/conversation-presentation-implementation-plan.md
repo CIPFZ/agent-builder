@@ -330,7 +330,7 @@ Independent review notes:
 - Final scope review confirmed no persistent Agent monitor, Tasks panel
   restructuring, Todo change, or canonical store/Wails writer change.
 
-### Phase 3: Persistent Agent/Team monitor `[ ]`
+### Phase 3: Persistent Agent/Team monitor `[x]`
 
 - Add a compact Agent status summary beside the right workspace control.
 - Open the Tasks tab from the summary and preserve selected task/team.
@@ -340,6 +340,48 @@ Independent review notes:
 
 Exit gate: users can monitor active Agents while the process is collapsed and
 can navigate timeline -> task detail -> team without state divergence.
+
+Implementation evidence:
+
+- `AgentActivityMonitor` renders a compact active/completed/attention summary
+  beside the existing right-workspace control whenever the active Session has
+  canonical Agent tasks. It remains visible independently of process folding.
+- Clicking the monitor opens the existing Tasks tab without changing
+  `selectedAgentTaskID`; timeline task/member clicks still select through the
+  same `openAgentTask` path before opening that tab.
+- `agentTaskPanelProjection.ts` derives the monitor summary, explicit
+  `teamId` groups, and independent tasks from the same canonical
+  `AgentTaskViewModel[]`. It reuses the Phase 0 Team presentation contract and
+  preserves canonical member order and object references.
+- The Tasks list now renders Agent Team sections and an independent-task
+  section. A selected timeline member stays highlighted inside its Team and
+  drives the existing detail surface.
+- Task details retain the complete canonical bounded message window, related
+  child-tool ids, output/artifact references, and existing cancel/follow-up
+  actions. The detail column has a bounded local vertical scroll surface.
+
+Verification:
+
+- `cd client && npm.cmd run smoke:agent-monitor-panel`
+- `cd client && npm.cmd run smoke:agent-timeline-projection`
+- `cd client && npm.cmd run smoke:conversation-presentation-model`
+- `cd client && npm.cmd run smoke:process-disclosure-policy`
+- `cd client && npm.cmd run smoke:canonical-conversation-store`
+- `cd client && npm.cmd run smoke:canonical-conversation-convergence`
+- `cd client && npm.cmd run smoke:canonical-structured-activity`
+- `cd client && npm.cmd run smoke:canonical-conversation-cutover`
+- `cd client && npm.cmd run smoke:conversation-contract-v2`
+- `cd client && npm.cmd run lint`
+- `cd client && npm.cmd run build`
+
+Independent review notes:
+
+- Review verified that the new projection retains canonical task references
+  and owns no lifecycle state, preventing monitor/timeline/panel divergence.
+- Review verified monitor open does not reset task selection and that Team
+  membership is derived only from explicit `teamId`.
+- Final scope review confirmed no Todo dock change, Phase 4 cross-surface
+  polish, canonical store mutation, or Wails writer change.
 
 ### Phase 4: Todo and cross-surface polish `[ ]`
 

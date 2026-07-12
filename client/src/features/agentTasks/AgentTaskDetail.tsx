@@ -149,11 +149,11 @@ function MessageList({ task }: { task: AgentTaskViewModel }) {
   return (
     <div className={styles.messages}>
       <Text type="secondary">Messages{task.messagesTruncated ? ` (latest ${messages.length} of ${task.messageCount})` : ''}</Text>
-      {messages.slice(-6).map((message) => (
+      {messages.map((message) => (
         <div key={message.id} className={styles.messageRow}>
           <span>{message.sequence}</span>
           <Tag>{message.status || message.kind}</Tag>
-          <p>{message.contentSummary || message.error || message.id}</p>
+          <p>{[message.relatedToolCallId ? `tool ${message.relatedToolCallId}` : '', message.contentSummary || message.error || message.id].filter(Boolean).join(' · ')}</p>
         </div>
       ))}
     </div>
