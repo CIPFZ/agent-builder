@@ -185,7 +185,7 @@ Gaps to close:
 
 ## Implementation phases
 
-### Phase 0: Baseline fixtures and contracts `[ ]`
+### Phase 0: Baseline fixtures and contracts `[x]`
 
 - Capture current no-tool, multi-tool, failed-tool, Todo, Subagent, and Team
   fixtures.
@@ -195,6 +195,36 @@ Gaps to close:
 
 Exit gate: no visual changes; fixtures demonstrate the current canonical input
 for every later phase.
+
+Implementation evidence:
+
+- `conversationPresentationFixtures.ts` captures no-tool, multi-tool,
+  failed-tool, Todo, Subagent, and explicit Team canonical projections.
+- `conversationPresentationModel.ts` defines pure `ProcessDisclosureModel`,
+  `AgentActivitySummary`, and `AgentTeamPresentation` contracts over existing
+  canonical Turn and Agent task view models.
+- Stable presentation ids derive only from canonical Turn, Session, Team, and
+  entity ids. Process ordering delegates to the existing single canonical
+  grouping pass; Team member order preserves the canonical task projection.
+- Todo remains only on the Turn's independent `todoPlan` field and is absent
+  from process presentation items.
+
+Verification:
+
+- `cd client && npm.cmd run smoke:conversation-presentation-model`
+- `cd client && npm.cmd run lint`
+- `cd client && npm.cmd run build`
+- `cd client && npm.cmd run smoke:canonical-structured-activity`
+- `cd client && npm.cmd run smoke:canonical-conversation-store`
+
+Independent review notes:
+
+- Review removed optional-field inference for Agent identity and made Agent
+  counts consume the existing `AgentTaskViewModel` projection explicitly.
+- Review removed timestamp re-sorting from Team presentation so the pure
+  contract cannot become a second canonical order authority.
+- Final diff review confirmed no JSX, CSS, disclosure behavior, Todo dock, or
+  Agent panel changes; Phase 0 is presentation-contract-only.
 
 ### Phase 1: Flat outer process disclosure `[ ]`
 
