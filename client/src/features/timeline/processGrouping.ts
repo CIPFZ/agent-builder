@@ -5,9 +5,19 @@ export interface ToolCallGroupRenderItem { id: string; kind: 'tool_call_group'; 
 
 /** Canonical grouping already happened before this render boundary. */
 export function compactProcessItems(items: ConversationTimelineItemViewModel[]): RenderTimelineItem[] {
-  return items.map((item) => item.kind === 'tool_group' && item.toolCalls
+  return items.filter(isVisibleProcessItem).map((item) => item.kind === 'tool_group' && item.toolCalls
     ? { id: item.id, kind: 'tool_call_group' as const, turnId: item.turnId, toolCalls: item.toolCalls }
     : item);
+}
+
+// Tool-use assistant messages often carry structure but no visible text. The
+// renderer returns null for them; filtering before ProcessDisclosure maps the
+// list prevents their empty wrappers from accumulating flex gaps between real
+// tool rows.
+function isVisibleProcessItem(item: ConversationTimelineItemViewModel) {
+  const narration = item.kind === 'thinking' || item.kind === 'assistant_thinking' || item.kind === 'message' || item.kind === 'assistant_message';
+  if (!narration) return true;
+  return Boolean(item.content?.trim() || (item.source === 'react_callchain' && item.title));
 }
 
 export function toolCallsDuration(toolCalls: ToolCallViewModel[]) {

@@ -3,6 +3,7 @@ import { applyCanonicalConversationBatch, createCanonicalConversationStore, hydr
 import { selectCanonicalConversationTurns, selectTodoPlanForTurn } from '../src/runtime/canonicalConversationSelectors.ts';
 import { canonicalToolGroupKey, groupCanonicalProcess } from '../src/runtime/canonicalConversationPresentation.ts';
 import { selectCanonicalConversationTurnViewModels } from '../src/runtime/canonicalConversationView.ts';
+import { compactProcessItems } from '../src/features/timeline/processGrouping.ts';
 
 const meta = (id, turnId = 'turn-1', revision = '1', activitySequence = '1') => ({ id, sessionId: 'session-1', turnId, revision, activitySequence, createdAt: 1, updatedAt: 1 });
 const turn = (revision = '1') => ({ ...meta('turn-1', undefined, revision), status: 'running', userMessageId: 'user-1', finalMessageId: 'final-1' });
@@ -45,6 +46,7 @@ const projected = selectCanonicalConversationTurns(hydrateCanonicalConversationS
 assert.equal(projected.user.id, 'user-1');
 assert.equal(projected.final.id, 'final-1');
 assert.ok(projected.process.some((item) => item.id === 'tool-1'), 'tool remains before/after final');
+assert.deepEqual(compactProcessItems([{ id: 'empty', kind: 'assistant_message', content: '', status: 'completed' }, { id: 'visible', kind: 'assistant_message', content: 'kept', status: 'completed' }]).map((item) => item.id), ['visible'], 'empty narration cannot create invisible flex-gap rows');
 const beforeFinalStore = hydrateCanonicalConversationStore(snapshot('full', '9', { turns: [{ ...turn(), finalMessageId: undefined }], messages: snapshot().messages.filter((item) => item.id !== 'final-1') }));
 const beforeIDs = selectCanonicalConversationTurns(beforeFinalStore)[0].process.map((item) => item.id);
 const afterIDs = projected.process.map((item) => item.id);
