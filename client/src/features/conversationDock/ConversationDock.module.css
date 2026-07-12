@@ -48,26 +48,15 @@
   align-items: center;
 }
 
-.floatingActions {
-  position: absolute;
-  bottom: calc(100% - 2px);
-  left: 50%;
-  z-index: 1;
-  display: flex;
-  width: fit-content;
-  transform: translateX(-50%);
-  pointer-events: auto;
-}
-
 .iconButton,
 .moreButton {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  min-width: 30px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
   padding: 0;
   color: rgb(13 13 13 / 68%);
   font: inherit;

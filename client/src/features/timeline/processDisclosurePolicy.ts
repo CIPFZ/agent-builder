@@ -6,7 +6,6 @@ export interface ProcessDisclosureSignal {
   explorationStatus?: string;
   itemStatuses: Array<string | undefined>;
   hasPendingPermission: boolean;
-  pinned: boolean;
 }
 
 export interface ProcessDisclosureState {
@@ -28,7 +27,7 @@ export function reduceProcessDisclosure(state: ProcessDisclosureState, action: P
   if (action.type === 'manual') return { ...state, mode: action.open ? 'manual_open' : 'manual_closed', open: action.open };
   if (state.mode !== 'auto') return state;
   const complete = isSafelyCompleteProcess(action.signal);
-  if (complete && !state.completionObserved) return { ...state, open: action.signal.pinned ? false : state.open, completionObserved: true };
+  if (complete && !state.completionObserved) return { ...state, open: false, completionObserved: true };
   if (shouldKeepProcessOpen(action.signal)) return { ...state, open: true, completionObserved: false };
   return { ...state, completionObserved: state.completionObserved || complete };
 }

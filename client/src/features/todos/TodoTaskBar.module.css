@@ -8,9 +8,10 @@
   display: inline-flex;
   align-items: center;
   max-width: min(360px, 100%);
-  min-height: 34px;
+  height: 32px;
+  min-height: 32px;
   gap: 8px;
-  padding: 4px 13px 4px 7px;
+  padding: 3px 13px 3px 7px;
   color: var(--ant-color-text);
   font: inherit;
   font-size: 12px;
@@ -49,8 +50,6 @@
 }
 
 .taskChip[data-state='completed'] {
-  min-height: 28px;
-  padding-block: 1px;
   color: var(--ant-color-text-secondary);
   border-color: var(--ant-color-success-border);
 }

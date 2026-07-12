@@ -487,7 +487,7 @@ export function Sidebar({
                 </div>
               </div>
               {sessionsOpen && (
-                <div className={styles.list} data-testid="session-list">
+                <div className={`${styles.list} ${styles.sessionList}`} data-testid="session-list">
                   {standaloneSessions.map((session) => (
                     <div
                       key={session.id}

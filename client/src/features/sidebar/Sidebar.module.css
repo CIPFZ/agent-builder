@@ -370,7 +370,11 @@
 .projectSessionList {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 3px;
+}
+
+.sessionList {
+  gap: 3px;
 }
 
 .projectSessionButton {

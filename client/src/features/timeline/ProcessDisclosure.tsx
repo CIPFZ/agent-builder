@@ -13,7 +13,6 @@ interface ProcessDisclosureProps {
   finishedAt?: number;
   exploration?: RuntimeExplorationSummary;
   hasFinalResponse: boolean;
-  pinned: boolean;
   items: ConversationTimelineItemViewModel[];
   renderItem: (item: RenderTimelineItem) => ReactNode;
 }
@@ -30,12 +29,11 @@ export function ProcessDisclosure(props: ProcessDisclosureProps) {
     explorationStatus,
     itemStatuses: itemStatusKey.split('|'),
     hasPendingPermission,
-    pinned: props.pinned,
   };
   const [disclosure, dispatch] = useReducer(reduceProcessDisclosure, signal, initialProcessDisclosureState);
   useLayoutEffect(() => {
-    dispatch({ type: 'sync', signal: { status: props.status, hasFinalResponse: props.hasFinalResponse, explorationStatus, itemStatuses: itemStatusKey.split('|'), hasPendingPermission, pinned: props.pinned } });
-  }, [props.status, props.hasFinalResponse, explorationStatus, itemStatusKey, hasPendingPermission, props.pinned]);
+    dispatch({ type: 'sync', signal: { status: props.status, hasFinalResponse: props.hasFinalResponse, explorationStatus, itemStatuses: itemStatusKey.split('|'), hasPendingPermission } });
+  }, [props.status, props.hasFinalResponse, explorationStatus, itemStatusKey, hasPendingPermission]);
   const sectionProps = {
     className: styles.processTrace,
     'data-testid': 'process-trace',
@@ -49,7 +47,7 @@ export function ProcessDisclosure(props: ProcessDisclosureProps) {
   }
   return (
     <section {...sectionProps}>
-      <button className={styles.processTraceHeader} type="button" aria-expanded={disclosure.open} onClick={() => dispatch({ type: 'manual', open: !disclosure.open })}><span className={styles.processTraceChevron} aria-hidden="true">›</span><ProcessLabel {...props} /></button>
+      <button className={styles.processTraceHeader} type="button" aria-expanded={disclosure.open} onClick={() => dispatch({ type: 'manual', open: !disclosure.open })}><ProcessLabel {...props} /><span className={styles.processTraceChevron} aria-hidden="true">›</span></button>
       <div className={styles.processStream} data-testid="process-stream" hidden={!disclosure.open}>
         {groupedItems.map((item) => <div key={item.id} className={styles.processStreamItem}>{props.renderItem(item)}</div>)}
       </div>

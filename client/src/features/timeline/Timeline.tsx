@@ -18,7 +18,6 @@ interface TimelineProps {
   hookExecutions?: HookExecutionSummaryViewModel;
   onAgentTaskOpen?: (taskID: string) => void;
   onHookExecutionLoad?: (executionID: string) => Promise<HookExecutionViewModel>;
-  pinned?: boolean;
 }
 
 interface TimelineTurnBlock {
@@ -34,7 +33,7 @@ interface TimelineTurnBlock {
   finishedAt?: number;
 }
 
-export function Timeline({ turns, hookExecutions, onAgentTaskOpen, onHookExecutionLoad, pinned = true }: TimelineProps) {
+export function Timeline({ turns, hookExecutions, onAgentTaskOpen, onHookExecutionLoad }: TimelineProps) {
   const [messageApi, messageContextHolder] = message.useMessage();
   const [selectedHookExecution, setSelectedHookExecution] = useState<HookExecutionViewModel | undefined>();
   const blocks: TimelineTurnBlock[] = turns.map((turn) => ({
@@ -67,7 +66,6 @@ export function Timeline({ turns, hookExecutions, onAgentTaskOpen, onHookExecuti
           messageApi={messageApi}
           onAgentTaskOpen={onAgentTaskOpen}
           onHookOpen={setSelectedHookExecution}
-          pinned={pinned}
         />
       ))}
       <HookExecutionDetailDrawer
@@ -87,14 +85,12 @@ function TurnBlock({
   messageApi,
   onAgentTaskOpen,
   onHookOpen,
-  pinned,
 }: {
   block: TimelineTurnBlock;
   hookExecutions?: HookExecutionSummaryViewModel;
   messageApi: ReturnType<typeof message.useMessage>[0];
   onAgentTaskOpen?: (taskID: string) => void;
   onHookOpen?: (execution: HookExecutionViewModel) => void;
-  pinned: boolean;
 }) {
   const promptHooks = block.processItems.some((item) => item.kind === 'hook_run') ? [] : highSignalHooks(hookExecutions, block.turnId).filter((execution) => !execution.toolCallId);
   return (
@@ -111,7 +107,6 @@ function TurnBlock({
           finishedAt={block.finishedAt}
           exploration={block.explorationSummary?.exploration}
           hasFinalResponse={Boolean(block.finalMessage)}
-          pinned={pinned}
           items={block.processItems}
           renderItem={(item) => <TimelineProcessItem hookExecutions={hookExecutions} item={item} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} />}
         />

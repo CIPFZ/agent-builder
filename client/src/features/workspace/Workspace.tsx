@@ -134,7 +134,6 @@ export function Workspace({
   const workspaceRef = useRef<HTMLElement | null>(null);
   const {
     containerRef: scrollContainerRef,
-    pinned: conversationPinned,
     showJumpToBottom,
     jumpToBottom,
     pinAndScrollToBottom,
@@ -597,7 +596,7 @@ export function Workspace({
           {hasTimeline ? (
             <div className={styles.timelineLayout}>
               <div className={styles.timelineColumn}>
-                <Timeline turns={conversationTurns} hookExecutions={viewModel.canonicalConversationStore ? undefined : viewModel.hookExecutions} onAgentTaskOpen={openAgentTask} onHookExecutionLoad={onHookExecutionLoad} pinned={conversationPinned} />
+                <Timeline turns={conversationTurns} hookExecutions={viewModel.canonicalConversationStore ? undefined : viewModel.hookExecutions} onAgentTaskOpen={openAgentTask} onHookExecutionLoad={onHookExecutionLoad} />
               </div>
             </div>
           ) : viewModel.conversation.length > 0 ? (

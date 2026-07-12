@@ -113,12 +113,12 @@
 }
 
 .processTraceHeader {
-  position: relative;
-  display: flex;
+  display: inline-flex;
   width: fit-content;
   max-width: 100%;
   min-height: 28px;
   align-items: center;
+  gap: 4px;
   padding: 2px 0;
   border: 0;
   background: transparent;
@@ -134,10 +134,13 @@
 }
 
 .processTraceChevron {
-  position: absolute;
-  left: -16px;
-  display: inline-block;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
   color: var(--ant-color-text-tertiary);
+  line-height: 1;
   transform: rotate(0deg);
   transition: transform 0.15s ease;
 }
