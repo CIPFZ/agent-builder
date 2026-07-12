@@ -3,6 +3,7 @@ export const CANONICAL_CONVERSATION_SCHEMA_VERSION = 2 as const;
 export type CanonicalConversationScope = 'full' | 'window';
 export type CanonicalConversationOperation = 'upsert' | 'delete';
 export type CanonicalMessagePhase = 'reasoning' | 'intermediate' | 'final';
+export type CanonicalEntityType = 'turn' | 'message' | 'assistantStep' | 'toolCall' | 'toolResult' | 'permission' | 'todoPlan' | 'agentTask' | 'notice';
 
 export interface CanonicalEntityMeta {
   id: string;
@@ -61,7 +62,7 @@ export interface CanonicalConversationEntityEvent {
   turnId?: string;
   sequence: string;
   createdAt: number;
-  entityType: 'turn' | 'message' | 'assistantStep' | 'toolCall' | 'toolResult' | 'permission' | 'todoPlan' | 'agentTask' | 'notice';
+  entityType: CanonicalEntityType;
   entityId: string;
   operation: CanonicalConversationOperation;
   revision: string;

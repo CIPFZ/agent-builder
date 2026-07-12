@@ -18,7 +18,7 @@ and commit reference after every phase.
 | 1. Contract | `[x]` | `83e62781` | Versioned Go/TypeScript contracts, validation, and shared fixture completed and independently reviewed. |
 | 2. Runtime snapshot | `[x]` | `30476cf0` | Persisted-only canonical snapshot, stable semantic identity/order, Wails bridge, recovery tests, and independent review completed. |
 | 3. Entity stream | `[x]` | `204608d2` | Persistent atomic entity outbox, materialized snapshot state, recovery cursors, Wails stream, and shadow comparison completed. |
-| 4. Frontend store | `[~]` | — | In progress: normalized canonical reducer, revision-safe snapshot merge, pure Turn selector, and one presentation grouping pass. |
+| 4. Frontend store | `[x]` | `(this phase commit)` | Normalized reducer, revision-safe snapshot merge, pure Turn selector, stable presentation grouping, tests, and independent review completed. |
 | 5. Convergence | `[ ]` | — | Make the Session stream the only live conversation writer. |
 | 6. Structured activity | `[ ]` | — | Migrate Todo, Permission, Subagent, and Agent Team. |
 | 7. Cutover | `[ ]` | — | Remove the old projection and verify end to end. |
@@ -469,7 +469,7 @@ Independent review notes:
 - Third review ran focused Runtime/Desktop tests and approved Phase 3 with no
   remaining blocking findings.
 
-### Phase 4: Frontend normalized store `[~]`
+### Phase 4: Frontend normalized store `[x]`
 
 Deliverables:
 
@@ -480,6 +480,41 @@ Deliverables:
 
 Exit gate: tools never disappear when grouped or finalized; long-running tools
 remain visible through all updates.
+
+Implementation evidence:
+
+- `canonicalConversationStore.ts` owns nine normalized entity maps, decimal
+  cursor/revision handling, tombstones, atomic batch application, and explicit
+  recovery states.
+- `canonicalConversationSelectors.ts` projects Turns using strict
+  `userMessageId`/`finalMessageId` ownership and keeps TodoPlan separate by
+  `ownerTurnId`.
+- `canonicalConversationPresentation.ts` performs the only presentation
+  grouping pass. Tool-group keys do not depend on members or status; all other
+  keys use canonical entity type plus ID.
+- `canonical-conversation-store-smoke.mjs` covers full/window merge, stale
+  snapshots, tombstones, cursor gaps, session mismatch, atomic rollback,
+  same-revision conflicts, values above `2^53`, final-arrival stability, Todo
+  ownership, and stable grouping keys.
+- Legacy session deletion no longer requires a V2 snapshot in legacy mode;
+  canonical/shadow modes retain tombstone capture.
+
+Verification:
+
+- `go test ./...`
+- `go build ./...`
+- `cd client && npm.cmd run build`
+- `cd client && npm.cmd run lint`
+- `cd client && npm.cmd run smoke:canonical-conversation-store`
+- `cd client && npm.cmd run smoke:conversation-contract-v2`
+
+Independent review notes:
+
+- Initial review rejected non-tool keys based only on entity ID and requested
+  stronger atomicity, precision, snapshot, and final-arrival evidence.
+- Keys now include canonical entity type, and the missing scenarios were added
+  to the smoke suite. The second review approved Phase 4 with no remaining
+  blocking findings.
 
 ### Phase 5: Conversation convergence `[ ]`
 
