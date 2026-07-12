@@ -21,6 +21,7 @@ const (
 	EventSessionUpdated                = "session.updated"
 	EventSessionDeleted                = "session.deleted"
 	EventSessionSelectionCleared       = "session.selection.cleared"
+	EventConversationReconciled        = "conversation.reconciled"
 	EventTurnStarted                   = "turn.started"
 	EventTurnCompleted                 = "turn.completed"
 	EventTurnFailed                    = "turn.failed"
@@ -29,6 +30,7 @@ const (
 	EventMessageCreated                = "message.created"
 	EventMessageUpdated                = "message.updated"
 	EventMessageCompleted              = "message.completed"
+	EventMessageDeleted                = "message.deleted"
 	EventToolCallStarted               = "tool.call.started"
 	EventToolCallOutput                = "tool.call.output"
 	EventOutputRefCreated              = "output.ref.created"
@@ -196,6 +198,7 @@ var EventTypes = []string{
 	EventSessionUpdated,
 	EventSessionDeleted,
 	EventSessionSelectionCleared,
+	EventConversationReconciled,
 	EventTurnStarted,
 	EventTurnCompleted,
 	EventTurnFailed,
@@ -204,6 +207,7 @@ var EventTypes = []string{
 	EventMessageCreated,
 	EventMessageUpdated,
 	EventMessageCompleted,
+	EventMessageDeleted,
 	EventToolCallStarted,
 	EventToolCallOutput,
 	EventOutputRefCreated,

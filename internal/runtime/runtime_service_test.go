@@ -5234,6 +5234,17 @@ func (s *recordingRuntimeService) SessionConversationSnapshotV2(_ context.Contex
 	return RuntimeCanonicalConversationSnapshot{SchemaVersion: RuntimeConversationSchemaVersion, SessionID: sessionID, Cursor: "0", Scope: RuntimeConversationScopeFull, Turns: []RuntimeCanonicalTurn{}, Messages: []RuntimeCanonicalMessage{}, AssistantSteps: []RuntimeCanonicalAssistantStep{}, ToolCalls: []RuntimeCanonicalToolCall{}, ToolResults: []RuntimeCanonicalToolResult{}, Permissions: []RuntimeCanonicalPermission{}, TodoPlans: []RuntimeCanonicalTodoPlan{}, AgentTasks: []RuntimeCanonicalAgentTask{}, Notices: []RuntimeCanonicalNotice{}}, nil
 }
 
+func (s *recordingRuntimeService) SessionConversationEventsV2(_ context.Context, sessionID string, req RuntimeCanonicalConversationEventsRequestV2) (RuntimeCanonicalConversationEventsResponseV2, error) {
+	return RuntimeCanonicalConversationEventsResponseV2{SchemaVersion: 2, SessionID: sessionID, AfterCursor: req.After, Cursor: req.After, Events: []RuntimeConversationEntityEventV2{}}, nil
+}
+func (s *recordingRuntimeService) SubscribeSessionConversationEventsV2(context.Context, string, string) (<-chan RuntimeCanonicalConversationEventBatchV2, func()) {
+	ch := make(chan RuntimeCanonicalConversationEventBatchV2)
+	return ch, func() { close(ch) }
+}
+func (s *recordingRuntimeService) ConversationV2Diagnostics(context.Context, string) (RuntimeConversationV2DiagnosticsResponse, error) {
+	return RuntimeConversationV2DiagnosticsResponse{Mode: "legacy", Mismatches: []RuntimeConversationV2Mismatch{}}, nil
+}
+
 func (s *recordingRuntimeService) SessionOutputEvents(_ context.Context, sessionID string, after string) (RuntimeOutputEventsResponse, error) {
 	s.outputEventsSession = sessionID
 	s.outputEventsAfter = after

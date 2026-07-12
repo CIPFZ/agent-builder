@@ -119,6 +119,9 @@ type RuntimeService interface {
 	SessionContextUsage(context.Context, string) (RuntimeContextUsage, error)
 	SessionOutput(context.Context, string, RuntimeOutputRequest) (RuntimeOutputSnapshot, error)
 	SessionConversationSnapshotV2(context.Context, string, RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error)
+	SessionConversationEventsV2(context.Context, string, RuntimeCanonicalConversationEventsRequestV2) (RuntimeCanonicalConversationEventsResponseV2, error)
+	SubscribeSessionConversationEventsV2(context.Context, string, string) (<-chan RuntimeCanonicalConversationEventBatchV2, func())
+	ConversationV2Diagnostics(context.Context, string) (RuntimeConversationV2DiagnosticsResponse, error)
 	SessionOutputEvents(context.Context, string, string) (RuntimeOutputEventsResponse, error)
 	SubscribeSessionOutputEvents(context.Context, string, string) (<-chan RuntimeOutputEvent, func())
 	SessionActivity(context.Context, string) (RuntimeSessionActivityResponse, error)
@@ -172,54 +175,59 @@ type RuntimeService interface {
 
 // runtimeService owns workspace, session, and agent lifecycle.
 type runtimeService struct {
-	mu                   sync.Mutex
-	startMu              sync.Mutex
-	starting             bool
-	runtime              *workbench.Service
-	workspace            *apitypes.Workspace
-	runtimeConfigured    bool
-	runtimeConfigKnown   bool
-	projectPath          string
-	activeProjectID      string
-	sessionID            string
-	runtimeCtx           context.Context
-	cancel               context.CancelFunc
-	eventStats           runtimeEventStats
-	requests             map[string]runtimeRequestState
-	sessionTurns         map[string]string
-	toolEvents           map[string]runtimeToolEventState
-	toolCalls            runtimeToolCallStore
-	refs                 runtimeRefStore
-	contextManager       contextmgr.Manager
-	contextStore         contextmgr.SQLStore
-	promptAssemblies     runtimePromptAssemblyStore
-	worktrees            runtimeWorktreeStore
-	sandboxDecisions     runtimeSandboxDecisionStore
-	hookExecutions       runtimeHookExecutionStore
-	agentTasks           runtimeAgentTaskStore
-	turns                runtimeTurnStore
-	userInputs           runtimeUserInputStore
-	eventStore           runtimeEventStore
-	permissionStore      runtimePermissionStore
-	mcpRequestStore      runtimeMCPRequestStore
-	runs                 runtimeRunStore
-	transitions          runtimeRunTransitionStore
-	recoveryLinks        runtimeRecoveryLinkStore
-	agentTaskRunner      runtimeAgentTaskRunner
-	permissions          map[string]pendingRuntimePermission
-	policy               RuntimePolicy
-	capabilityLoads      map[string]runtimeCapabilityLoadRecord
-	toolDiscovery        runtimeToolDiscoveryState
-	terminalsByID        map[string]*runtimeTerminalState
-	terminalIDsBySession map[string]map[string]struct{}
-	recovery             runtimeRecoveryRecord
-	events               []RuntimeEvent
-	nextEventSequence    int64
-	eventStream          *runtimeEventBroker
-	messageStream        map[string]*messageStreamCursor
-	sessionOutputStream  *runtimeSessionOutputBroker
-	compactTurnMu        sync.Mutex
-	compactTurnStates    map[string]runtimeTurnCompactState
+	mu                       sync.Mutex
+	startMu                  sync.Mutex
+	starting                 bool
+	runtime                  *workbench.Service
+	workspace                *apitypes.Workspace
+	runtimeConfigured        bool
+	runtimeConfigKnown       bool
+	projectPath              string
+	activeProjectID          string
+	sessionID                string
+	runtimeCtx               context.Context
+	cancel                   context.CancelFunc
+	eventStats               runtimeEventStats
+	requests                 map[string]runtimeRequestState
+	sessionTurns             map[string]string
+	toolEvents               map[string]runtimeToolEventState
+	toolCalls                runtimeToolCallStore
+	refs                     runtimeRefStore
+	contextManager           contextmgr.Manager
+	contextStore             contextmgr.SQLStore
+	promptAssemblies         runtimePromptAssemblyStore
+	worktrees                runtimeWorktreeStore
+	sandboxDecisions         runtimeSandboxDecisionStore
+	hookExecutions           runtimeHookExecutionStore
+	agentTasks               runtimeAgentTaskStore
+	turns                    runtimeTurnStore
+	userInputs               runtimeUserInputStore
+	eventStore               runtimeEventStore
+	permissionStore          runtimePermissionStore
+	mcpRequestStore          runtimeMCPRequestStore
+	runs                     runtimeRunStore
+	transitions              runtimeRunTransitionStore
+	recoveryLinks            runtimeRecoveryLinkStore
+	agentTaskRunner          runtimeAgentTaskRunner
+	permissions              map[string]pendingRuntimePermission
+	policy                   RuntimePolicy
+	capabilityLoads          map[string]runtimeCapabilityLoadRecord
+	toolDiscovery            runtimeToolDiscoveryState
+	terminalsByID            map[string]*runtimeTerminalState
+	terminalIDsBySession     map[string]map[string]struct{}
+	recovery                 runtimeRecoveryRecord
+	events                   []RuntimeEvent
+	nextEventSequence        int64
+	eventStream              *runtimeEventBroker
+	messageStream            map[string]*messageStreamCursor
+	sessionOutputStream      *runtimeSessionOutputBroker
+	compactTurnMu            sync.Mutex
+	conversationV2Mu         sync.Mutex
+	conversationMode         string
+	conversationV2Mismatches []RuntimeConversationV2Mismatch
+	conversationV2Deferred   map[string]bool
+	conversationV2Pending    map[string]map[int64]RuntimeEvent
+	compactTurnStates        map[string]runtimeTurnCompactState
 	// compactFailureMu guards compactFailures. WP4: the map tracks
 	// consecutive full-compact failures per session so we can open a
 	// per-session circuit breaker after three failures and skip further

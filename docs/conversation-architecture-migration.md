@@ -17,7 +17,7 @@ and commit reference after every phase.
 | Plan | `[x]` | `6c58cadd` | Persist architecture, contracts, phases, and acceptance gates; independently reviewed. |
 | 1. Contract | `[x]` | `83e62781` | Versioned Go/TypeScript contracts, validation, and shared fixture completed and independently reviewed. |
 | 2. Runtime snapshot | `[x]` | `30476cf0` | Persisted-only canonical snapshot, stable semantic identity/order, Wails bridge, recovery tests, and independent review completed. |
-| 3. Entity stream | `[~]` | — | In progress: add revisioned canonical upsert/delete events and deterministic snapshot/event convergence. |
+| 3. Entity stream | `[x]` | recorded by this commit | Persistent atomic entity outbox, materialized snapshot state, recovery cursors, Wails stream, and shadow comparison completed. |
 | 4. Frontend store | `[ ]` | — | Normalize entities and group for presentation exactly once. |
 | 5. Convergence | `[ ]` | — | Make the Session stream the only live conversation writer. |
 | 6. Structured activity | `[ ]` | — | Migrate Todo, Permission, Subagent, and Agent Team. |
@@ -374,7 +374,7 @@ Independent review notes:
 - Follow-up review ran the Go suite and frontend build/lint and approved Phase
   2 with no remaining blocking findings.
 
-### Phase 3: Canonical entity stream `[~]`
+### Phase 3: Canonical entity stream `[x]`
 
 Deliverables:
 
@@ -384,6 +384,90 @@ Deliverables:
 
 Exit gate: snapshot `N` plus events after `N` deterministically reconstructs
 state; duplicates and out-of-order events are harmless.
+
+Implementation decisions:
+
+- The canonical stream is an independent persisted projector; it does not wrap
+  legacy `SessionOutputEvents`, UI grouping, or presentation sequence math.
+- Canonical mode commits the raw Runtime event, typed entity outbox, atomic raw
+  batch watermark, materialized canonical entity state, and per-Session
+  projector checkpoint in one SQLite transaction.
+- Snapshots read materialized canonical state at the projector checkpoint.
+  They never expose newer semantic rows under an older cursor.
+- A semantic write lost before its raw event is recovered by a synthetic
+  `conversation.reconciled` event. Recovery advances the cursor and writes the
+  same typed outbox/state transaction instead of silently rebasing a cursor.
+- Sequence assignment also enters a Runtime-owned pending journal. The
+  projector drains all pending events for a Session in numeric order while
+  holding its projector lock, so a later publisher cannot commit ahead of and
+  discard an earlier sequence.
+- A burst containing several already-assigned raw events advances each raw
+  watermark atomically and coalesces its semantic state diff onto the final
+  drained raw event. This preserves cursor history and final convergence; it
+  is not a claim that mutable source tables provide historical row versions.
+- Empty semantic events still create a batch watermark. Per-Session global
+  sequence gaps are legal and are verified through explicit
+  `previous_raw_sequence` links rather than `sequence + 1` arithmetic.
+- Message and Session deletion produce explicit tombstones. State diffing also
+  upserts affected ToolCalls when ToolResult membership changes; ordinary
+  snapshot/window omission is never deletion.
+- Stream overflow reliably replaces one buffered item with a single
+  `snapshotRequired: true, reason: overflow` control batch and terminates the
+  stream.
+- Runtime mode is `legacy`, `canonical_v2_shadow`, or `canonical_v2`, selected
+  by `AGENT_BUILDER_CONVERSATION_MODE` and defaulting to legacy. Shadow mode
+  compares both directions across core semantic entities and exposes
+  structured diagnostics without changing the active UI writer.
+
+Implementation evidence:
+
+- Projector and dependency mapping:
+  `internal/runtime/runtime_conversation_projector_v2.go`.
+- Atomic outbox/checkpoint store and materialized state:
+  `internal/runtime/runtime_conversation_event_store_v2.go` and
+  `internal/runtime/runtime_conversation_state_store_v2.go`.
+- Catch-up and live batch stream:
+  `internal/runtime/runtime_conversation_stream_v2.go`.
+- Shadow comparison/diagnostics:
+  `internal/runtime/runtime_conversation_shadow_v2.go`.
+- Schema and Goose migration:
+  `internal/db/schema.sql` and
+  `internal/db/migrations/20260712000000_add_conversation_entity_stream_v2.sql`.
+- Wails V2 snapshot/events/start/stop bridge:
+  `desktop/runtime_bridge.go`; TypeScript transport mirrors remain unused by
+  the active conversation writer until Phase 4/5.
+
+Verification:
+
+- `go test ./...`
+- `go build ./...`
+- `cd client && npm.cmd run build`
+- `cd client && npm.cmd run lint`
+- `cd client && npm.cmd run smoke:conversation-contract-v2`
+
+Focused tests prove snapshot-plus-events convergence, frozen outbox payloads,
+raw/outbox/state/checkpoint transaction rollback, atomic multi-entity batches,
+empty watermarks, sparse cursors, explicit gaps, large decimal cursors,
+observable overflow recovery, Message/Session tombstones, ToolCall dependency
+updates, reverse publisher ordering, duplicate/out-of-order revision handling,
+same-revision conflict detection, real service restart reconciliation, second
+restart byte stability, shadow mismatch diagnostics, schema creation, and
+Wails batch preservation/replacement/stop behavior.
+
+Independent review notes:
+
+- Initial review rejected a read-time reinterpretation design and required a
+  persistent outbox/checkpoint plus derived revision propagation.
+- The first implementation review found non-atomic raw/outbox writes,
+  materialized snapshot alignment, overflow, delete dependency, shadow, Wails,
+  and migration gaps. These were corrected with transactional materialized
+  state and recovery reconciliation.
+- The second review found reverse publisher ordering and missing exit-gate
+  evidence. The projector now drains a durable in-memory pending journal by
+  sequence; controlled reverse-order, revision idempotency, and true restart
+  tests were added.
+- Third review ran focused Runtime/Desktop tests and approved Phase 3 with no
+  remaining blocking findings.
 
 ### Phase 4: Frontend normalized store `[ ]`
 

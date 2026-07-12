@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -303,17 +304,22 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 	switch payload := event.Payload.(type) {
 	case pubsub.Event[message.Message]:
 		if payload.Type == pubsub.DeletedEvent {
-			// A deleted message (e.g. the empty assistant placeholder removed
-			// before a reactive-compact retry) must never be replayed as
-			// message.created — newMessageRuntimeEvent cannot tell a deleted
-			// row from a fresh one. Persist nothing; just nudge the session
-			// output stream so subscribers drop the ghost item on the next
-			// flush-loop diff against the DB.
-			sessionID := payload.Payload.SessionID
-			r.mu.Unlock()
-			if sessionID != "" {
-				r.publishSessionOutputEventFromRuntime(RuntimeEvent{SessionID: sessionID})
+			// Persist explicit semantic tombstones before the deleted row can
+			// disappear from snapshots; omission is never treated as deletion.
+			deleted := toRuntimeMessage(toAPITypeMessage(payload.Payload))
+			derived := []string{}
+			if deleted.Role == "assistant" {
+				derived = append(derived, "assistant-step:"+deleted.ID)
 			}
+			for index, part := range deleted.Parts {
+				if part.Type == "tool_result" {
+					derived = append(derived, fmt.Sprintf("tool-result:%s:%d", deleted.ID, index))
+				}
+			}
+			runtimeEvent := RuntimeEvent{ID: newRuntimeEventID(), Type: runtimeapi.EventMessageDeleted, CreatedAt: now.UTC().Format(time.RFC3339Nano), SessionID: deleted.SessionID, TurnID: r.sessionTurns[deleted.SessionID], MessageID: deleted.ID, Payload: map[string]any{"derived_entity_ids": derived}}
+			runtimeEvent = r.appendRuntimeEventLocked(runtimeEvent)
+			r.mu.Unlock()
+			r.publishRuntimeEvent(runtimeEvent)
 			return
 		}
 		r.eventStats.messageEvents++
@@ -440,13 +446,17 @@ func (r *runtimeService) appendRuntimeEventLocked(event RuntimeEvent) RuntimeEve
 		r.nextEventSequence = event.Sequence
 	}
 	r.events = append(r.events, event)
+	if r.conversationMode != runtimeConversationModeLegacy && event.SessionID != "" {
+		if r.conversationV2Pending == nil {
+			r.conversationV2Pending = map[string]map[int64]RuntimeEvent{}
+		}
+		if r.conversationV2Pending[event.SessionID] == nil {
+			r.conversationV2Pending[event.SessionID] = map[int64]RuntimeEvent{}
+		}
+		r.conversationV2Pending[event.SessionID][event.Sequence] = event
+	}
 	if len(r.events) > runtimeEventLimit {
 		r.events = r.events[len(r.events)-runtimeEventLimit:]
-	}
-	if r.eventStore.db != nil {
-		if err := r.eventStore.Append(context.Background(), event); err != nil {
-			slog.Error("Failed to persist runtime event", "event_id", event.ID, "sequence", event.Sequence, "type", event.Type, "error", err)
-		}
 	}
 	return event
 }
@@ -487,6 +497,16 @@ func (r *runtimeService) publishRuntimeEvent(event RuntimeEvent) {
 	if event.Sequence == 0 && !runtimeapi.IsEphemeralEventType(event.Type) {
 		event = r.storeRuntimeEvent(event)
 		return
+	}
+	if event.Sequence > 0 && r.eventStore.db != nil {
+		if r.conversationMode == runtimeConversationModeLegacy || event.SessionID == "" {
+			if err := r.eventStore.Append(context.Background(), event); err != nil {
+				slog.Error("Failed to persist runtime event", "event_id", event.ID, "sequence", event.Sequence, "type", event.Type, "error", err)
+			}
+		} else if err := r.projectCanonicalConversationEventV2(context.Background(), event); err != nil {
+			slog.Error("Failed to project canonical conversation event", "event_id", event.ID, "sequence", event.Sequence, "session_id", event.SessionID, "error", err)
+			_ = newRuntimeConversationEventStoreV2(r.eventStore.db).markFailure(context.Background(), event.SessionID, "projector_gap")
+		}
 	}
 	r.publishSessionOutputEventFromRuntime(event)
 	if runtimeapi.IsEphemeralEventType(event.Type) {

@@ -32,6 +32,18 @@ func TestConnect_SharesConnectionForSameDataDir(t *testing.T) {
 	require.Error(t, conn1.PingContext(context.Background()), "connection should be closed after final release")
 }
 
+func TestSchemaIncludesCanonicalConversationV2Tables(t *testing.T) {
+	dir := t.TempDir()
+	conn, err := Connect(context.Background(), dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = Release(dir) })
+	for _, table := range []string{"conversation_entity_events_v2", "conversation_projector_checkpoints_v2", "conversation_projector_batches_v2", "conversation_entities_v2"} {
+		var count int
+		require.NoError(t, conn.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name=?`, table).Scan(&count))
+		require.Equal(t, 1, count, table)
+	}
+}
+
 func TestConnect_BackupAndRecreateOnSchemaGenerationMismatch(t *testing.T) {
 	t.Cleanup(ResetPool)
 

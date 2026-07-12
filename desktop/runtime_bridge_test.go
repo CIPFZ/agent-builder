@@ -295,6 +295,43 @@ func TestSessionConversationSnapshotV2ForwardsToRuntime(t *testing.T) {
 	}
 }
 
+func TestSessionConversationEventsV2ForwardsToRuntime(t *testing.T) {
+	service := &recordingRuntimeService{}
+	bridge := &RuntimeBridge{service: service}
+	resp, err := bridge.SessionConversationEventsV2(context.Background(), "session-v2", RuntimeCanonicalConversationEventsRequestV2{After: "9007199254740993", LimitRawEvents: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.SessionID != "session-v2" || resp.Cursor != "9007199254740993" {
+		t.Fatalf("response=%#v", resp)
+	}
+}
+
+func TestSessionConversationStreamV2ReplacesSessionAndPreservesAtomicBatch(t *testing.T) {
+	bridge := &RuntimeBridge{}
+	cancelled := 0
+	bridge.installSessionConversationStreamV2("old", &runtimeBridgeOutputStream{sessionID: "session-1", cancel: func() { cancelled++ }})
+	bridge.installSessionConversationStreamV2("new", &runtimeBridgeOutputStream{sessionID: "session-1", cancel: func() {}})
+	if cancelled != 1 || bridge.conversationV2StreamBySession["session-1"] != "new" || bridge.conversationV2Streams["old"] != nil {
+		t.Fatalf("replacement maps=%#v cancelled=%d", bridge.conversationV2StreamBySession, cancelled)
+	}
+	events := make([]runtime.RuntimeConversationEntityEventV2, 100)
+	for i := range events {
+		events[i].Sequence = "42"
+	}
+	batch := runtime.RuntimeCanonicalConversationEventBatchV2{SchemaVersion: 2, SessionID: "session-1", AfterCursor: "41", Cursor: "42", Events: events, SnapshotRequired: true, Reason: "overflow"}
+	message := RuntimeCanonicalConversationStreamMessageV2{StreamID: "new", RuntimeCanonicalConversationEventBatchV2: batch}
+	if len(message.Events) != 100 || message.Cursor != "42" || !message.SnapshotRequired || message.Reason != "overflow" {
+		t.Fatalf("batch changed at bridge: %#v", message)
+	}
+	if ok := bridge.stopSessionConversationStreamV2("new"); !ok {
+		t.Fatal("stop did not find stream")
+	}
+	if bridge.conversationV2StreamBySession["session-1"] != "" {
+		t.Fatal("stop left session mapping")
+	}
+}
+
 func TestStopSessionOutputStreamUnknownStreamIsNoop(t *testing.T) {
 	t.Parallel()
 
@@ -1714,6 +1751,17 @@ func (s *recordingRuntimeService) SessionConversationSnapshotV2(_ context.Contex
 	s.conversationSnapshotSessionID = sessionID
 	s.conversationSnapshotRequest = req
 	return RuntimeCanonicalConversationSnapshot{SchemaVersion: runtime.RuntimeConversationSchemaVersion, SessionID: sessionID, Cursor: "0", Scope: runtime.RuntimeConversationScopeFull, Turns: []runtime.RuntimeCanonicalTurn{}, Messages: []runtime.RuntimeCanonicalMessage{}, AssistantSteps: []runtime.RuntimeCanonicalAssistantStep{}, ToolCalls: []runtime.RuntimeCanonicalToolCall{}, ToolResults: []runtime.RuntimeCanonicalToolResult{}, Permissions: []runtime.RuntimeCanonicalPermission{}, TodoPlans: []runtime.RuntimeCanonicalTodoPlan{}, AgentTasks: []runtime.RuntimeCanonicalAgentTask{}, Notices: []runtime.RuntimeCanonicalNotice{}}, nil
+}
+
+func (s *recordingRuntimeService) SessionConversationEventsV2(_ context.Context, sessionID string, req runtime.RuntimeCanonicalConversationEventsRequestV2) (runtime.RuntimeCanonicalConversationEventsResponseV2, error) {
+	return runtime.RuntimeCanonicalConversationEventsResponseV2{SchemaVersion: 2, SessionID: sessionID, AfterCursor: req.After, Cursor: req.After, Events: []runtime.RuntimeConversationEntityEventV2{}}, nil
+}
+func (s *recordingRuntimeService) SubscribeSessionConversationEventsV2(context.Context, string, string) (<-chan runtime.RuntimeCanonicalConversationEventBatchV2, func()) {
+	ch := make(chan runtime.RuntimeCanonicalConversationEventBatchV2)
+	return ch, func() { close(ch) }
+}
+func (s *recordingRuntimeService) ConversationV2Diagnostics(context.Context, string) (runtime.RuntimeConversationV2DiagnosticsResponse, error) {
+	return runtime.RuntimeConversationV2DiagnosticsResponse{Mode: "legacy", Mismatches: []runtime.RuntimeConversationV2Mismatch{}}, nil
 }
 
 func (s *recordingRuntimeService) SessionOutputEvents(_ context.Context, sessionID string, after string) (RuntimeOutputEventsResponse, error) {

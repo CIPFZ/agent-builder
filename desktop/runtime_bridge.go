@@ -252,6 +252,13 @@ type RuntimeAuditResponse = runtime.RuntimeAuditResponse
 type RuntimeEvent = runtime.RuntimeEvent
 type RuntimeCanonicalConversationSnapshotRequest = runtime.RuntimeCanonicalConversationSnapshotRequest
 type RuntimeCanonicalConversationSnapshot = runtime.RuntimeCanonicalConversationSnapshot
+type RuntimeCanonicalConversationEventsRequestV2 = runtime.RuntimeCanonicalConversationEventsRequestV2
+type RuntimeCanonicalConversationEventsResponseV2 = runtime.RuntimeCanonicalConversationEventsResponseV2
+type RuntimeCanonicalConversationStreamStartRequestV2 = runtime.RuntimeCanonicalConversationStreamStartRequestV2
+type RuntimeCanonicalConversationStreamStopRequestV2 = runtime.RuntimeCanonicalConversationStreamStopRequestV2
+type RuntimeCanonicalConversationStreamResponseV2 = runtime.RuntimeCanonicalConversationStreamResponseV2
+type RuntimeCanonicalConversationStreamMessageV2 = runtime.RuntimeCanonicalConversationStreamMessageV2
+type RuntimeConversationV2DiagnosticsResponse = runtime.RuntimeConversationV2DiagnosticsResponse
 
 // RuntimeBridge is the Wails adapter. It intentionally delegates to
 // runtime.RuntimeService so desktop bindings do not become the business
@@ -265,9 +272,12 @@ type RuntimeBridge struct {
 	// outputStreamBySession lets a new StartSessionOutputStream stop the
 	// previous stream for the same session automatically (session switch
 	// path).
-	outputStreamBySession map[string]string
-	runtimeEventMu        sync.Mutex
-	runtimeEventStreams   map[string]context.CancelFunc
+	outputStreamBySession         map[string]string
+	conversationV2Mu              sync.Mutex
+	conversationV2Streams         map[string]*runtimeBridgeOutputStream
+	conversationV2StreamBySession map[string]string
+	runtimeEventMu                sync.Mutex
+	runtimeEventStreams           map[string]context.CancelFunc
 }
 
 type runtimeBridgeTerminalStream struct {
@@ -284,11 +294,13 @@ func NewRuntimeBridge() *RuntimeBridge {
 
 	return &RuntimeBridge{
 
-		service:               runtime.NewRuntimeService(),
-		terminalStreams:       make(map[string]*runtimeBridgeTerminalStream),
-		outputStreams:         make(map[string]*runtimeBridgeOutputStream),
-		outputStreamBySession: make(map[string]string),
-		runtimeEventStreams:   make(map[string]context.CancelFunc),
+		service:                       runtime.NewRuntimeService(),
+		terminalStreams:               make(map[string]*runtimeBridgeTerminalStream),
+		outputStreams:                 make(map[string]*runtimeBridgeOutputStream),
+		outputStreamBySession:         make(map[string]string),
+		conversationV2Streams:         make(map[string]*runtimeBridgeOutputStream),
+		conversationV2StreamBySession: make(map[string]string),
+		runtimeEventStreams:           make(map[string]context.CancelFunc),
 	}
 
 }
@@ -1020,6 +1032,91 @@ func (r *RuntimeBridge) SessionOutput(ctx context.Context, sessionID string, req
 
 func (r *RuntimeBridge) SessionConversationSnapshotV2(ctx context.Context, sessionID string, req RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error) {
 	return r.service.SessionConversationSnapshotV2(ctx, sessionID, req)
+}
+
+func (r *RuntimeBridge) SessionConversationEventsV2(ctx context.Context, sessionID string, req RuntimeCanonicalConversationEventsRequestV2) (RuntimeCanonicalConversationEventsResponseV2, error) {
+	return r.service.SessionConversationEventsV2(ctx, sessionID, req)
+}
+func (r *RuntimeBridge) ConversationV2Diagnostics(ctx context.Context, sessionID string) (RuntimeConversationV2DiagnosticsResponse, error) {
+	return r.service.ConversationV2Diagnostics(ctx, sessionID)
+}
+
+func (r *RuntimeBridge) StartSessionConversationStreamV2(ctx context.Context, req RuntimeCanonicalConversationStreamStartRequestV2) (RuntimeCanonicalConversationStreamResponseV2, error) {
+	app := application.Get()
+	if app == nil {
+		return RuntimeCanonicalConversationStreamResponseV2{}, errors.New("desktop application is not initialized")
+	}
+	sessionID := strings.TrimSpace(req.SessionID)
+	if sessionID == "" {
+		return RuntimeCanonicalConversationStreamResponseV2{}, errors.New("session id is required")
+	}
+	streamID := strings.TrimSpace(req.StreamID)
+	if streamID == "" {
+		streamID = fmt.Sprintf("conversation-v2-stream-%d", time.Now().UnixNano())
+	}
+	streamCtx, cancel := context.WithCancel(context.Background())
+	batches, unsubscribe := r.service.SubscribeSessionConversationEventsV2(streamCtx, sessionID, req.After)
+	r.installSessionConversationStreamV2(streamID, &runtimeBridgeOutputStream{sessionID: sessionID, cancel: func() { cancel(); unsubscribe() }})
+	eventName := "agent-builder:conversation-v2-stream"
+	go func() {
+		defer r.stopSessionConversationStreamV2(streamID)
+		for {
+			select {
+			case batch, ok := <-batches:
+				if !ok {
+					return
+				}
+				app.Event.Emit(eventName, RuntimeCanonicalConversationStreamMessageV2{StreamID: streamID, RuntimeCanonicalConversationEventBatchV2: batch})
+			case <-streamCtx.Done():
+				return
+			}
+		}
+	}()
+	return RuntimeCanonicalConversationStreamResponseV2{StreamID: streamID, EventName: eventName}, nil
+}
+
+func (r *RuntimeBridge) installSessionConversationStreamV2(streamID string, stream *runtimeBridgeOutputStream) {
+	r.conversationV2Mu.Lock()
+	if r.conversationV2Streams == nil {
+		r.conversationV2Streams = map[string]*runtimeBridgeOutputStream{}
+	}
+	if r.conversationV2StreamBySession == nil {
+		r.conversationV2StreamBySession = map[string]string{}
+	}
+	existingID := r.conversationV2StreamBySession[stream.sessionID]
+	existing := r.conversationV2Streams[existingID]
+	if existingID != "" {
+		delete(r.conversationV2Streams, existingID)
+	}
+	r.conversationV2Streams[streamID] = stream
+	r.conversationV2StreamBySession[stream.sessionID] = streamID
+	r.conversationV2Mu.Unlock()
+	if existing != nil {
+		existing.cancel()
+	}
+}
+
+func (r *RuntimeBridge) StopSessionConversationStreamV2(ctx context.Context, req RuntimeCanonicalConversationStreamStopRequestV2) (bool, error) {
+	return r.stopSessionConversationStreamV2(strings.TrimSpace(req.StreamID)), nil
+}
+func (r *RuntimeBridge) stopSessionConversationStreamV2(streamID string) bool {
+	if streamID == "" {
+		return false
+	}
+	r.conversationV2Mu.Lock()
+	stream := r.conversationV2Streams[streamID]
+	if stream != nil {
+		delete(r.conversationV2Streams, streamID)
+		if r.conversationV2StreamBySession[stream.sessionID] == streamID {
+			delete(r.conversationV2StreamBySession, stream.sessionID)
+		}
+	}
+	r.conversationV2Mu.Unlock()
+	if stream == nil {
+		return false
+	}
+	stream.cancel()
+	return true
 }
 
 // StartSessionOutputStream opens a per-session push channel that batches

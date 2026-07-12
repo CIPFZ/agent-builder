@@ -37,6 +37,12 @@ export interface CanonicalConversationSnapshotRequest {
   before?: string;
 }
 
+export interface CanonicalConversationEventsRequest { after: string; limitRawEvents?: number }
+export interface CanonicalConversationEventsResponse { schemaVersion: typeof CANONICAL_CONVERSATION_SCHEMA_VERSION; sessionId: string; afterCursor: string; cursor: string; events: CanonicalConversationEntityEvent[]; snapshotRequired?: boolean; reason?: string }
+export type CanonicalConversationEventBatch = CanonicalConversationEventsResponse;
+export interface CanonicalConversationMismatch { sessionId: string; cursor: string; entityType: string; entityId?: string; field: string; legacy?: string; canonical?: string }
+export interface CanonicalConversationDiagnostics { mode: 'legacy' | 'canonical_v2_shadow' | 'canonical_v2'; mismatches: CanonicalConversationMismatch[] }
+
 export interface CanonicalTurn extends CanonicalEntityMeta { status: string; userMessageId?: string; finalMessageId?: string; startedAt?: number; finishedAt?: number; error?: string }
 export interface CanonicalMessage extends CanonicalEntityMeta { role: string; phase?: CanonicalMessagePhase; assistantStepId?: string; status: string; content?: string; partsJson?: string; clientRequestId?: string; error?: string }
 export interface CanonicalAssistantStep extends CanonicalEntityMeta { messageId: string; index: number; status: string; startedAt?: number; finishedAt?: number }

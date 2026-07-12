@@ -65,6 +65,62 @@ type RuntimeCanonicalConversationSnapshotRequest struct {
 	Before string `json:"before,omitempty"`
 }
 
+type RuntimeCanonicalConversationEventsRequestV2 struct {
+	After          string `json:"after"`
+	LimitRawEvents int    `json:"limitRawEvents,omitempty"`
+}
+
+type RuntimeCanonicalConversationEventsResponseV2 struct {
+	SchemaVersion    int                                `json:"schemaVersion"`
+	SessionID        string                             `json:"sessionId"`
+	AfterCursor      string                             `json:"afterCursor"`
+	Cursor           string                             `json:"cursor"`
+	Events           []RuntimeConversationEntityEventV2 `json:"events"`
+	SnapshotRequired bool                               `json:"snapshotRequired,omitempty"`
+	Reason           string                             `json:"reason,omitempty"`
+}
+
+type RuntimeCanonicalConversationEventBatchV2 struct {
+	SchemaVersion    int                                `json:"schemaVersion"`
+	SessionID        string                             `json:"sessionId"`
+	AfterCursor      string                             `json:"afterCursor"`
+	Cursor           string                             `json:"cursor"`
+	Events           []RuntimeConversationEntityEventV2 `json:"events"`
+	SnapshotRequired bool                               `json:"snapshotRequired,omitempty"`
+	Reason           string                             `json:"reason,omitempty"`
+}
+
+type RuntimeCanonicalConversationStreamStartRequestV2 struct {
+	SessionID string `json:"sessionId"`
+	StreamID  string `json:"streamId,omitempty"`
+	After     string `json:"after"`
+}
+type RuntimeCanonicalConversationStreamStopRequestV2 struct {
+	StreamID string `json:"streamId"`
+}
+type RuntimeCanonicalConversationStreamResponseV2 struct {
+	StreamID  string `json:"streamId"`
+	EventName string `json:"eventName"`
+}
+type RuntimeCanonicalConversationStreamMessageV2 struct {
+	StreamID string `json:"streamId"`
+	RuntimeCanonicalConversationEventBatchV2
+}
+
+type RuntimeConversationV2Mismatch struct {
+	SessionID  string `json:"sessionId"`
+	Cursor     string `json:"cursor"`
+	EntityType string `json:"entityType"`
+	EntityID   string `json:"entityId,omitempty"`
+	Field      string `json:"field"`
+	Legacy     string `json:"legacy,omitempty"`
+	Canonical  string `json:"canonical,omitempty"`
+}
+type RuntimeConversationV2DiagnosticsResponse struct {
+	Mode       string                          `json:"mode"`
+	Mismatches []RuntimeConversationV2Mismatch `json:"mismatches"`
+}
+
 type RuntimeConversationWindow struct {
 	TurnIDs       []string `json:"turnIds,omitempty"`
 	BeforeCursor  string   `json:"beforeCursor,omitempty"`

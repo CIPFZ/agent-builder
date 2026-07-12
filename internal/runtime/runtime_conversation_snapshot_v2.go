@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
@@ -19,6 +20,96 @@ type canonicalEventRange struct{ first, last int64 }
 // persisted stores. It deliberately does not call the legacy output/activity
 // projection, which may include active in-memory state and UI grouping policy.
 func (r *runtimeService) SessionConversationSnapshotV2(ctx context.Context, sessionID string, req RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error) {
+	r.conversationV2Mu.Lock()
+	semantic, err := r.buildSessionConversationSnapshotV2(ctx, sessionID, RuntimeCanonicalConversationSnapshotRequest{})
+	if err != nil {
+		r.conversationV2Mu.Unlock()
+		return RuntimeCanonicalConversationSnapshot{}, err
+	}
+	store := newRuntimeConversationEventStoreV2(r.eventStore.db)
+	checkpoint, reason, exists, err := store.checkpoint(ctx, semantic.SessionID)
+	if err != nil {
+		r.conversationV2Mu.Unlock()
+		return RuntimeCanonicalConversationSnapshot{}, err
+	}
+	if !exists {
+		if err := store.seedSnapshot(ctx, semantic); err != nil {
+			r.conversationV2Mu.Unlock()
+			return RuntimeCanonicalConversationSnapshot{}, err
+		}
+		checkpoint, _ = strconv.ParseInt(semantic.Cursor, 10, 64)
+	}
+	materialized, err := store.loadSnapshot(ctx, semantic.SessionID, checkpoint)
+	if err != nil {
+		r.conversationV2Mu.Unlock()
+		return RuntimeCanonicalConversationSnapshot{}, err
+	}
+	var recovery *RuntimeEvent
+	semanticCursor, _ := strconv.ParseInt(semantic.Cursor, 10, 64)
+	if r.conversationMode == runtimeConversationModeLegacy && (checkpoint != semanticCursor || reason != "" || !canonicalSemanticSnapshotsEqual(materialized, semantic)) {
+		if err := store.seedSnapshot(ctx, semantic); err != nil {
+			r.conversationV2Mu.Unlock()
+			return RuntimeCanonicalConversationSnapshot{}, err
+		}
+		checkpoint = semanticCursor
+		materialized, err = store.loadSnapshot(ctx, semantic.SessionID, checkpoint)
+		if err != nil {
+			r.conversationV2Mu.Unlock()
+			return RuntimeCanonicalConversationSnapshot{}, err
+		}
+		reason = ""
+	}
+	if reason != "" || !canonicalSemanticSnapshotsEqual(materialized, semantic) {
+		maxSequence, maxErr := r.eventStore.MaxSequence(ctx)
+		if maxErr != nil {
+			r.conversationV2Mu.Unlock()
+			return RuntimeCanonicalConversationSnapshot{}, maxErr
+		}
+		r.mu.Lock()
+		if r.nextEventSequence > maxSequence {
+			maxSequence = r.nextEventSequence
+		}
+		raw := RuntimeEvent{ID: newRuntimeEventID(), Sequence: maxSequence + 1, Type: runtimeapi.EventConversationReconciled, SessionID: semantic.SessionID, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Payload: map[string]any{"reason": firstNonEmpty(reason, "semantic_state_reconciled")}}
+		raw = r.appendRuntimeEventLocked(raw)
+		r.mu.Unlock()
+		events, diffErr := canonicalDiffEntityEvents(raw, materialized, semantic)
+		if diffErr != nil {
+			r.conversationV2Mu.Unlock()
+			return RuntimeCanonicalConversationSnapshot{}, diffErr
+		}
+		if err := store.commitProjectedRaw(ctx, raw, events); err != nil {
+			r.conversationV2Mu.Unlock()
+			return RuntimeCanonicalConversationSnapshot{}, err
+		}
+		r.removePendingCanonicalThrough(raw.SessionID, raw.Sequence)
+		checkpoint = raw.Sequence
+		materialized, err = store.loadSnapshot(ctx, semantic.SessionID, checkpoint)
+		if err != nil {
+			r.conversationV2Mu.Unlock()
+			return RuntimeCanonicalConversationSnapshot{}, err
+		}
+		recovery = &raw
+	}
+	applyCanonicalWindow(&materialized, req)
+	if err := materialized.Validate(); err != nil {
+		r.conversationV2Mu.Unlock()
+		return RuntimeCanonicalConversationSnapshot{}, err
+	}
+	r.conversationV2Mu.Unlock()
+	if recovery != nil {
+		r.publishSessionOutputEventFromRuntime(*recovery)
+		if r.eventStream != nil {
+			r.eventStream.Publish(*recovery)
+		}
+	}
+	return materialized, nil
+}
+
+func (r *runtimeService) buildSessionConversationSnapshotV2(ctx context.Context, sessionID string, req RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error) {
+	return r.buildSessionConversationSnapshotV2At(ctx, sessionID, req, 0, nil)
+}
+
+func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Context, sessionID string, req RuntimeCanonicalConversationSnapshotRequest, maxRawSequence int64, pending *RuntimeEvent) (RuntimeCanonicalConversationSnapshot, error) {
 	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeCanonicalConversationSnapshot{}, err
 	}
@@ -62,6 +153,46 @@ func (r *runtimeService) SessionConversationSnapshotV2(ctx context.Context, sess
 	eventsResp, err := r.eventStore.ListSession(ctx, sessionID, 0)
 	if err != nil {
 		return RuntimeCanonicalConversationSnapshot{}, err
+	}
+	if pending != nil {
+		eventsResp.Events = append(eventsResp.Events, *pending)
+		if eventsResp.FirstSequence == 0 {
+			eventsResp.FirstSequence = pending.Sequence
+		}
+		eventsResp.LastSequence = pending.Sequence
+	}
+	if maxRawSequence > 0 {
+		filtered := make([]RuntimeEvent, 0, len(eventsResp.Events))
+		var first, last int64
+		for _, event := range eventsResp.Events {
+			if event.Sequence > maxRawSequence {
+				break
+			}
+			if first == 0 {
+				first = event.Sequence
+			}
+			last = event.Sequence
+			filtered = append(filtered, event)
+		}
+		eventsResp.Events = filtered
+		eventsResp.FirstSequence = first
+		eventsResp.LastSequence = last
+	}
+	if maxRawSequence > 0 {
+		terminalTurns := map[string]bool{}
+		for _, event := range eventsResp.Events {
+			switch event.Type {
+			case "turn.completed", "turn.failed", "turn.cancelled", "turn.interrupted":
+				terminalTurns[event.TurnID] = true
+			}
+		}
+		for i := range turns {
+			if canonicalTurnTerminal(turns[i].Status) && !terminalTurns[turns[i].ID] {
+				turns[i].Status = "running"
+				turns[i].FinishedAt = 0
+				turns[i].Error = ""
+			}
+		}
 	}
 
 	ranges := canonicalEventRanges(eventsResp.Events)
@@ -109,6 +240,9 @@ func (r *runtimeService) SessionConversationSnapshotV2(ctx context.Context, sess
 		phase := canonicalMessagePhase(msg, turnByID[tid], messagesResp.Messages)
 		parts, _ := json.Marshal(msg.Parts)
 		meta := canonicalMeta("message", msg.ID, sessionID, tid, msg.CreatedAt, msg.UpdatedAt, ranges)
+		if phase == RuntimeConversationPhaseFinal {
+			meta.Revision = maxDecimal(meta.Revision, strconv.FormatInt(ranges["turn:"+tid].last, 10))
+		}
 		cm := RuntimeCanonicalMessage{RuntimeConversationEntityMeta: meta, Role: msg.Role, Phase: phase, AssistantStepID: stepByMessage[msg.ID], Status: ternary(msg.Finished, "completed", "streaming"), Content: msg.Content, PartsJSON: string(parts), ClientRequestID: msg.ClientRequestID, Error: msg.Error}
 		snapshot.Messages = append(snapshot.Messages, cm)
 		if msg.Role == "assistant" {
@@ -130,8 +264,10 @@ func (r *runtimeService) SessionConversationSnapshotV2(ctx context.Context, sess
 		}
 	}
 	resultsByCall := map[string][]string{}
+	resultRevisionByCall := map[string]string{}
 	for _, result := range snapshot.ToolResults {
 		resultsByCall[result.ToolCallID] = append(resultsByCall[result.ToolCallID], result.ID)
+		resultRevisionByCall[result.ToolCallID] = maxDecimal(resultRevisionByCall[result.ToolCallID], result.Revision)
 	}
 	for _, call := range calls {
 		created, updated := call.StartedAt.UnixMilli(), call.FinishedAt.UnixMilli()
@@ -139,6 +275,7 @@ func (r *runtimeService) SessionConversationSnapshotV2(ctx context.Context, sess
 			updated = created
 		}
 		meta := canonicalMeta("toolCall", call.ID, sessionID, call.TurnID, created, updated, ranges)
+		meta.Revision = maxDecimal(meta.Revision, resultRevisionByCall[call.ID])
 		var exit *int
 		if !call.FinishedAt.IsZero() {
 			value := call.ExitCode
@@ -523,6 +660,17 @@ func nonEmptyStrings(v ...string) []string {
 func max64(a, b int64) int64 {
 	if b > a {
 		return b
+	}
+	return a
+}
+func maxDecimal(a, b string) string {
+	av, _ := strconv.ParseUint(a, 10, 64)
+	bv, _ := strconv.ParseUint(b, 10, 64)
+	if bv > av {
+		return strconv.FormatUint(bv, 10)
+	}
+	if a == "" {
+		return "0"
 	}
 	return a
 }
