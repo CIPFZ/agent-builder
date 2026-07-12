@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { RuntimeCompactInfo, RuntimeExplorationCount, RuntimeExplorationSummary } from './conversationPresentationTypes.ts';
 import type { CanonicalConversationStore } from './canonicalConversationStore.ts';
-import type { CanonicalConversationEventBatch, CanonicalConversationSnapshot } from './canonicalConversationTypes.ts';
+import type { CanonicalConversationEventBatch, CanonicalConversationSnapshot, CanonicalConversationSnapshotRequest } from './canonicalConversationTypes.ts';
 
 export type WorkbenchMode = 'project' | 'new-chat' | 'settings' | 'plugins';
 
@@ -1312,7 +1312,7 @@ export interface WorkbenchAdapter {
   // 350ms-coalesced refresh cycle to catch up.
   fetchContextUsage?: (sessionID: string) => Promise<ContextUsageViewModel | undefined>;
   subscribeRuntimeEvents?: (onEvent: (event: RuntimeEventViewModel) => void) => Promise<() => void> | (() => void);
-  fetchCanonicalConversationSnapshot?: (sessionID: string) => Promise<CanonicalConversationSnapshot>;
+  fetchCanonicalConversationSnapshot?: (sessionID: string, request?: CanonicalConversationSnapshotRequest) => Promise<CanonicalConversationSnapshot>;
   subscribeCanonicalConversation?: (
     sessionID: string,
     after: string,

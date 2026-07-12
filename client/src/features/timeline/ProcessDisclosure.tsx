@@ -49,9 +49,11 @@ export function ProcessDisclosure(props: ProcessDisclosureProps) {
   return (
     <section {...sectionProps}>
       <button className={styles.processTraceHeader} type="button" aria-expanded={disclosure.open} onClick={() => dispatch({ type: 'manual', open: !disclosure.open })}><ProcessLabel {...props} /><RightOutlined className={styles.processTraceChevron} aria-hidden="true" /></button>
-      <div className={styles.processStream} data-testid="process-stream" hidden={!disclosure.open}>
-        {groupedItems.map((item) => <div key={item.id} className={styles.processStreamItem}>{props.renderItem(item)}</div>)}
-      </div>
+      {disclosure.open && (
+        <div className={styles.processStream} data-testid="process-stream">
+          {groupedItems.map((item) => <div key={item.id} className={styles.processStreamItem}>{props.renderItem(item)}</div>)}
+        </div>
+      )}
     </section>
   );
 }

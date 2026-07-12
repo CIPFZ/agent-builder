@@ -1,8 +1,11 @@
 import { applyCanonicalConversationBatch, hydrateCanonicalConversationStore, type CanonicalConversationStore } from './canonicalConversationStore.ts';
-import type { CanonicalConversationEventBatch, CanonicalConversationSnapshot } from './canonicalConversationTypes.ts';
+import type { CanonicalConversationEventBatch, CanonicalConversationSnapshot, CanonicalConversationSnapshotRequest } from './canonicalConversationTypes.ts';
+
+const INITIAL_TURN_WINDOW = 30;
+const MAX_CACHED_SESSIONS = 2;
 
 export interface CanonicalConversationCoordinatorDeps {
-  fetchSnapshot: (sessionId: string) => Promise<CanonicalConversationSnapshot>;
+  fetchSnapshot: (sessionId: string, request?: CanonicalConversationSnapshotRequest) => Promise<CanonicalConversationSnapshot>;
   subscribe: (sessionId: string, after: string, handlers: { onBatch: (batch: CanonicalConversationEventBatch) => void; onTransportFailure: () => void }) => Promise<() => void> | (() => void);
   onStore: (store: CanonicalConversationStore) => void;
   retryDelayMs?: (attempt: number) => number;
@@ -10,6 +13,8 @@ export interface CanonicalConversationCoordinatorDeps {
 
 export interface CanonicalConversationCoordinator {
   activate: (sessionId: string) => void;
+  loadEarlier: (sessionId: string) => Promise<boolean>;
+  evict: (sessionId: string) => void;
   stop: () => void;
   cached: (sessionId: string) => CanonicalConversationStore | undefined;
 }
@@ -22,6 +27,17 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
   let recovering = false;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let retryAttempt = 0;
+  const loadingEarlier = new Set<string>();
+
+  const remember = (sessionId: string, store: CanonicalConversationStore) => {
+    cache.delete(sessionId);
+    cache.set(sessionId, store);
+    while (cache.size > MAX_CACHED_SESSIONS) {
+      const oldest = cache.keys().next().value as string | undefined;
+      if (!oldest) break;
+      cache.delete(oldest);
+    }
+  };
 
   const stopStream = () => { const current = close; close = undefined; current?.(); };
   const clearRetry = () => { if (retryTimer) clearTimeout(retryTimer); retryTimer = undefined; };
@@ -39,7 +55,7 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
           void recover(sessionId, gen);
           return;
         }
-        cache.set(sessionId, next);
+        remember(sessionId, next);
         deps.onStore(next);
       },
       onTransportFailure: () => { if (current(sessionId, gen)) void recover(sessionId, gen); },
@@ -53,11 +69,11 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
     stopStream();
     const recoveryGeneration = ++generation;
     try {
-      const snapshot = await deps.fetchSnapshot(sessionId);
+      const snapshot = await deps.fetchSnapshot(sessionId, { scope: 'window', limit: INITIAL_TURN_WINDOW });
       if (!current(sessionId, recoveryGeneration)) return;
       const store = hydrateCanonicalConversationStore(snapshot, cache.get(sessionId));
       if (store.recovery) throw new Error(`canonical snapshot recovery failed: ${store.recovery.reason}`);
-      cache.set(sessionId, store);
+      remember(sessionId, store);
       deps.onStore(store);
       retryAttempt = 0;
       recovering = false;
@@ -84,12 +100,34 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
       if (!sessionId) return;
       const cached = cache.get(sessionId);
       if (cached) {
+        remember(sessionId, cached);
         deps.onStore(cached);
         void connect(sessionId, gen, cached);
       } else {
         void recover(sessionId, gen);
       }
     },
+    async loadEarlier(sessionId) {
+      if (sessionId !== activeSessionId || loadingEarlier.has(sessionId)) return false;
+      const base = cache.get(sessionId);
+      const before = base?.window?.turnIds?.[0];
+      if (!base || !base.window?.hasMoreBefore || !before) return false;
+      loadingEarlier.add(sessionId);
+      try {
+        const snapshot = await deps.fetchSnapshot(sessionId, { scope: 'window', limit: INITIAL_TURN_WINDOW, before });
+        if (sessionId !== activeSessionId) return false;
+        const currentStore = cache.get(sessionId);
+        if (!currentStore) return false;
+        const next = hydrateCanonicalConversationStore(snapshot, currentStore);
+        if (next.recovery) return false;
+        remember(sessionId, next);
+        deps.onStore(next);
+        return true;
+      } finally {
+        loadingEarlier.delete(sessionId);
+      }
+    },
+    evict(sessionId) { loadingEarlier.delete(sessionId); cache.delete(sessionId); },
     stop() { activeSessionId = ''; recovering = false; retryAttempt = 0; generation += 1; clearRetry(); stopStream(); },
     cached(sessionId) { return cache.get(sessionId); },
   };

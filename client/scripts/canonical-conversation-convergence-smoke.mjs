@@ -9,14 +9,15 @@ const wait = () => new Promise((resolve) => setTimeout(resolve, 0));
 const snapshot = (sessionId, cursor, toolStatus = 'running') => ({ schemaVersion: 2, sessionId, cursor, scope: 'full', turns: [{ id: 'turn-1', sessionId, activitySequence: '1', revision: '1', createdAt: 1, updatedAt: 1, status: 'running' }], messages: [], assistantSteps: [], toolCalls: [{ id: 'tool-1', sessionId, turnId: 'turn-1', activitySequence: '2', revision: cursor, createdAt: 1, updatedAt: 1, name: 'shell', source: 'builtin', status: toolStatus }], toolResults: [], permissions: [], todoPlans: [], agentTasks: [], notices: [] });
 const upsertBatch = (sessionId, afterCursor, cursor, status = 'completed') => ({ schemaVersion: 2, sessionId, afterCursor, cursor, events: [{ schemaVersion: 2, id: `event-${cursor}`, sessionId, turnId: 'turn-1', sequence: cursor, createdAt: 1, entityType: 'toolCall', entityId: 'tool-1', operation: 'upsert', revision: cursor, toolCall: { ...snapshot(sessionId, cursor, status).toolCalls[0], status } }] });
 
-const fetches = []; const subscriptions = []; const stores = []; const handlers = new Map();
+const fetches = []; const fetchRequests = []; const subscriptions = []; const stores = []; const handlers = new Map();
 const coordinator = createCanonicalConversationCoordinator({
-  fetchSnapshot: async (sessionId) => { fetches.push(sessionId); return snapshot(sessionId, sessionId === 'A' ? '90071992547409930' : '5'); },
+  fetchSnapshot: async (sessionId, request) => { fetches.push(sessionId); fetchRequests.push(request); return snapshot(sessionId, sessionId === 'A' ? '90071992547409930' : '5'); },
   subscribe: (sessionId, after, nextHandlers) => { subscriptions.push({ sessionId, after }); handlers.set(sessionId, nextHandlers); return () => undefined; },
   onStore: (store) => stores.push(store),
 });
 coordinator.activate('A'); await wait(); await wait();
 assert.deepEqual(fetches, ['A'], 'first activation hydrates exactly once');
+assert.deepEqual(fetchRequests[0], { scope: 'window', limit: 30 }, 'first activation requests only the newest bounded Turn window');
 assert.equal(subscriptions[0].after, '90071992547409930', 'cursor remains a decimal string');
 handlers.get('A').onBatch(upsertBatch('A', '90071992547409930', '90071992547409931'));
 assert.equal(stores.at(-1).toolCallsById['tool-1'].status, 'completed');
@@ -36,6 +37,25 @@ const retryCoordinator = createCanonicalConversationCoordinator({ fetchSnapshot:
 retryCoordinator.activate('R'); await wait(); await wait(); await wait();
 assert.equal(retryFetches, 2, 'transient recovery failure retries with generation-aware backoff');
 retryCoordinator.stop();
+
+const pageRequests = []; const pageStores = [];
+const pageSnapshot = (turnId, hasMoreBefore) => ({ ...snapshot('P', '20'), scope: 'window', turns: [{ id: turnId, sessionId: 'P', activitySequence: turnId === 'turn-new' ? '10' : '1', revision: '1', createdAt: 1, updatedAt: 1, status: 'completed' }], toolCalls: [], window: { turnIds: [turnId], hasMoreBefore } });
+const pageCoordinator = createCanonicalConversationCoordinator({
+  fetchSnapshot: async (_sessionId, request) => { pageRequests.push(request); return request?.before ? pageSnapshot('turn-old', false) : pageSnapshot('turn-new', true); },
+  subscribe: () => () => undefined,
+  onStore: (store) => pageStores.push(store),
+});
+pageCoordinator.activate('P'); await wait(); await wait();
+assert.equal(await pageCoordinator.loadEarlier('P'), true, 'earlier history page is loaded on demand');
+assert.deepEqual(pageRequests[1], { scope: 'window', limit: 30, before: 'turn-new' });
+assert.deepEqual(Object.keys(pageStores.at(-1).turnsById).sort(), ['turn-new', 'turn-old'], 'historical window merges without replacing the newest window');
+assert.equal(pageStores.at(-1).cursor, '20', 'historical loading does not regress the live cursor');
+assert.equal(await pageCoordinator.loadEarlier('P'), false, 'pagination stops when Runtime reports no earlier history');
+
+const lruCoordinator = createCanonicalConversationCoordinator({ fetchSnapshot: async (sessionId) => snapshot(sessionId, '1'), subscribe: () => () => undefined, onStore: () => undefined });
+for (const sessionId of ['L1', 'L2', 'L3']) { lruCoordinator.activate(sessionId); await wait(); await wait(); }
+assert.equal(lruCoordinator.cached('L1'), undefined, 'canonical Session cache evicts the least recently used window');
+assert.ok(lruCoordinator.cached('L2') && lruCoordinator.cached('L3'), 'canonical Session cache retains only two recent windows');
 
 const groupedSnapshot = snapshot('G', '10');
 groupedSnapshot.messages = [{ id: 'middle', sessionId: 'G', turnId: 'turn-1', activitySequence: '3', revision: '1', createdAt: 1, updatedAt: 1, role: 'assistant', phase: 'intermediate', status: 'completed', content: 'between' }];

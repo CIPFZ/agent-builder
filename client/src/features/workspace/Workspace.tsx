@@ -13,7 +13,8 @@ import {
   RightOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import { useMemo } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent, UIEvent as ReactUIEvent } from 'react';
 import { Button, Dropdown, Empty, Input, Modal, Tooltip, message as antdMessage } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
 import type { HookExecutionViewModel, NewConversationDraftViewModel, TerminalEventViewModel, TerminalViewModel, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
@@ -86,6 +87,7 @@ interface WorkspaceProps {
   onTerminalResize: (terminalID: string, columns: number, rows: number) => Promise<TerminalViewModel>;
   onTerminalSubscribe: (terminalID: string, onEvent: (event: TerminalEventViewModel) => void) => Promise<() => void> | (() => void);
   onHookExecutionLoad?: (executionID: string) => Promise<HookExecutionViewModel>;
+  onConversationLoadEarlier?: (sessionID: string) => Promise<boolean>;
 }
 
 export function Workspace({
@@ -117,6 +119,7 @@ export function Workspace({
   onTerminalResize,
   onTerminalSubscribe,
   onHookExecutionLoad,
+  onConversationLoadEarlier,
 }: WorkspaceProps) {
   const [messageApi, messageContextHolder] = antdMessage.useMessage();
   const [renameOpen, setRenameOpen] = useState(false);
@@ -130,6 +133,7 @@ export function Workspace({
   const [rightPanelDocked, setRightPanelDocked] = useState(false);
   const [rightPanelMaxValue, setRightPanelMaxValue] = useState(RIGHT_PANEL_MAX_WIDTH);
   const [selectedAgentTaskID, setSelectedAgentTaskID] = useState('');
+  const [loadingEarlierConversation, setLoadingEarlierConversation] = useState(false);
   const rightPanelTabsRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const {
@@ -143,11 +147,15 @@ export function Workspace({
   } = useStickToBottom();
   const hasProjectContext = Boolean(viewModel.currentProject.id || viewModel.currentProject.name || viewModel.currentProject.path);
   const canUseProjectSideTools = hasProjectContext;
-  const canonicalStructured = selectCanonicalStructuredActivity(viewModel.canonicalConversationStore);
-  const conversationTurns = selectCanonicalConversationTurnViewModels(viewModel.canonicalConversationStore, canonicalStructured, viewModel.optimisticConversationByClientRequestId);
+  const canonicalStructured = useMemo(() => selectCanonicalStructuredActivity(viewModel.canonicalConversationStore), [viewModel.canonicalConversationStore]);
+  const conversationTurns = useMemo(
+    () => selectCanonicalConversationTurnViewModels(viewModel.canonicalConversationStore, canonicalStructured, viewModel.optimisticConversationByClientRequestId),
+    [canonicalStructured, viewModel.canonicalConversationStore, viewModel.optimisticConversationByClientRequestId],
+  );
   const hasTimeline = conversationTurns.length > 0;
   const hasConversation = viewModel.conversation.length > 0 || hasTimeline;
   const activeSession = viewModel.sessions.find((session) => session.active);
+  const canonicalLoading = Boolean(activeSession && !viewModel.canonicalConversationStore);
   const sessionTodos = canonicalStructured.activeTodo;
   const isDraftSurface = !activeSession && !hasConversation && !switchingSessionID;
   const composerDraftTarget = isDraftSurface
@@ -163,7 +171,7 @@ export function Workspace({
   const activePendingPermission = activeSession?.id
     ? displayPermissions.find((permission) => permission.sessionId === activeSession.id)
     : displayPermissions[0];
-  const isSessionSwitching = Boolean(switchingSessionID && activeSession?.id === switchingSessionID && !hasConversation);
+  const isSessionSwitching = Boolean((switchingSessionID && activeSession?.id === switchingSessionID && !hasConversation) || canonicalLoading);
   const sessionTitle = activeSession?.title || viewModel.currentProject.name || '新对话';
   const title =
     viewModel.mode === 'project' && hasProjectContext ? `我们应该在 ${viewModel.currentProject.name} 中构建什么？` : '我们该做什么？';
@@ -188,6 +196,26 @@ export function Workspace({
     : undefined;
   const showTodoAction = shouldShowTodoTaskBar(sessionTodos, todoTurn?.status);
   const showJumpAction = hasConversation && showJumpToBottom;
+  const handleConversationScroll = useCallback(
+    (event: ReactUIEvent<HTMLDivElement>) => {
+      handleScroll();
+      const node = event.currentTarget;
+      const store = viewModel.canonicalConversationStore;
+      if (node.scrollHeight <= node.clientHeight || node.scrollTop > 160 || loadingEarlierConversation || !activeSession?.id || !store?.window?.hasMoreBefore || !onConversationLoadEarlier) return;
+      const previousHeight = node.scrollHeight;
+      const previousTop = node.scrollTop;
+      setLoadingEarlierConversation(true);
+      void onConversationLoadEarlier(activeSession.id)
+        .then((loaded) => {
+          if (!loaded) return;
+          window.requestAnimationFrame(() => {
+            node.scrollTop = previousTop + (node.scrollHeight - previousHeight);
+          });
+        })
+        .finally(() => setLoadingEarlierConversation(false));
+    },
+    [activeSession, handleScroll, loadingEarlierConversation, onConversationLoadEarlier, viewModel.canonicalConversationStore],
+  );
   const replaceTerminalTabs = useCallback((terminals: TerminalViewModel[]) => {
     setRightPanelTabs((current) => {
       const projectTabs = current.filter((tab) => tab.kind !== 'terminal');
@@ -591,11 +619,12 @@ export function Workspace({
           className={hasConversation || isSessionSwitching ? styles.chatContent : `${styles.content} ${styles.startContent}`}
           onKeyDown={hasConversation || isSessionSwitching ? handleScrollKeyDown : undefined}
           onPointerDown={hasConversation || isSessionSwitching ? handleScrollPointerDown : undefined}
-          onScroll={hasConversation || isSessionSwitching ? handleScroll : undefined}
+          onScroll={hasConversation || isSessionSwitching ? handleConversationScroll : undefined}
         >
           {hasTimeline ? (
             <div className={styles.timelineLayout}>
               <div className={styles.timelineColumn}>
+                {loadingEarlierConversation && <div className={styles.historyLoading} role="status">正在加载更早的对话...</div>}
                 <Timeline turns={conversationTurns} hookExecutions={viewModel.canonicalConversationStore ? undefined : viewModel.hookExecutions} onAgentTaskOpen={openAgentTask} onHookExecutionLoad={onHookExecutionLoad} />
               </div>
             </div>

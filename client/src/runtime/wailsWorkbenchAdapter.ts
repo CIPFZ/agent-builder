@@ -4015,10 +4015,10 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     }
     return () => undefined;
   },
-  async fetchCanonicalConversationSnapshot(sessionID) {
+  async fetchCanonicalConversationSnapshot(sessionID, request = { scope: 'window', limit: 30 }) {
     const bridge = await loadRuntimeBridge();
     if (!bridge?.SessionConversationSnapshotV2) throw new Error('canonical conversation snapshot API is unavailable');
-    return bridge.SessionConversationSnapshotV2(sessionID, { scope: 'full' });
+    return bridge.SessionConversationSnapshotV2(sessionID, request);
   },
   async subscribeCanonicalConversation(sessionID, after, handlers) {
     const bridge = await loadRuntimeBridge();

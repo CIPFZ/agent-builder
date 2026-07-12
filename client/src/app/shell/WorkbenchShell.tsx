@@ -306,6 +306,11 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     [adapter],
   );
 
+  const loadEarlierConversation = useCallback(
+    (sessionID: string) => canonicalCoordinator?.loadEarlier(sessionID) ?? Promise.resolve(false),
+    [canonicalCoordinator],
+  );
+
   const startConversationDraft = (target?: NewConversationDraftViewModel) => {
     sessionMutationSeqRef.current += 1;
     const currentViewModel = viewModelRef.current;
@@ -451,6 +456,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   };
 
   const deleteSession = (sessionID: string) => {
+    canonicalCoordinator?.evict(sessionID);
     const mutationSeq = ++sessionMutationSeqRef.current;
     const currentViewModel = viewModelRef.current;
     const currentMode = modeRef.current;
@@ -974,6 +980,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onTerminalResize={resizeTerminal}
           onTerminalSubscribe={subscribeTerminalEvents}
           onHookExecutionLoad={loadHookExecution}
+          onConversationLoadEarlier={loadEarlierConversation}
         />
       )}
     </main>

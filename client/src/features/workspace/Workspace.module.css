@@ -207,6 +207,13 @@
   min-width: 0;
 }
 
+.historyLoading {
+  padding: 8px 0 16px;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  text-align: center;
+}
+
 .timelineColumn > :global([data-testid='conversation-timeline']) {
   width: 100%;
 }

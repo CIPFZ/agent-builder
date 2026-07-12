@@ -193,10 +193,6 @@
   padding: 6px 0 2px;
 }
 
-.processStream[hidden] {
-  display: none;
-}
-
 .processStreamItem {
   min-width: 0;
 }

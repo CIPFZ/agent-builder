@@ -35,11 +35,11 @@ assert.equal(initialProcessDisclosureState(done).open, false, 'runtime success a
 const disclosureSource = fs.readFileSync(new URL('../src/features/timeline/ProcessDisclosure.tsx', import.meta.url), 'utf8');
 const timelineStyles = fs.readFileSync(new URL('../src/features/timeline/Timeline.module.css', import.meta.url), 'utf8');
 assert.match(disclosureSource, /aria-expanded=\{disclosure\.open\}/);
-assert.match(disclosureSource, /hidden=\{!disclosure\.open\}/);
+assert.match(disclosureSource, /\{disclosure\.open && \(/, 'collapsed process details are unmounted');
+assert.doesNotMatch(disclosureSource, /hidden=\{!disclosure\.open\}/);
 assert.match(disclosureSource, /<ProcessLabel \{\.\.\.props\} \/><RightOutlined className=\{styles\.processTraceChevron\}/, 'chevron follows the process label');
 assert.doesNotMatch(disclosureSource, /\bpinned\b/, 'disclosure must not depend on scroll position');
 assert.doesNotMatch(disclosureSource, /\bCollapse\b/, 'outer disclosure must not use Ant Collapse');
-assert.match(timelineStyles, /\.processStream\[hidden\]/);
 assert.match(timelineStyles, /\.processTraceHeader[\s\S]*display: inline-flex;[\s\S]*align-items: center;[\s\S]*gap: 4px;/, 'header aligns its label and chevron');
 assert.doesNotMatch(timelineStyles, /\.processTraceChevron\s*\{[^}]*position:\s*absolute;/, 'chevron stays in normal flex flow');
 assert.match(timelineStyles, /\.processTraceChevron\s*\{[^}]*flex: 0 0 12px;[^}]*font-size: 10px;/, 'chevron is optically smaller than the process label');
