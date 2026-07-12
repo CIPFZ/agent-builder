@@ -4627,12 +4627,6 @@ type recordingRuntimeService struct {
 	messageSession              string
 	contextUsage                RuntimeContextUsage
 	contextUsageSession         string
-	outputSession               string
-	outputRequest               RuntimeOutputRequest
-	output                      RuntimeOutputSnapshot
-	outputEventsSession         string
-	outputEventsAfter           string
-	outputEvents                RuntimeOutputEventsResponse
 	activitySession             string
 	activityWindowSession       string
 	activityWindowCursor        string
@@ -5227,15 +5221,6 @@ func (s *recordingRuntimeService) SessionContextUsage(_ context.Context, session
 	return s.contextUsage, nil
 }
 
-func (s *recordingRuntimeService) SessionOutput(_ context.Context, sessionID string, req RuntimeOutputRequest) (RuntimeOutputSnapshot, error) {
-	s.outputSession = sessionID
-	s.outputRequest = req
-	if s.output.SessionID == "" {
-		s.output.SessionID = sessionID
-	}
-	return s.output, nil
-}
-
 func (s *recordingRuntimeService) SessionConversationSnapshotV2(_ context.Context, sessionID string, req RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error) {
 	return RuntimeCanonicalConversationSnapshot{SchemaVersion: RuntimeConversationSchemaVersion, SessionID: sessionID, Cursor: "0", Scope: RuntimeConversationScopeFull, Turns: []RuntimeCanonicalTurn{}, Messages: []RuntimeCanonicalMessage{}, AssistantSteps: []RuntimeCanonicalAssistantStep{}, ToolCalls: []RuntimeCanonicalToolCall{}, ToolResults: []RuntimeCanonicalToolResult{}, Permissions: []RuntimeCanonicalPermission{}, TodoPlans: []RuntimeCanonicalTodoPlan{}, AgentTasks: []RuntimeCanonicalAgentTask{}, Notices: []RuntimeCanonicalNotice{}}, nil
 }
@@ -5246,25 +5231,6 @@ func (s *recordingRuntimeService) SessionConversationEventsV2(_ context.Context,
 func (s *recordingRuntimeService) SubscribeSessionConversationEventsV2(context.Context, string, string) (<-chan RuntimeCanonicalConversationEventBatchV2, func()) {
 	ch := make(chan RuntimeCanonicalConversationEventBatchV2)
 	return ch, func() { close(ch) }
-}
-func (s *recordingRuntimeService) ConversationV2Diagnostics(context.Context, string) (RuntimeConversationV2DiagnosticsResponse, error) {
-	return RuntimeConversationV2DiagnosticsResponse{Mode: "legacy", Mismatches: []RuntimeConversationV2Mismatch{}}, nil
-}
-
-func (s *recordingRuntimeService) SessionOutputEvents(_ context.Context, sessionID string, after string) (RuntimeOutputEventsResponse, error) {
-	s.outputEventsSession = sessionID
-	s.outputEventsAfter = after
-	if s.outputEvents.SessionID == "" {
-		s.outputEvents.SessionID = sessionID
-	}
-	return s.outputEvents, nil
-}
-
-func (s *recordingRuntimeService) SubscribeSessionOutputEvents(_ context.Context, sessionID string, after string) (<-chan RuntimeOutputEvent, func()) {
-	s.outputEventsSession = sessionID
-	s.outputEventsAfter = after
-	ch := make(chan RuntimeOutputEvent)
-	return ch, func() {}
 }
 
 func (s *recordingRuntimeService) SessionActivity(_ context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {

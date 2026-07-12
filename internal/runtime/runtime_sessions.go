@@ -176,14 +176,11 @@ func (r *runtimeService) DeleteSession(ctx context.Context, sessionID string) (R
 	r.mu.Lock()
 	activeID := r.sessionID
 	r.mu.Unlock()
-	var tombstones []map[string]any
-	if r.conversationMode != runtimeConversationModeLegacy {
-		canonicalBeforeDelete, err := r.buildSessionConversationSnapshotV2(ctx, sessionID, RuntimeCanonicalConversationSnapshotRequest{})
-		if err != nil {
-			return RuntimeSessionsResponse{}, fmt.Errorf("failed to capture canonical session tombstones: %w", err)
-		}
-		tombstones = canonicalConversationTombstoneRefs(canonicalBeforeDelete)
+	canonicalBeforeDelete, err := r.buildSessionConversationSnapshotV2(ctx, sessionID, RuntimeCanonicalConversationSnapshotRequest{})
+	if err != nil {
+		return RuntimeSessionsResponse{}, fmt.Errorf("failed to capture canonical session tombstones: %w", err)
 	}
+	tombstones := canonicalConversationTombstoneRefs(canonicalBeforeDelete)
 
 	r.closeRuntimeTerminalsForSession(sessionID, "closed", "session deleted")
 	conn, err := r.workspaceDB(ctx)

@@ -1,11 +1,6 @@
 package runtime
 
-import (
-	"os"
-	"strings"
-
-	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
-)
+import "github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 
 func NewRuntimeService() RuntimeService {
 
@@ -49,21 +44,9 @@ func newRuntimeService() *runtimeService {
 		compactTurnStates: make(map[string]runtimeTurnCompactState),
 
 		compactFailures:        make(map[string]int),
-		conversationMode:       runtimeConversationModeFromEnvironment(),
 		conversationV2Deferred: make(map[string]bool),
 		conversationV2Pending:  make(map[string]map[int64]RuntimeEvent),
 	}
 
 	return service
-}
-
-func runtimeConversationModeFromEnvironment() string {
-	switch strings.TrimSpace(os.Getenv("AGENT_BUILDER_CONVERSATION_MODE")) {
-	case runtimeConversationModeShadow:
-		return runtimeConversationModeShadow
-	case runtimeConversationModeCanonical:
-		return runtimeConversationModeCanonical
-	default:
-		return runtimeConversationModeLegacy
-	}
 }

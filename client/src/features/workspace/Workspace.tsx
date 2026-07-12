@@ -26,7 +26,6 @@ import { ContextDiagnosticsPanel } from '../diagnostics/ContextDiagnosticsPanel.
 import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { RecoveryCenter } from '../recovery/RecoveryCenter.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
-import { selectConversationTurns } from '../../runtime/conversation/turnProjection.ts';
 import { selectCanonicalConversationTurnViewModels } from '../../runtime/canonicalConversationView.ts';
 import { selectCanonicalStructuredActivity } from '../../runtime/canonicalStructuredActivity.ts';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
@@ -38,7 +37,6 @@ import { TerminalPane } from './TerminalPane.tsx';
 import { disposeTerminalRuntime } from './terminalRuntime.ts';
 import { useStickToBottom } from './useStickToBottom.ts';
 import { nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
-import { selectSessionTodos } from '../../runtime/todoOutput.ts';
 import styles from './Workspace.module.css';
 
 type RightPanelKind = 'review' | 'files' | 'terminal' | 'tasks';
@@ -144,13 +142,11 @@ export function Workspace({
   const hasProjectContext = Boolean(viewModel.currentProject.id || viewModel.currentProject.name || viewModel.currentProject.path);
   const canUseProjectSideTools = hasProjectContext;
   const canonicalStructured = selectCanonicalStructuredActivity(viewModel.canonicalConversationStore);
-  const conversationTurns = viewModel.canonicalConversationStore
-    ? selectCanonicalConversationTurnViewModels(viewModel.canonicalConversationStore, canonicalStructured)
-    : selectConversationTurns(viewModel.outputStore);
+  const conversationTurns = selectCanonicalConversationTurnViewModels(viewModel.canonicalConversationStore, canonicalStructured, viewModel.optimisticConversationByClientRequestId);
   const hasTimeline = conversationTurns.length > 0;
   const hasConversation = viewModel.conversation.length > 0 || hasTimeline;
   const activeSession = viewModel.sessions.find((session) => session.active);
-  const sessionTodos = viewModel.canonicalConversationStore ? canonicalStructured.activeTodo : selectSessionTodos(viewModel.outputStore, activeSession?.id);
+  const sessionTodos = canonicalStructured.activeTodo;
   const isDraftSurface = !activeSession && !hasConversation && !switchingSessionID;
   const composerDraftTarget = isDraftSurface
     ? viewModel.conversationTarget.kind === 'draft'
@@ -161,7 +157,7 @@ export function Workspace({
         }
       : defaultComposerDraftTarget(viewModel)
     : undefined;
-  const displayPermissions = viewModel.canonicalConversationStore ? canonicalStructured.pendingPermissions : viewModel.pendingPermissions;
+  const displayPermissions = canonicalStructured.pendingPermissions;
   const activePendingPermission = activeSession?.id
     ? displayPermissions.find((permission) => permission.sessionId === activeSession.id)
     : displayPermissions[0];
@@ -182,7 +178,7 @@ export function Workspace({
   const rightPanelOpen = rightPanelVisible;
   const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
   const activeSessionID = activeSession?.id ?? '';
-  const displayAgentTasks = viewModel.canonicalConversationStore ? canonicalStructured.agentTasks : viewModel.agentTasks;
+  const displayAgentTasks = canonicalStructured.agentTasks;
   const hasAgentTasks = Boolean(displayAgentTasks?.length);
   const todoTurn = sessionTodos?.turnId
     ? conversationTurns.find((turn) => turn.id === sessionTodos.turnId)

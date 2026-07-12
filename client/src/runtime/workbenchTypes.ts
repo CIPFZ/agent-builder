@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { OutputStore, RuntimeCompactInfo, RuntimeExplorationCount, RuntimeExplorationSummary } from './outputTypes.ts';
+import type { RuntimeCompactInfo, RuntimeExplorationCount, RuntimeExplorationSummary } from './conversationPresentationTypes.ts';
 import type { CanonicalConversationStore } from './canonicalConversationStore.ts';
 import type { CanonicalConversationEventBatch, CanonicalConversationSnapshot } from './canonicalConversationTypes.ts';
 
@@ -1273,9 +1273,8 @@ export interface WorkbenchViewModel {
   conversationTarget: ConversationTargetViewModel;
   sidebarActions: SidebarActionViewModel[];
   conversation: ConversationMessageViewModel[];
-  outputStore?: OutputStore;
+  optimisticConversationByClientRequestId?: Record<string, OptimisticConversationSubmit>;
   canonicalConversationStore?: CanonicalConversationStore;
-  canonicalConversationEnabled?: boolean;
   turnDiagnostics?: TurnDiagnosticsViewModel;
   runProjection?: RunProjectionViewModel;
   agentTasks?: AgentTaskViewModel[];
@@ -1289,6 +1288,8 @@ export interface WorkbenchViewModel {
   composer: ComposerViewModel;
   settings: SettingsViewModel;
 }
+
+export interface OptimisticConversationSubmit { clientRequestId: string; sessionId?: string; prompt: string; createdAt: number; status: 'submitting' | 'error'; error?: string }
 
 export interface RuntimeEventViewModel {
   sequence?: number;
@@ -1308,14 +1309,6 @@ export interface WorkbenchAdapter {
   // 350ms-coalesced refresh cycle to catch up.
   fetchContextUsage?: (sessionID: string) => Promise<ContextUsageViewModel | undefined>;
   subscribeRuntimeEvents?: (onEvent: (event: RuntimeEventViewModel) => void) => Promise<() => void> | (() => void);
-  subscribeSessionOutput?: (
-    sessionID: string,
-    handlers: {
-      onEvents: (events: import('./outputTypes.ts').RuntimeOutputEvent[]) => void;
-      onSnapshotRequired: () => void;
-    },
-    after?: string,
-  ) => Promise<() => void> | (() => void);
   fetchCanonicalConversationSnapshot?: (sessionID: string) => Promise<CanonicalConversationSnapshot>;
   subscribeCanonicalConversation?: (
     sessionID: string,

@@ -129,9 +129,6 @@ function TimelineProcessItem({
   onAgentTaskOpen?: (taskID: string) => void;
   onHookOpen?: (execution: HookExecutionViewModel) => void;
 }) {
-  if (item.kind === 'tool_call_summary') {
-    return <ToolTraceGroup toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />;
-  }
   if (item.kind === 'tool_call_group') {
     return (
       <>

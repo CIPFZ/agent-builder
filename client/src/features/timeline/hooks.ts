@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { RuntimeExplorationCount } from '../../runtime/outputTypes.ts';
+import type { RuntimeExplorationCount } from '../../runtime/conversationPresentationTypes.ts';
 
 interface RatchetPeak {
   count: number;

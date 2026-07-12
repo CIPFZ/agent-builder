@@ -98,6 +98,17 @@ func runtimeCompactBoundariesFromContext(boundaries []contextmgr.Boundary) []Run
 	return out
 }
 
+func runtimeCompactBoundaryFromContextBoundary(boundary contextmgr.Boundary) RuntimeCompactBoundary {
+	return RuntimeCompactBoundary{
+		ID: boundary.ID, SessionID: boundary.SessionID, TurnID: boundary.TurnID,
+		ProjectionID: boundary.ProjectionID, Kind: boundary.Kind, Trigger: boundary.Trigger,
+		Status: boundary.Status, BudgetBefore: runtimeBudgetFromContextBudget(boundary.BudgetBefore),
+		BudgetAfter: runtimeBudgetFromContextBudget(boundary.BudgetAfter), SummaryMessageID: boundary.SummaryMessageID,
+		SummaryRef: boundary.SummaryRef, MessageRefs: append([]string(nil), boundary.MessageRefs...),
+		Error: boundary.Error, CreatedAt: boundary.CreatedAt, CompletedAt: boundary.CompletedAt,
+	}
+}
+
 // runtimeCompactBoundaryDetailFromContext maps a single contextmgr boundary
 // into RuntimeCompactBoundary, including ToolCallRefs/ReinjectedRefs (which
 // contextmgr stores as plain ref strings, so they are projected here as

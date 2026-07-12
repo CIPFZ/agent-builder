@@ -87,7 +87,6 @@ func (r *runtimeService) projectCanonicalRawLocked(ctx context.Context, store ru
 	if err := store.commitProjectedRaw(ctx, raw, events); err != nil {
 		return err
 	}
-	r.runCanonicalConversationShadowV2(ctx, snapshot)
 	return nil
 }
 

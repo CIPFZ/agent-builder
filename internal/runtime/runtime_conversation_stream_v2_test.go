@@ -18,7 +18,6 @@ import (
 func TestCanonicalConversationOutboxConvergesSnapshotAndPropagatesDerivedRevisions(t *testing.T) {
 	h := newRuntimeScenarioHarness(t)
 	h.attachBackend()
-	h.service.conversationMode = runtimeConversationModeCanonical
 	session, err := h.service.runtime.CreateSession(context.Background(), h.service.workspace.ID, "v2 stream")
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +133,6 @@ func TestCanonicalConversationOutboxConvergesSnapshotAndPropagatesDerivedRevisio
 func TestCanonicalConversationBatchesKeepRawSequenceAtomicAndAdvanceEmptyWatermark(t *testing.T) {
 	h := newRuntimeScenarioHarness(t)
 	h.attachBackend()
-	h.service.conversationMode = runtimeConversationModeCanonical
 	session, err := h.service.runtime.CreateSession(h.ctx, h.service.workspace.ID, "atomic")
 	if err != nil {
 		t.Fatal(err)
@@ -216,7 +214,6 @@ func TestCanonicalSessionDeleteProducesAllEntityTombstones(t *testing.T) {
 func TestCanonicalMessageDeleteConvergesAndUpdatesToolDependencies(t *testing.T) {
 	h := newRuntimeScenarioHarness(t)
 	h.attachBackend()
-	h.service.conversationMode = runtimeConversationModeCanonical
 	session, err := h.service.runtime.CreateSession(h.ctx, h.service.workspace.ID, "delete convergence")
 	if err != nil {
 		t.Fatal(err)
@@ -320,7 +317,6 @@ func TestCanonicalConversationCursorRejectsGapsAndPreservesLargeDecimals(t *test
 func TestCanonicalSnapshotDoesNotExposeUnprojectedRawState(t *testing.T) {
 	h := newRuntimeScenarioHarness(t)
 	h.attachBackend()
-	h.service.conversationMode = runtimeConversationModeCanonical
 	session, err := h.service.runtime.CreateSession(h.ctx, h.service.workspace.ID, "alignment")
 	if err != nil {
 		t.Fatal(err)
@@ -344,7 +340,6 @@ func TestCanonicalSnapshotDoesNotExposeUnprojectedRawState(t *testing.T) {
 func TestCanonicalSnapshotReconcilesSemanticWriteLostBeforeRawEvent(t *testing.T) {
 	h := newRuntimeScenarioHarness(t)
 	h.attachBackend()
-	h.service.conversationMode = runtimeConversationModeCanonical
 	session, err := h.service.runtime.CreateSession(h.ctx, h.service.workspace.ID, "crash recovery")
 	if err != nil {
 		t.Fatal(err)
@@ -375,7 +370,6 @@ func TestCanonicalSnapshotReconcilesSemanticWriteLostBeforeRawEvent(t *testing.T
 	restarted := h.restartedService()
 	restarted.runtime = h.service.runtime
 	restarted.workspace = h.service.workspace
-	restarted.conversationMode = runtimeConversationModeCanonical
 	recovered, err := restarted.SessionConversationSnapshotV2(h.ctx, session.ID, RuntimeCanonicalConversationSnapshotRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -393,7 +387,6 @@ func TestCanonicalSnapshotReconcilesSemanticWriteLostBeforeRawEvent(t *testing.T
 	secondRestart := h.restartedService()
 	secondRestart.runtime = h.service.runtime
 	secondRestart.workspace = h.service.workspace
-	secondRestart.conversationMode = runtimeConversationModeCanonical
 	stable, err := secondRestart.SessionConversationSnapshotV2(h.ctx, session.ID, RuntimeCanonicalConversationSnapshotRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -439,7 +432,6 @@ func TestCanonicalConversationBatchChainAllowsSparseGlobalSequenceAndDetectsMiss
 func TestCanonicalProjectorDrainsSameSessionRawEventsInSequenceWhenLaterPublisherWins(t *testing.T) {
 	h := newRuntimeScenarioHarness(t)
 	h.attachBackend()
-	h.service.conversationMode = runtimeConversationModeCanonical
 	session, err := h.service.runtime.CreateSession(h.ctx, h.service.workspace.ID, "reverse publisher")
 	if err != nil {
 		t.Fatal(err)
@@ -594,44 +586,11 @@ func TestCanonicalRawOutboxStateAndCheckpointRollbackTogether(t *testing.T) {
 	}
 }
 
-func TestCanonicalConversationModeLegacyDoesNotWriteV2Outbox(t *testing.T) {
-	h := newRuntimeScenarioHarness(t)
-	h.attachBackend()
-	session, err := h.service.runtime.CreateSession(h.ctx, h.service.workspace.ID, "legacy flag")
-	if err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := h.service.SessionConversationSnapshotV2(h.ctx, session.ID, RuntimeCanonicalConversationSnapshotRequest{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.service.publishRuntimeEvent(RuntimeEvent{Type: runtimeapi.EventContextUsageUpdated, SessionID: session.ID})
-	store := newRuntimeConversationEventStoreV2(h.service.eventStore.db)
-	checkpoint, _, _, err := store.checkpoint(h.ctx, session.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	expected, _ := strconv.ParseInt(snapshot.Cursor, 10, 64)
-	if checkpoint != expected {
-		t.Fatalf("legacy mode wrote v2 checkpoint: %d want %d", checkpoint, expected)
-	}
-}
 
-func TestCanonicalConversationModeFeatureFlagIsRuntimeOwned(t *testing.T) {
-	t.Setenv("AGENT_BUILDER_CONVERSATION_MODE", runtimeConversationModeShadow)
-	if got := newRuntimeService().conversationMode; got != runtimeConversationModeShadow {
-		t.Fatalf("mode=%q", got)
-	}
-	t.Setenv("AGENT_BUILDER_CONVERSATION_MODE", "invalid")
-	if got := newRuntimeService().conversationMode; got != runtimeConversationModeLegacy {
-		t.Fatalf("invalid mode=%q", got)
-	}
-}
 
 func TestSubscribeCanonicalConversationEventsV2DeliversAtomicWatermark(t *testing.T) {
 	h := newRuntimeScenarioHarness(t)
 	h.attachBackend()
-	h.service.conversationMode = runtimeConversationModeCanonical
 	session, err := h.service.runtime.CreateSession(h.ctx, h.service.workspace.ID, "subscription")
 	if err != nil {
 		t.Fatal(err)
@@ -675,44 +634,6 @@ func TestSubscribeCanonicalConversationEventsV2OverflowIsObservable(t *testing.T
 	}
 }
 
-func TestCanonicalConversationShadowComparisonReportsSemanticMismatch(t *testing.T) {
-	canonical := RuntimeCanonicalConversationSnapshot{SessionID: "session-1", Cursor: "9", Turns: []RuntimeCanonicalTurn{{RuntimeConversationEntityMeta: RuntimeConversationEntityMeta{ID: "turn-1"}, Status: "completed", FinalMessageID: "message-final"}}, Messages: []RuntimeCanonicalMessage{}, ToolCalls: []RuntimeCanonicalToolCall{}}
-	legacy := RuntimeOutputSnapshot{Turns: []RuntimeTurn{{ID: "turn-1", Status: "running"}}}
-	mismatches := compareCanonicalConversationV2(canonical, legacy)
-	fields := map[string]bool{}
-	for _, m := range mismatches {
-		fields[m.Field] = true
-	}
-	if !fields["status"] || !fields["finalMessageId"] {
-		t.Fatalf("unactionable shadow mismatch: %#v", mismatches)
-	}
-	equivalent := RuntimeOutputSnapshot{Turns: []RuntimeTurn{{ID: "turn-1", Status: "completed", LatestAssistantMessageID: "message-final"}}}
-	if got := compareCanonicalConversationV2(canonical, equivalent); len(got) != 0 {
-		t.Fatalf("equivalent shadow mismatch: %#v", got)
-	}
-	legacyExtra := equivalent
-	legacyExtra.ToolCalls = []RuntimeToolCall{{ID: "ghost-tool"}}
-	extra := compareCanonicalConversationV2(canonical, legacyExtra)
-	found := false
-	for _, item := range extra {
-		if item.EntityID == "ghost-tool" && item.Field == "presence" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("reverse presence mismatch missing: %#v", extra)
-	}
-	service := newRuntimeService()
-	service.conversationMode = runtimeConversationModeShadow
-	service.conversationV2Mismatches = append(service.conversationV2Mismatches, mismatches...)
-	diagnostics, err := service.ConversationV2Diagnostics(context.Background(), "session-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if diagnostics.Mode != runtimeConversationModeShadow || len(diagnostics.Mismatches) == 0 {
-		t.Fatalf("diagnostics=%#v", diagnostics)
-	}
-}
 
 func applyCanonicalEventsForTest(s RuntimeCanonicalConversationSnapshot, events []RuntimeConversationEntityEventV2) RuntimeCanonicalConversationSnapshot {
 	for _, e := range events {

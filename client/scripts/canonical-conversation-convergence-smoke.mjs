@@ -4,7 +4,6 @@ import { createCanonicalConversationCoordinator } from '../src/runtime/canonical
 import { subscribeCanonicalConversation } from '../src/runtime/canonicalConversationStream.ts';
 import { hydrateCanonicalConversationStore } from '../src/runtime/canonicalConversationStore.ts';
 import { selectCanonicalConversationTurnViewModels } from '../src/runtime/canonicalConversationView.ts';
-import { resolveCanonicalConversationEnabled } from '../src/runtime/canonicalConversationMode.ts';
 
 const wait = () => new Promise((resolve) => setTimeout(resolve, 0));
 const snapshot = (sessionId, cursor, toolStatus = 'running') => ({ schemaVersion: 2, sessionId, cursor, scope: 'full', turns: [{ id: 'turn-1', sessionId, activitySequence: '1', revision: '1', createdAt: 1, updatedAt: 1, status: 'running' }], messages: [], assistantSteps: [], toolCalls: [{ id: 'tool-1', sessionId, turnId: 'turn-1', activitySequence: '2', revision: cursor, createdAt: 1, updatedAt: 1, name: 'shell', source: 'builtin', status: toolStatus }], toolResults: [], permissions: [], todoPlans: [], agentTasks: [], notices: [] });
@@ -45,9 +44,6 @@ groupedSnapshot.toolCalls[0].assistantStepId = 'step-1'; groupedSnapshot.toolCal
 const groupedItems = selectCanonicalConversationTurnViewModels(hydrateCanonicalConversationStore(groupedSnapshot))[0].process.items;
 assert.equal(groupedItems.filter((item) => item.kind === 'tool_group').length, 1, 'canonical grouping runs once even when a message separates members');
 assert.equal(groupedItems.find((item) => item.kind === 'tool_group').toolCalls.length, 2);
-assert.equal(resolveCanonicalConversationEnabled(true, undefined), true, 'transient diagnostics failure cannot downgrade a confirmed canonical session');
-assert.equal(resolveCanonicalConversationEnabled(false, { mode: 'canonical_v2' }), true, 'explicit canonical mode enables the writer');
-assert.equal(resolveCanonicalConversationEnabled(true, { mode: 'legacy' }), false, 'only an explicit legacy mode can downgrade the writer');
 
 const order = []; let listener; let startedStreamId;
 const close = subscribeCanonicalConversation({
@@ -69,6 +65,6 @@ close();
 const shellSource = await readFile(new URL('../src/app/shell/WorkbenchShell.tsx', import.meta.url), 'utf8');
 const adapterSource = await readFile(new URL('../src/runtime/wailsWorkbenchAdapter.ts', import.meta.url), 'utf8');
 assert.equal(shellSource.includes('withFresherOutputStore'), false, 'lagging snapshot heuristic is removed');
-assert.ok(shellSource.includes('canonicalConversationEnabled'), 'canonical writer is gated by Runtime diagnostics mode');
+assert.ok(shellSource.includes('createCanonicalConversationCoordinator'), 'canonical coordinator is the conversation writer');
 assert.equal(adapterSource.includes('bridge.SessionOutput?.(activeSessionID, { snapshot: true'), false, 'workbench refresh cannot fetch legacy conversation snapshot');
 console.log('canonical conversation convergence smoke passed');

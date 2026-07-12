@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { ConversationTimelineItemViewModel } from '../../runtime/workbenchTypes.ts';
-import type { RuntimeExplorationSummary } from '../../runtime/outputTypes.ts';
+import type { RuntimeExplorationSummary } from '../../runtime/conversationPresentationTypes.ts';
 import { compactProcessItems } from './processGrouping.ts';
 import type { RenderTimelineItem } from './processGrouping.ts';
 import { isActiveProcessStatus } from './processDisclosurePolicy.ts';

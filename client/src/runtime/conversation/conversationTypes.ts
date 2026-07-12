@@ -1,5 +1,5 @@
 import type { ConversationTimelineItemViewModel } from '../workbenchTypes.ts';
-import type { RuntimeExplorationSummary } from '../outputTypes.ts';
+import type { RuntimeExplorationSummary } from '../conversationPresentationTypes.ts';
 
 export type ConversationTurnStatus =
   | 'queued'

@@ -45,20 +45,6 @@ func (r *runtimeService) SessionConversationSnapshotV2(ctx context.Context, sess
 		return RuntimeCanonicalConversationSnapshot{}, err
 	}
 	var recovery *RuntimeEvent
-	semanticCursor, _ := strconv.ParseInt(semantic.Cursor, 10, 64)
-	if r.conversationMode == runtimeConversationModeLegacy && (checkpoint != semanticCursor || reason != "" || !canonicalSemanticSnapshotsEqual(materialized, semantic)) {
-		if err := store.seedSnapshot(ctx, semantic); err != nil {
-			r.conversationV2Mu.Unlock()
-			return RuntimeCanonicalConversationSnapshot{}, err
-		}
-		checkpoint = semanticCursor
-		materialized, err = store.loadSnapshot(ctx, semantic.SessionID, checkpoint)
-		if err != nil {
-			r.conversationV2Mu.Unlock()
-			return RuntimeCanonicalConversationSnapshot{}, err
-		}
-		reason = ""
-	}
 	if reason != "" || !canonicalSemanticSnapshotsEqual(materialized, semantic) {
 		maxSequence, maxErr := r.eventStore.MaxSequence(ctx)
 		if maxErr != nil {
@@ -97,7 +83,6 @@ func (r *runtimeService) SessionConversationSnapshotV2(ctx context.Context, sess
 	}
 	r.conversationV2Mu.Unlock()
 	if recovery != nil {
-		r.publishSessionOutputEventFromRuntime(*recovery)
 		if r.eventStream != nil {
 			r.eventStream.Publish(*recovery)
 		}

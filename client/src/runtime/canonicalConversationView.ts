@@ -4,11 +4,11 @@ import { groupCanonicalProcess } from './canonicalConversationPresentation.ts';
 import type { CanonicalConversationStore } from './canonicalConversationStore.ts';
 import type { CanonicalMessage, CanonicalToolCall } from './canonicalConversationTypes.ts';
 import type { ConversationTurnViewModel, ConversationTurnStatus } from './conversation/conversationTypes.ts';
-import type { ConversationTimelineItemViewModel, ToolCallViewModel } from './workbenchTypes.ts';
+import type { ConversationTimelineItemViewModel, OptimisticConversationSubmit, ToolCallViewModel } from './workbenchTypes.ts';
 import { selectCanonicalStructuredActivity, type CanonicalStructuredActivity } from './canonicalStructuredActivity.ts';
 
-export function selectCanonicalConversationTurnViewModels(store?: CanonicalConversationStore, structured = selectCanonicalStructuredActivity(store)): ConversationTurnViewModel[] {
-  return selectCanonicalConversationTurns(store).map(({ turn, user, final, process }) => {
+export function selectCanonicalConversationTurnViewModels(store?: CanonicalConversationStore, structured = selectCanonicalStructuredActivity(store), optimistic?: Record<string, OptimisticConversationSubmit>): ConversationTurnViewModel[] {
+  const turns: ConversationTurnViewModel[] = selectCanonicalConversationTurns(store).map(({ turn, user, final, process }) => {
     const status = turn.status as ConversationTurnStatus;
     const items = groupCanonicalProcess(process).map((item) => item.type === 'tool-group'
       ? projectToolGroup(item.key, item.tools, store!, structured)
@@ -21,6 +21,12 @@ export function selectCanonicalConversationTurnViewModels(store?: CanonicalConve
       startedAt: turn.startedAt, finishedAt: turn.finishedAt, error: turn.error,
     };
   });
+  const echoed = new Set(Object.values(store?.messagesById ?? {}).map((message) => message.clientRequestId).filter(Boolean));
+  for (const submit of Object.values(optimistic ?? {})) {
+    if (echoed.has(submit.clientRequestId) || (store?.sessionId && submit.sessionId && submit.sessionId !== store.sessionId)) continue;
+    turns.push({ id: `optimistic:${submit.clientRequestId}`, sessionId: submit.sessionId || store?.sessionId || '', status: submit.status === 'error' ? 'failed' : 'queued', startedAt: submit.createdAt, user: { id: `optimistic-message:${submit.clientRequestId}`, kind: 'user_message', sessionId: submit.sessionId, role: 'user', content: submit.prompt, status: submit.status === 'error' ? 'error' : 'loading', createdAt: submit.createdAt, clientRequestId: submit.clientRequestId, error: submit.error }, process: { status: submit.status === 'error' ? 'failed' : 'queued', items: [], startedAt: submit.createdAt, finishedAt: undefined, hasFailure: submit.status === 'error' }, error: submit.error });
+  }
+  return turns.sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0) || left.id.localeCompare(right.id));
 }
 
 function projectProcessEntity(entity: CanonicalProcessEntity, store: CanonicalConversationStore, structured: CanonicalStructuredActivity): ConversationTimelineItemViewModel | undefined {

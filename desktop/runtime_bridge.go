@@ -68,15 +68,10 @@ type RuntimeTerminalStreamAckRequest = runtime.RuntimeTerminalStreamAckRequest
 type RuntimeTerminalStreamStopRequest = runtime.RuntimeTerminalStreamStopRequest
 type RuntimeTerminalStreamMessage = runtime.RuntimeTerminalStreamMessage
 type RuntimeTerminalStreamResponse = runtime.RuntimeTerminalStreamResponse
-type RuntimeOutputStreamStartRequest = runtime.RuntimeOutputStreamStartRequest
-type RuntimeOutputStreamStopRequest = runtime.RuntimeOutputStreamStopRequest
 type RuntimeEventStreamStartRequest = runtime.RuntimeEventStreamStartRequest
 type RuntimeEventStreamStopRequest = runtime.RuntimeEventStreamStopRequest
 type RuntimeEventStreamResponse = runtime.RuntimeEventStreamResponse
 type RuntimeEventStreamMessage = runtime.RuntimeEventStreamMessage
-type RuntimeOutputStreamResponse = runtime.RuntimeOutputStreamResponse
-type RuntimeOutputStreamMessage = runtime.RuntimeOutputStreamMessage
-type RuntimeOutputTextDelta = runtime.RuntimeOutputTextDelta
 type RuntimeTerminalProfile = runtime.RuntimeTerminalProfile
 type RuntimeTerminalSettings = runtime.RuntimeTerminalSettings
 type RuntimeTerminalSettingsResponse = runtime.RuntimeTerminalSettingsResponse
@@ -150,11 +145,6 @@ type RuntimeSessionUpdateRequest = runtime.RuntimeSessionUpdateRequest
 type RuntimeMessagesResponse = runtime.RuntimeMessagesResponse
 type RuntimeAssistantStep = runtime.RuntimeAssistantStep
 type RuntimeToolResult = runtime.RuntimeToolResult
-type RuntimeConversationItem = runtime.RuntimeConversationItem
-type RuntimeOutputRequest = runtime.RuntimeOutputRequest
-type RuntimeOutputSnapshot = runtime.RuntimeOutputSnapshot
-type RuntimeOutputEvent = runtime.RuntimeOutputEvent
-type RuntimeOutputEventsResponse = runtime.RuntimeOutputEventsResponse
 type RuntimeSessionActivityResponse = runtime.RuntimeSessionActivityResponse
 type RuntimeActivityWindow = runtime.RuntimeActivityWindow
 type RuntimeSessionActivityWindowResponse = runtime.RuntimeSessionActivityWindowResponse
@@ -258,21 +248,14 @@ type RuntimeCanonicalConversationStreamStartRequestV2 = runtime.RuntimeCanonical
 type RuntimeCanonicalConversationStreamStopRequestV2 = runtime.RuntimeCanonicalConversationStreamStopRequestV2
 type RuntimeCanonicalConversationStreamResponseV2 = runtime.RuntimeCanonicalConversationStreamResponseV2
 type RuntimeCanonicalConversationStreamMessageV2 = runtime.RuntimeCanonicalConversationStreamMessageV2
-type RuntimeConversationV2DiagnosticsResponse = runtime.RuntimeConversationV2DiagnosticsResponse
 
 // RuntimeBridge is the Wails adapter. It intentionally delegates to
 // runtime.RuntimeService so desktop bindings do not become the business
 // boundary.
 type RuntimeBridge struct {
-	service         runtime.RuntimeService
-	terminalMu      sync.Mutex
-	terminalStreams map[string]*runtimeBridgeTerminalStream
-	outputMu        sync.Mutex
-	outputStreams   map[string]*runtimeBridgeOutputStream
-	// outputStreamBySession lets a new StartSessionOutputStream stop the
-	// previous stream for the same session automatically (session switch
-	// path).
-	outputStreamBySession         map[string]string
+	service                       runtime.RuntimeService
+	terminalMu                    sync.Mutex
+	terminalStreams               map[string]*runtimeBridgeTerminalStream
 	conversationV2Mu              sync.Mutex
 	conversationV2Streams         map[string]*runtimeBridgeOutputStream
 	conversationV2StreamBySession map[string]string
@@ -296,8 +279,6 @@ func NewRuntimeBridge() *RuntimeBridge {
 
 		service:                       runtime.NewRuntimeService(),
 		terminalStreams:               make(map[string]*runtimeBridgeTerminalStream),
-		outputStreams:                 make(map[string]*runtimeBridgeOutputStream),
-		outputStreamBySession:         make(map[string]string),
 		conversationV2Streams:         make(map[string]*runtimeBridgeOutputStream),
 		conversationV2StreamBySession: make(map[string]string),
 		runtimeEventStreams:           make(map[string]context.CancelFunc),
@@ -1024,12 +1005,6 @@ func (r *RuntimeBridge) SessionContextUsage(ctx context.Context, sessionID strin
 
 }
 
-func (r *RuntimeBridge) SessionOutput(ctx context.Context, sessionID string, req RuntimeOutputRequest) (RuntimeOutputSnapshot, error) {
-
-	return r.service.SessionOutput(ctx, sessionID, req)
-
-}
-
 func (r *RuntimeBridge) SessionConversationSnapshotV2(ctx context.Context, sessionID string, req RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error) {
 	return r.service.SessionConversationSnapshotV2(ctx, sessionID, req)
 }
@@ -1037,10 +1012,6 @@ func (r *RuntimeBridge) SessionConversationSnapshotV2(ctx context.Context, sessi
 func (r *RuntimeBridge) SessionConversationEventsV2(ctx context.Context, sessionID string, req RuntimeCanonicalConversationEventsRequestV2) (RuntimeCanonicalConversationEventsResponseV2, error) {
 	return r.service.SessionConversationEventsV2(ctx, sessionID, req)
 }
-func (r *RuntimeBridge) ConversationV2Diagnostics(ctx context.Context, sessionID string) (RuntimeConversationV2DiagnosticsResponse, error) {
-	return r.service.ConversationV2Diagnostics(ctx, sessionID)
-}
-
 func (r *RuntimeBridge) StartSessionConversationStreamV2(ctx context.Context, req RuntimeCanonicalConversationStreamStartRequestV2) (RuntimeCanonicalConversationStreamResponseV2, error) {
 	app := application.Get()
 	if app == nil {
@@ -1118,127 +1089,6 @@ func (r *RuntimeBridge) stopSessionConversationStreamV2(streamID string) bool {
 	}
 	stream.cancel()
 	return true
-}
-
-// StartSessionOutputStream opens a per-session push channel that batches
-// RuntimeOutputEvent (including ephemeral text deltas). Emits Wails app
-// events under the name "agent-builder:output-stream" with a 50ms batcher.
-// Only one stream is active per session per bridge; a new call for the
-// same session stops the previous stream first (session switch path).
-func (r *RuntimeBridge) StartSessionOutputStream(ctx context.Context, req RuntimeOutputStreamStartRequest) (RuntimeOutputStreamResponse, error) {
-	app := application.Get()
-	if app == nil {
-		return RuntimeOutputStreamResponse{}, errors.New("desktop application is not initialized")
-	}
-	sessionID := strings.TrimSpace(req.SessionID)
-	if sessionID == "" {
-		return RuntimeOutputStreamResponse{}, errors.New("session id is required")
-	}
-	// Stop any previous stream for this session to avoid dueling emitters.
-	r.outputMu.Lock()
-	if existing, ok := r.outputStreamBySession[sessionID]; ok {
-		r.outputMu.Unlock()
-		r.stopSessionOutputStream(existing)
-		r.outputMu.Lock()
-	}
-	streamID := strings.TrimSpace(req.StreamID)
-	if streamID == "" {
-		streamID = fmt.Sprintf("session-output-stream-%d", time.Now().UnixNano())
-	}
-	eventName := "agent-builder:output-stream"
-	streamCtx, cancel := context.WithCancel(context.Background())
-	events, unsubscribe := r.service.SubscribeSessionOutputEvents(streamCtx, sessionID, req.After)
-	stream := &runtimeBridgeOutputStream{
-		cancel: func() {
-			cancel()
-			unsubscribe()
-		},
-		sessionID: sessionID,
-	}
-	r.outputStreams[streamID] = stream
-	r.outputStreamBySession[sessionID] = streamID
-	r.outputMu.Unlock()
-
-	go r.runSessionOutputStream(streamCtx, app, eventName, streamID, sessionID, events)
-	return RuntimeOutputStreamResponse{StreamID: streamID, EventName: eventName}, nil
-}
-
-// StopSessionOutputStream tears down a stream opened by
-// StartSessionOutputStream. Returns false if the stream is unknown.
-func (r *RuntimeBridge) StopSessionOutputStream(ctx context.Context, req RuntimeOutputStreamStopRequest) (bool, error) {
-	return r.stopSessionOutputStream(strings.TrimSpace(req.StreamID)), nil
-}
-
-func (r *RuntimeBridge) stopSessionOutputStream(streamID string) bool {
-	if streamID == "" {
-		return false
-	}
-	r.outputMu.Lock()
-	stream := r.outputStreams[streamID]
-	if stream != nil {
-		delete(r.outputStreams, streamID)
-		if r.outputStreamBySession[stream.sessionID] == streamID {
-			delete(r.outputStreamBySession, stream.sessionID)
-		}
-	}
-	r.outputMu.Unlock()
-	if stream == nil {
-		return false
-	}
-	stream.cancel()
-	return true
-}
-
-const (
-	runtimeBridgeSessionOutputBatchWait = 50 * time.Millisecond
-	runtimeBridgeSessionOutputBatchMax  = 64
-)
-
-func (r *RuntimeBridge) runSessionOutputStream(
-	ctx context.Context,
-	app *application.App,
-	eventName string,
-	streamID string,
-	sessionID string,
-	events <-chan RuntimeOutputEvent,
-) {
-	defer r.stopSessionOutputStream(streamID)
-	for {
-		batch, ok := nextRuntimeBridgeSessionOutputBatch(ctx, events)
-		if !ok {
-			return
-		}
-		app.Event.Emit(eventName, RuntimeOutputStreamMessage{
-			StreamID:  streamID,
-			SessionID: sessionID,
-			Events:    batch,
-		})
-	}
-}
-
-func nextRuntimeBridgeSessionOutputBatch(ctx context.Context, events <-chan RuntimeOutputEvent) ([]RuntimeOutputEvent, bool) {
-	var batch []RuntimeOutputEvent
-	timer := time.NewTimer(runtimeBridgeSessionOutputBatchWait)
-	defer timer.Stop()
-	for {
-		select {
-		case event, ok := <-events:
-			if !ok {
-				return batch, len(batch) > 0
-			}
-			batch = append(batch, event)
-			if len(batch) >= runtimeBridgeSessionOutputBatchMax {
-				return batch, true
-			}
-		case <-timer.C:
-			if len(batch) > 0 {
-				return batch, true
-			}
-			timer.Reset(runtimeBridgeSessionOutputBatchWait)
-		case <-ctx.Done():
-			return nil, false
-		}
-	}
 }
 
 func (r *RuntimeBridge) SessionActivity(ctx context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {

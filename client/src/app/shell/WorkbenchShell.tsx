@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import type {
   CreateProjectRequestViewModel,
@@ -10,13 +10,9 @@ import type {
   WorkbenchViewModel,
   NewConversationDraftViewModel,
 } from '../../runtime/workbenchTypes.ts';
-import type { OutputStore } from '../../runtime/outputTypes.ts';
-import { addOptimisticUserSubmit, applyOutputEvents } from '../../runtime/outputReducer.ts';
-import { createOutputStore } from '../../runtime/outputStore.ts';
 import { createConversationSubmitQueue } from '../../runtime/conversationSubmitQueue.ts';
-import { createCanonicalConversationCoordinator, type CanonicalConversationCoordinator } from '../../runtime/canonicalConversationCoordinator.ts';
+import { createCanonicalConversationCoordinator } from '../../runtime/canonicalConversationCoordinator.ts';
 import { installWebviewCursorRecovery, nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
-import { selectConversationMessages, selectPendingPermissions } from '../../runtime/outputSelectors.ts';
 import { runtimeEventCoveredByOutputStream, runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
 import { PluginCenter } from '../../features/plugins/PluginCenter.tsx';
 import { Sidebar } from '../../features/sidebar/Sidebar.tsx';
@@ -68,22 +64,18 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const modeRef = useRef(mode);
   const sessionMutationSeqRef = useRef(0);
   const promptSubmitQueueRef = useRef(createConversationSubmitQueue());
-  const canonicalCoordinatorRef = useRef<CanonicalConversationCoordinator | undefined>(undefined);
-  if (!canonicalCoordinatorRef.current && adapter.fetchCanonicalConversationSnapshot && adapter.subscribeCanonicalConversation) {
-    canonicalCoordinatorRef.current = createCanonicalConversationCoordinator({
+  const canonicalCoordinator = useMemo(() => {
+    if (!adapter.fetchCanonicalConversationSnapshot || !adapter.subscribeCanonicalConversation) return undefined;
+    return createCanonicalConversationCoordinator({
       fetchSnapshot: adapter.fetchCanonicalConversationSnapshot,
       subscribe: adapter.subscribeCanonicalConversation,
       onStore: (store) => setViewModel((current) => (
         current.conversationTarget.kind === 'session' && current.conversationTarget.sessionId === store.sessionId
-          ? { ...current, canonicalConversationStore: store }
+          ? { ...current, canonicalConversationStore: store, optimisticConversationByClientRequestId: pruneEchoedOptimisticSubmits(current.optimisticConversationByClientRequestId, store) }
           : current
       )),
     });
-  }
-  // Most-recently-seen output store per session. Switching back to a session
-  // renders its cached conversation instantly (no blank/loading flash) while
-  // the authoritative hydrate catches up in the background.
-  const sessionStoreCacheRef = useRef(new Map<string, OutputStore>());
+  }, [adapter.fetchCanonicalConversationSnapshot, adapter.subscribeCanonicalConversation]);
   const hasBusySession = viewModel.sessions.some((session) => session.busy);
   const sidebarForceCollapsed =
     !sidebarCollapsed &&
@@ -96,22 +88,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     viewModelRef.current = viewModel;
   }, [viewModel]);
 
-  useEffect(() => {
-    const store = viewModel.outputStore;
-    if (!store?.sessionId) {
-      return;
-    }
-    const cache = sessionStoreCacheRef.current;
-    cache.delete(store.sessionId);
-    cache.set(store.sessionId, store);
-    while (cache.size > 8) {
-      const oldest = cache.keys().next().value;
-      if (oldest === undefined) {
-        break;
-      }
-      cache.delete(oldest);
-    }
-  }, [viewModel.outputStore]);
 
   useEffect(() => {
     installWebviewCursorRecovery();
@@ -187,12 +163,10 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       refreshTimer = window.setTimeout(refreshFromRuntimeEvent, delay);
     };
 
-    const streamHandlesEvent = Boolean((viewModelRef.current.canonicalConversationEnabled && adapter.subscribeCanonicalConversation) || adapter.subscribeSessionOutput);
+    const streamHandlesEvent = Boolean(adapter.subscribeCanonicalConversation);
     void Promise.resolve(adapter.subscribeRuntimeEvents((event) => {
-      // When the per-session output stream is available it already
-      // materializes the message / tool / permission diffs into the
-      // outputStore; the full-workbench refresh is redundant for these
-      // events and would just double the render cost.
+      // The canonical per-session stream owns conversation changes; general
+      // Runtime refreshes only update non-conversation workbench state.
       if (streamHandlesEvent && runtimeEventCoveredByOutputStream(event)) {
         return;
       }
@@ -214,24 +188,14 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     };
   }, [adapter]);
 
-  // Session output stream: when the adapter exposes subscribeSessionOutput
-  // the live text/tool/permission deltas flow directly into outputStore
-  // without a full refresh cycle. Snapshot_required signals fall back to
-  // the refresh path via requestFullRefresh.
   const activeSessionID = viewModel.conversationTarget.kind === 'session' ? viewModel.conversationTarget.sessionId : undefined;
 
   useEffect(() => {
-    const coordinator = canonicalCoordinatorRef.current;
+    const coordinator = canonicalCoordinator;
     if (!coordinator) return undefined;
-    if (!viewModel.canonicalConversationEnabled) {
-      coordinator.stop();
-      setViewModel((current) => current.canonicalConversationStore ? { ...current, canonicalConversationStore: undefined } : current);
-      return undefined;
-    }
-    setViewModel((current) => current.canonicalConversationStore?.sessionId === activeSessionID ? current : { ...current, canonicalConversationStore: undefined });
     coordinator.activate(activeSessionID ?? '');
     return () => coordinator.stop();
-  }, [activeSessionID, viewModel.canonicalConversationEnabled]);
+  }, [activeSessionID, canonicalCoordinator]);
 
   // WP5 refreshNonce: contextUsage.compactCount is only known once a
   // refresh has already delivered it, so the general event-driven refresh
@@ -267,74 +231,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     }).catch(() => undefined);
   }, [adapter, viewModel.composer.contextUsage]);
 
-  useEffect(() => {
-    if (viewModel.canonicalConversationEnabled || !adapter.subscribeSessionOutput || !activeSessionID) {
-      return undefined;
-    }
-    let cancelled = false;
-    let closer: (() => void) | undefined;
-    let snapshotRequested = false;
-    const requestFullRefresh = () => {
-      if (cancelled) return;
-      const epoch = sessionMutationSeqRef.current;
-      void adapter.refresh({ ...viewModelRef.current, mode: modeRef.current }).then((nextViewModel) => {
-        if (cancelled || sessionMutationSeqRef.current !== epoch) return;
-        setMode(nextViewModel.mode);
-        setViewModel((current) => preserveCanonicalConversation(nextViewModel, current));
-      }).catch(() => undefined);
-    };
-    const onEvents = (events: import('../../runtime/outputTypes.ts').RuntimeOutputEvent[]) => {
-      if (cancelled || events.length === 0) return;
-      // If the live store belongs to another session (e.g. the first prompt
-      // of a draft created this session moments ago), incremental events
-      // cannot reconstruct the conversation on their own: carry the
-      // optimistic submits over and pull a full snapshot to backfill items
-      // (like the user_message echo) the stream started too late to see.
-      const liveStore = viewModelRef.current.outputStore;
-      const storeIsStale = !liveStore || liveStore.sessionId !== activeSessionID;
-      setViewModel((current) => {
-        const store = current.outputStore && current.outputStore.sessionId === activeSessionID
-          ? current.outputStore
-          : {
-              ...createOutputStore(activeSessionID),
-              optimisticByClientRequestId: { ...(current.outputStore?.optimisticByClientRequestId ?? {}) },
-            };
-        const nextStore = applyOutputEvents(store, events);
-        return {
-          ...current,
-          outputStore: nextStore,
-          conversation: selectConversationMessages(nextStore),
-          pendingPermissions: selectPendingPermissions(nextStore),
-        };
-      });
-      if (storeIsStale && !snapshotRequested) {
-        snapshotRequested = true;
-        requestFullRefresh();
-      }
-    };
-    void Promise.resolve(
-      adapter.subscribeSessionOutput(activeSessionID, {
-        onEvents,
-        onSnapshotRequired: requestFullRefresh,
-      }, viewModel.outputStore?.cursor),
-    ).then((cleanup) => {
-      if (cancelled) {
-        cleanup?.();
-        return;
-      }
-      closer = cleanup;
-    }).catch(() => undefined);
-    return () => {
-      cancelled = true;
-      if (closer) {
-        try { closer(); } catch { /* ignore */ }
-      }
-    };
-    // We intentionally do not depend on viewModel.outputStore.cursor —
-    // subscribing once per (session, adapter) is enough; the stream itself
-    // carries its own cursor state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adapter, activeSessionID, viewModel.canonicalConversationEnabled]);
 
   useEffect(() => {
     if (!viewModel.composer.busy && !hasBusySession) {
@@ -348,7 +244,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     // aggressive full-workbench refresh loops to render the assistant's
     // live output. We slow the polling to 3s so hooks/tasks/context still
     // pick up eventual state changes.
-    const hasConversationStream = Boolean((viewModel.canonicalConversationEnabled && adapter.subscribeCanonicalConversation) || adapter.subscribeSessionOutput);
+    const hasConversationStream = Boolean(adapter.subscribeCanonicalConversation);
     const busyIntervalMs = hasConversationStream ? 3000 : 1200;
     const backoffMs = hasConversationStream ? 4000 : 2000;
 
@@ -386,7 +282,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         window.clearTimeout(timer);
       }
     };
-  }, [adapter, mode, viewModel.canonicalConversationEnabled, viewModel.composer.busy, hasBusySession]);
+  }, [adapter, mode, viewModel.composer.busy, hasBusySession]);
 
   const changeMode = (nextMode: WorkbenchMode) => {
     setMode(nextMode);
@@ -419,9 +315,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       conversationTarget: { kind: 'draft', scope: draftTarget.scope, projectId: draftTarget.projectId },
       sessions: currentViewModel.sessions.map((session) => ({ ...session, active: false })),
       conversation: [],
-      // The output store must not leak across conversations: a stale store
-      // would swallow the next optimistic submit and resurface old items.
-      outputStore: createOutputStore(''),
+      canonicalConversationStore: undefined,
+      optimisticConversationByClientRequestId: undefined,
       turnDiagnostics: undefined,
       runProjection: undefined,
       reactCallchain: undefined,
@@ -446,7 +341,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       conversationTarget: { kind: 'draft', scope: target.scope, projectId: target.projectId },
       sessions: current.sessions.map((session) => ({ ...session, active: false })),
       conversation: leavingActiveSession ? [] : current.conversation,
-      outputStore: leavingActiveSession ? createOutputStore('') : current.outputStore,
+      canonicalConversationStore: leavingActiveSession ? undefined : current.canonicalConversationStore,
+      optimisticConversationByClientRequestId: leavingActiveSession ? undefined : current.optimisticConversationByClientRequestId,
       turnDiagnostics: undefined,
       runProjection: undefined,
       reactCallchain: undefined,
@@ -502,14 +398,14 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const selectSession = (sessionID: string) => {
     const mutationSeq = ++sessionMutationSeqRef.current;
     const currentViewModel = viewModelRef.current;
-    const cachedStore = sessionStoreCacheRef.current.get(sessionID);
     const optimisticViewModel: WorkbenchViewModel = {
       ...currentViewModel,
       mode: 'new-chat',
       conversationTarget: { kind: 'session', sessionId: sessionID },
       sessions: currentViewModel.sessions.map((session) => ({ ...session, active: session.id === sessionID })),
-      conversation: cachedStore ? selectConversationMessages(cachedStore) : [],
-      outputStore: cachedStore ?? createOutputStore(sessionID),
+      conversation: [],
+      canonicalConversationStore: canonicalCoordinator?.cached(sessionID),
+      optimisticConversationByClientRequestId: undefined,
       turnDiagnostics: undefined,
       runProjection: undefined,
       reactCallchain: undefined,
@@ -554,7 +450,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   };
 
   const deleteSession = (sessionID: string) => {
-    sessionStoreCacheRef.current.delete(sessionID);
     const mutationSeq = ++sessionMutationSeqRef.current;
     const currentViewModel = viewModelRef.current;
     const currentMode = modeRef.current;
@@ -570,7 +465,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         : currentViewModel.conversationTarget,
       sessions: currentViewModel.sessions.filter((session) => session.id !== sessionID),
       conversation: wasActive ? [] : currentViewModel.conversation,
-      outputStore: wasActive ? createOutputStore('') : currentViewModel.outputStore,
+      canonicalConversationStore: wasActive ? undefined : currentViewModel.canonicalConversationStore,
+      optimisticConversationByClientRequestId: wasActive ? undefined : currentViewModel.optimisticConversationByClientRequestId,
       turnDiagnostics: wasActive ? undefined : currentViewModel.turnDiagnostics,
       runProjection: wasActive ? undefined : currentViewModel.runProjection,
       reactCallchain: wasActive ? undefined : currentViewModel.reactCallchain,
@@ -620,35 +516,16 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     const createdAt = Date.now();
     const clientRequestId = `prompt-${createdAt}`;
     const userID = `local-${createdAt}`;
-    const activeSessionId = currentViewModel.sessions.find((session) => session.active)?.id ?? '';
-    // Never seed the optimistic submit into a store that belongs to another
-    // session (e.g. a stale store surviving a draft transition): the stream
-    // consumer keys everything on the active session's store.
-    const baseOutputStore = currentViewModel.outputStore && currentViewModel.outputStore.sessionId === activeSessionId
-      ? currentViewModel.outputStore
-      : createOutputStore(activeSessionId);
-    const optimisticOutputStore = addOptimisticUserSubmit(baseOutputStore, {
-      clientRequestId,
-      prompt,
-      createdAt,
-      status: 'submitting',
-    });
-    const outputConversation = optimisticOutputStore.sessionId ? selectConversationMessages(optimisticOutputStore) : undefined;
+    const activeSessionId = currentViewModel.conversationTarget.kind === 'session' ? currentViewModel.conversationTarget.sessionId : undefined;
+    const optimisticSubmit = { clientRequestId, sessionId: activeSessionId, prompt, createdAt, status: 'submitting' as const };
     const optimisticViewModel: WorkbenchViewModel = {
       ...currentViewModel,
       mode: currentMode,
       composer: { ...currentViewModel.composer, busy: true },
-      outputStore: optimisticOutputStore,
-      conversation: outputConversation ?? [
+      optimisticConversationByClientRequestId: { ...(currentViewModel.optimisticConversationByClientRequestId ?? {}), [clientRequestId]: optimisticSubmit },
+      conversation: [
         ...currentViewModel.conversation,
-        {
-          id: userID,
-          role: 'user',
-          content: prompt,
-          createdAt,
-          clientRequestId,
-          status: 'success',
-        },
+        { id: userID, role: 'user', content: prompt, createdAt, clientRequestId, status: 'success' as const },
       ],
     };
     viewModelRef.current = optimisticViewModel;
@@ -659,6 +536,11 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         return;
       }
       sessionMutationSeqRef.current += 1;
+      const adoptedSessionId = nextViewModel.conversationTarget.kind === 'session' ? nextViewModel.conversationTarget.sessionId : undefined;
+      nextViewModel.optimisticConversationByClientRequestId = {
+        ...(nextViewModel.optimisticConversationByClientRequestId ?? {}),
+        [clientRequestId]: { ...optimisticSubmit, sessionId: adoptedSessionId },
+      };
       modeRef.current = nextViewModel.mode;
       viewModelRef.current = nextViewModel;
       setSwitchingSessionID('');
@@ -669,26 +551,15 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         return;
       }
       sessionMutationSeqRef.current += 1;
-      const failedOutputStore = {
-        ...optimisticOutputStore,
-        optimisticByClientRequestId: {
-          ...optimisticOutputStore.optimisticByClientRequestId,
-          [clientRequestId]: {
-            ...optimisticOutputStore.optimisticByClientRequestId[clientRequestId],
-            status: 'error' as const,
-            error: sendPromptErrorMessage(error),
-          },
-        },
-      };
+      const errorMessage = sendPromptErrorMessage(error);
       const failedViewModel: WorkbenchViewModel = {
         ...optimisticViewModel,
-        outputStore: failedOutputStore,
         composer: { ...optimisticViewModel.composer, busy: false },
-        conversation: failedOutputStore.sessionId ? selectConversationMessages(failedOutputStore) : optimisticViewModel.conversation.map((message) =>
-          message.clientRequestId === clientRequestId
-            ? { ...message, status: 'error', error: sendPromptErrorMessage(error) }
-            : message,
-        ),
+        optimisticConversationByClientRequestId: {
+          ...(optimisticViewModel.optimisticConversationByClientRequestId ?? {}),
+          [clientRequestId]: { ...optimisticSubmit, status: 'error', error: errorMessage },
+        },
+        conversation: optimisticViewModel.conversation.map((message) => message.clientRequestId === clientRequestId ? { ...message, status: 'error', error: errorMessage } : message),
       };
       viewModelRef.current = failedViewModel;
       setSwitchingSessionID('');
@@ -774,10 +645,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
 
   const resizeTerminal = useCallback((terminalID: string, columns: number, rows: number) => adapter.resizeTerminal(terminalID, columns, rows), [adapter]);
 
-  const subscribeTerminalEvents = useCallback(
-    (terminalID: string, onEvent: Parameters<typeof adapter.subscribeTerminalEvents>[1]) => adapter.subscribeTerminalEvents(terminalID, onEvent),
-    [adapter],
-  );
+  const subscribeTerminalEvents = adapter.subscribeTerminalEvents;
 
   const deleteTerminal = useCallback((terminalID: string) => adapter.deleteTerminal(terminalID), [adapter]);
 
@@ -1109,6 +977,13 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       )}
     </main>
   );
+}
+
+function pruneEchoedOptimisticSubmits(submits: WorkbenchViewModel['optimisticConversationByClientRequestId'], store: import('../../runtime/canonicalConversationStore.ts').CanonicalConversationStore) {
+  if (!submits) return undefined;
+  const echoed = new Set(Object.values(store.messagesById).map((message) => message.clientRequestId).filter(Boolean));
+  const next = Object.fromEntries(Object.entries(submits).filter(([id, submit]) => !echoed.has(id) && (!submit.sessionId || submit.sessionId === store.sessionId)));
+  return Object.keys(next).length ? next : undefined;
 }
 
 function applyPermissionMode(current: WorkbenchViewModel, mode: string): WorkbenchViewModel {

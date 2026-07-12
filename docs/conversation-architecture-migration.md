@@ -21,7 +21,7 @@ and commit reference after every phase.
 | 4. Frontend store | `[x]` | `cdd76802` | Normalized reducer, revision-safe snapshot merge, pure Turn selector, stable presentation grouping, tests, and independent review completed. |
 | 5. Convergence | `[x]` | `faf0344c` | Canonical-mode Session stream is the only live writer; refresh, switching, reconnect, and explicit recovery converge by cursor. |
 | 6. Structured activity | `[x]` | `96b556ee` | Todo, Permission, Subagent, Agent Team, and semantic notices now share canonical ownership and projections. |
-| 7. Cutover | `[~]` | — | In progress: remove legacy projection/adapters and verify canonical cutover end to end. |
+| 7. Cutover | `[x]` | pending | Legacy projection/adapters removed; canonical product path, packaged WebView, automated gates, and independent review completed. |
 
 ## Why this migration exists
 
@@ -629,7 +629,7 @@ Independent review notes:
 - Final review approved Phase 6 with no remaining blocking findings after the
   historical reconciliation/restart tests and bounded-message tests passed.
 
-### Phase 7: Cutover `[~]`
+### Phase 7: Cutover `[x]`
 
 Deliverables:
 
@@ -640,6 +640,56 @@ Deliverables:
 Exit gate: no-tool, multi-tool, failed-tool, permission, Todo, Subagent,
 Agent Team, long-command, late result, reconnect, restart, historical,
 compact, and recovery scenarios pass.
+
+Phase 7 verification map:
+
+- No-tool/final ownership: `TestCanonicalFinalMessageRejectsToolUseAndRequiresTerminalTurn`
+  plus the packaged WebView seeded final-response visibility assertion.
+- Multi-tool, failed/running tool stability, grouping, and late result/final:
+  `canonical-conversation-store-smoke.mjs` and
+  `canonical-conversation-convergence-smoke.mjs`; these retain entity IDs
+  across window/older snapshots, final arrival, group growth, terminal updates,
+  and out-of-order delivery.
+- Permission allow/deny and failed tools: runtime scheduler/tool-policy tests
+  (`TestRuntimeSchedulerFullAccessAllowsWithoutPendingPermission`,
+  `TestRuntimeSchedulerDeniedShellRecordsFinalToolCall`, and
+  `TestApplyRuntimeToolPolicyPermissionAndInterrupted`) plus canonical
+  structured-activity projection.
+- Todo, Subagent, Agent Team, nested/late task messages, compact, and recovery:
+  `canonical-structured-activity-smoke.mjs`,
+  `TestCanonicalStructuredRawEventsProjectOwnedEntities`, and
+  `TestCanonicalAgentTaskMessagesAreBoundedAndKeepLatest`.
+- Session A -> B -> A, reconnect/stream close, snapshot recovery, cursor gaps,
+  duplicate/out-of-order batches, and stale window snapshots:
+  `canonical-conversation-convergence-smoke.mjs`,
+  `TestCanonicalConversationCursorRejectsGapsAndPreservesLargeDecimals`, and
+  `TestCanonicalEntityEventsAreIdempotentUnderDuplicateAndOutOfOrderDelivery`.
+- Restart/historical reconstruction and compact/recovery notice identity:
+  `TestSessionConversationSnapshotV2ReconstructsIdenticallyAfterRestart`,
+  `TestCanonicalNoticesMergeLifecycleBySemanticIdentity`, and the packaged
+  app startup from a pre-seeded durable workspace.
+- Real packaged Wails boundary: `smoke:phase7-packaged` starts the built
+  executable from a pre-seeded durable conversation, verifies the exact final
+  assistant response in the WebView, and reads the same session, turn, and
+  message through the generated Wails canonical snapshot binding.
+- Existing scheduler UI regression: `smoke:phase362` remains unchanged and
+  continues to verify the visible enabled/disabled task controls and real
+  packaged-WebView click path independently of the conversation cutover.
+
+Final verification and review:
+
+- `go build ./...` passed. Focused canonical Runtime/Desktop tests passed,
+  including snapshot, stream, restart, structured activity, and packaged seed
+  coverage. The repository-wide `go test ./...` was also attempted; unrelated
+  pre-existing MCP replay/sandbox failures and a 10-minute scenario-harness
+  timeout remain outside this cutover, while all Phase 7 packages and focused
+  tests pass.
+- Client lint, production build, canonical store/convergence/structured
+  activity/contract/cutover/target smokes, and the packaged canonical WebView
+  smoke passed.
+- Independent final review found no remaining legacy writer, final/late-result
+  deletion path, guard gap, or packaged presentation blocker and approved the
+  phase for completion.
 
 ## Cross-phase acceptance scenarios
 

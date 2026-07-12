@@ -256,29 +256,6 @@ func TestRuntimeBridgeForwardsTodoQueries(t *testing.T) {
 	}
 }
 
-func TestSessionOutputBatchPreservesDeltaFragments(t *testing.T) {
-	t.Parallel()
-
-	msgA := runtime.RuntimeOutputEvent{Kind: "output.text.delta", TextDelta: &runtime.RuntimeOutputTextDelta{MessageID: "msg-1", PartType: "text", Delta: "he", ContentLen: 2}}
-	msgB := runtime.RuntimeOutputEvent{Kind: "output.text.delta", TextDelta: &runtime.RuntimeOutputTextDelta{MessageID: "msg-1", PartType: "text", Delta: "llo", ContentLen: 5}}
-	msgC := runtime.RuntimeOutputEvent{Kind: "output.text.delta", TextDelta: &runtime.RuntimeOutputTextDelta{MessageID: "msg-1", PartType: "reasoning", Delta: "?", ContentLen: 1}}
-	msgD := runtime.RuntimeOutputEvent{Kind: "output.text.delta", TextDelta: &runtime.RuntimeOutputTextDelta{MessageID: "msg-2", PartType: "text", Delta: "!", ContentLen: 1}}
-	item := runtime.RuntimeOutputEvent{Kind: "conversation_item.updated"}
-
-	input := make(chan runtime.RuntimeOutputEvent, 5)
-	for _, event := range []runtime.RuntimeOutputEvent{msgA, msgB, msgC, msgD, item} {
-		input <- event
-	}
-	close(input)
-	events, ok := nextRuntimeBridgeSessionOutputBatch(context.Background(), input)
-	if !ok {
-		t.Fatal("expected a complete output batch")
-	}
-	if len(events) != 5 || events[0].TextDelta.Delta != "he" || events[1].TextDelta.Delta != "llo" {
-		t.Fatalf("delta fragments must remain independent: %#v", events)
-	}
-}
-
 func TestSessionConversationSnapshotV2ForwardsToRuntime(t *testing.T) {
 	service := &recordingRuntimeService{}
 	bridge := &RuntimeBridge{service: service}
@@ -329,24 +306,6 @@ func TestSessionConversationStreamV2ReplacesSessionAndPreservesAtomicBatch(t *te
 	}
 	if bridge.conversationV2StreamBySession["session-1"] != "" {
 		t.Fatal("stop left session mapping")
-	}
-}
-
-func TestStopSessionOutputStreamUnknownStreamIsNoop(t *testing.T) {
-	t.Parallel()
-
-	service := &recordingRuntimeService{}
-	bridge := &RuntimeBridge{
-		service:               service,
-		outputStreams:         make(map[string]*runtimeBridgeOutputStream),
-		outputStreamBySession: make(map[string]string),
-	}
-	ok, err := bridge.StopSessionOutputStream(context.Background(), runtime.RuntimeOutputStreamStopRequest{StreamID: "ghost"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok {
-		t.Fatal("unknown stream should not report stopped")
 	}
 }
 
@@ -725,18 +684,6 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 			Turns:     []RuntimeTurn{{ID: "turn-window", SessionID: "session-window", Status: "running"}},
 			Window:    RuntimeActivityWindow{Limit: 2, ToEnd: true},
 		},
-		output: RuntimeOutputSnapshot{
-			SessionID: "session-window",
-			Cursor:    "7",
-			Version:   1,
-			Items:     []RuntimeConversationItem{{ID: "item-output", Kind: "user_message", SessionID: "session-window", Sequence: 1, MessageID: "msg-output"}},
-			Messages:  []RuntimeMessage{{ID: "msg-output", SessionID: "session-window", Role: "user", ClientRequestID: "client-output"}},
-		},
-		outputEvents: RuntimeOutputEventsResponse{
-			SessionID: "session-window",
-			Cursor:    "8",
-			Events:    []RuntimeOutputEvent{{ID: "event-output", Sequence: 801, SessionID: "session-window", Kind: "conversation_item.created", EntityID: "item-output", Operation: "append", Item: &RuntimeConversationItem{ID: "item-output", Kind: "user_message", SessionID: "session-window", Sequence: 1, MessageID: "msg-output"}}},
-		},
 		turnActivity: RuntimeTurnActivityResponse{
 			SessionID: "session-window",
 			TurnID:    "turn-window",
@@ -814,13 +761,6 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 		t.Fatalf("cursor window = %#v", cursorWindow)
 	}
 
-	output, err := bridge.SessionOutput(context.Background(), "session-window", RuntimeOutputRequest{Snapshot: true, Cursor: "6", Limit: 4})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if service.outputSessionID != "session-window" || service.outputRequest.Cursor != "6" || service.outputRequest.Limit != 4 || output.Version != 1 || output.Items[0].Kind != "user_message" || output.Messages[0].ClientRequestID != "client-output" {
-		t.Fatalf("output = %#v request=%#v session=%q", output, service.outputRequest, service.outputSessionID)
-	}
 	turnActivity, err := bridge.TurnActivity(context.Background(), "turn-window")
 	if err != nil {
 		t.Fatal(err)
@@ -1196,17 +1136,8 @@ type recordingRuntimeService struct {
 	removeProjectReq              RuntimeProjectActionRequest
 	openProject                   RuntimeOpenProjectResponse
 	activity                      RuntimeSessionActivityResponse
-	output                        RuntimeOutputSnapshot
-	outputSessionID               string
-	outputRequest                 RuntimeOutputRequest
 	conversationSnapshotSessionID string
 	conversationSnapshotRequest   RuntimeCanonicalConversationSnapshotRequest
-	outputEvents                  RuntimeOutputEventsResponse
-	outputEventsSessionID         string
-	outputEventsAfter             string
-	outputStreamSessionID         string
-	outputStreamAfter             string
-	outputStreamEvents            []runtime.RuntimeOutputEvent
 	contextUsage                  RuntimeContextUsage
 	contextUsageSessionID         string
 	contextGovernanceSettings     RuntimeContextGovernanceSettings
@@ -1738,15 +1669,6 @@ func (s *recordingRuntimeService) SessionContextUsage(_ context.Context, session
 	return s.contextUsage, nil
 }
 
-func (s *recordingRuntimeService) SessionOutput(_ context.Context, sessionID string, req RuntimeOutputRequest) (RuntimeOutputSnapshot, error) {
-	s.outputSessionID = sessionID
-	s.outputRequest = req
-	if s.output.SessionID == "" {
-		s.output.SessionID = sessionID
-	}
-	return s.output, nil
-}
-
 func (s *recordingRuntimeService) SessionConversationSnapshotV2(_ context.Context, sessionID string, req RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error) {
 	s.conversationSnapshotSessionID = sessionID
 	s.conversationSnapshotRequest = req
@@ -1759,33 +1681,6 @@ func (s *recordingRuntimeService) SessionConversationEventsV2(_ context.Context,
 func (s *recordingRuntimeService) SubscribeSessionConversationEventsV2(context.Context, string, string) (<-chan runtime.RuntimeCanonicalConversationEventBatchV2, func()) {
 	ch := make(chan runtime.RuntimeCanonicalConversationEventBatchV2)
 	return ch, func() { close(ch) }
-}
-func (s *recordingRuntimeService) ConversationV2Diagnostics(context.Context, string) (runtime.RuntimeConversationV2DiagnosticsResponse, error) {
-	return runtime.RuntimeConversationV2DiagnosticsResponse{Mode: "legacy", Mismatches: []runtime.RuntimeConversationV2Mismatch{}}, nil
-}
-
-func (s *recordingRuntimeService) SessionOutputEvents(_ context.Context, sessionID string, after string) (RuntimeOutputEventsResponse, error) {
-	s.outputEventsSessionID = sessionID
-	s.outputEventsAfter = after
-	if s.outputEvents.SessionID == "" {
-		s.outputEvents.SessionID = sessionID
-	}
-	return s.outputEvents, nil
-}
-
-// SubscribeSessionOutputEvents lets bridge tests script the event stream by
-// pre-seeding outputStreamEvents. On Subscribe, all queued events are
-// enqueued and the returned closer drains the channel. Tests that only
-// exercise the Start/Stop plumbing without queued events can leave the slice
-// nil; the channel stays open and the closer is a no-op.
-func (s *recordingRuntimeService) SubscribeSessionOutputEvents(_ context.Context, sessionID string, after string) (<-chan runtime.RuntimeOutputEvent, func()) {
-	s.outputStreamSessionID = sessionID
-	s.outputStreamAfter = after
-	ch := make(chan runtime.RuntimeOutputEvent, len(s.outputStreamEvents)+8)
-	for _, ev := range s.outputStreamEvents {
-		ch <- ev
-	}
-	return ch, func() { /* leaving channel open is fine for these tests */ }
 }
 
 func (s *recordingRuntimeService) SessionActivity(_ context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {

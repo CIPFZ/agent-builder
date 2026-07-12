@@ -256,27 +256,6 @@ func TestManualCompactAppendsSummaryAndEvents(t *testing.T) {
 	if !hasRuntimeEventType(events.Events, runtimeapi.EventCompactStarted) || !hasRuntimeEventType(events.Events, runtimeapi.EventCompactCompleted) {
 		t.Fatalf("compact events missing: %#v", events.Events)
 	}
-	output := buildRuntimeOutputProjectionFromInput(runtimeConversationProjectionInput{
-		Activity: RuntimeSessionActivityWindowResponse{
-			SessionID: session.ID,
-			Messages: []RuntimeMessage{
-				{ID: "user-visible", SessionID: session.ID, Role: "user", Content: "visible", CreatedAt: 1},
-			},
-			Turns: []RuntimeTurn{{ID: "turn-compact", SessionID: session.ID, Status: "completed", UserMessageID: "user-visible", StartedAt: 1, FinishedAt: 2}},
-		},
-		Compact: []RuntimeCompactBoundary{{
-			ID:               resp.Boundary.ID,
-			SessionID:        session.ID,
-			TurnID:           "turn-compact",
-			Kind:             "full",
-			Status:           contextmgr.ProjectionStatusCompleted,
-			Trigger:          "manual",
-			SummaryMessageID: resp.Boundary.SummaryMessageID,
-			CreatedAt:        resp.Boundary.CreatedAt,
-			CompletedAt:      resp.Boundary.CompletedAt,
-		}},
-	}).snapshot(session.ID, "1")
-	assertHasConversationKind(t, output.Items, "compact_boundary")
 }
 
 func TestBuildModelInputProjectionAutoCompactsAboveThreshold(t *testing.T) {

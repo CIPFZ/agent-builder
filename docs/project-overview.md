@@ -10,6 +10,21 @@ Agent Builder 是一个以桌面客户端为主的 AI 编程 Agent。项目使�
 React Client -> Wails Bindings/Events -> Go Runtime -> Agent/Tools/Providers -> SQLite
 ```
 
+For conversation rendering, this resolves to one narrower product path:
+
+```text
+Go canonical conversation store
+  -> Wails snapshot + atomic entity batches
+  -> normalized React store
+  -> Turn selector
+  -> one presentation-grouping pass
+  -> Timeline, details, permissions, AgentTask and Todo surfaces
+```
+
+There is no parallel legacy conversation projection or secondary frontend
+writer. Runtime DTOs contain semantic entities and revisions, while visual tool
+groups and disclosure policy belong exclusively to the React projection.
+
 桌面产品只通过 Wails 与 Go Runtime 通信；不提供 React 到 Runtime 的 HTTP 降级链路。
 
 ## 技术栈

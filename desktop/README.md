@@ -4,6 +4,13 @@ This is the Wails desktop shell for the Agent Builder client.
 It intentionally stays thin: the product UI remains in `../client`, and
 the desktop build embeds the shared `client/dist` output.
 
+Conversation transport is also intentionally thin. `RuntimeBridge` forwards
+the Go canonical conversation snapshot and emits each canonical entity batch
+as one Wails event without splitting its raw sequence. React applies those
+batches to its normalized store, then derives Turn presentation once. The
+desktop shell does not build conversation items, tool groups, Todo summaries,
+or any competing conversation state.
+
 ## Build
 
 Install Wails v3 CLI if needed:
@@ -88,9 +95,9 @@ Run the focused packaged desktop/Wails bridge smoke from the desktop project:
 
 The script builds `bin/AgentBuilder.exe` when requested, uses
 `../tmp/runtime-dev` for its temporary runtime root, starts the packaged
-executable, and runs the desktop bridge contract test for new-chat handoff,
-event cursor forwarding, `SessionActivity` interrupted recovery hydration, and
-`MarkInterruptedDone` acknowledgement semantics.
+executable, and runs desktop bridge contract coverage for new-chat handoff,
+canonical conversation snapshot/cursor forwarding, atomic entity batches,
+interrupted recovery hydration, and `MarkInterruptedDone` acknowledgement.
 
 ## Phase 31.1 Wails Packaged Scheduler Smoke
 

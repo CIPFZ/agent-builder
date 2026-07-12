@@ -446,7 +446,7 @@ func (r *runtimeService) appendRuntimeEventLocked(event RuntimeEvent) RuntimeEve
 		r.nextEventSequence = event.Sequence
 	}
 	r.events = append(r.events, event)
-	if r.conversationMode != runtimeConversationModeLegacy && event.SessionID != "" {
+	if event.SessionID != "" {
 		if r.conversationV2Pending == nil {
 			r.conversationV2Pending = map[string]map[int64]RuntimeEvent{}
 		}
@@ -499,7 +499,7 @@ func (r *runtimeService) publishRuntimeEvent(event RuntimeEvent) {
 		return
 	}
 	if event.Sequence > 0 && r.eventStore.db != nil {
-		if r.conversationMode == runtimeConversationModeLegacy || event.SessionID == "" {
+		if event.SessionID == "" {
 			if err := r.eventStore.Append(context.Background(), event); err != nil {
 				slog.Error("Failed to persist runtime event", "event_id", event.ID, "sequence", event.Sequence, "type", event.Type, "error", err)
 			}
@@ -508,7 +508,6 @@ func (r *runtimeService) publishRuntimeEvent(event RuntimeEvent) {
 			_ = newRuntimeConversationEventStoreV2(r.eventStore.db).markFailure(context.Background(), event.SessionID, "projector_gap")
 		}
 	}
-	r.publishSessionOutputEventFromRuntime(event)
 	if runtimeapi.IsEphemeralEventType(event.Type) {
 		return
 	}

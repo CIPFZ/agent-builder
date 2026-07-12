@@ -108,20 +108,6 @@ type RuntimeCanonicalConversationStreamMessageV2 struct {
 	RuntimeCanonicalConversationEventBatchV2
 }
 
-type RuntimeConversationV2Mismatch struct {
-	SessionID  string `json:"sessionId"`
-	Cursor     string `json:"cursor"`
-	EntityType string `json:"entityType"`
-	EntityID   string `json:"entityId,omitempty"`
-	Field      string `json:"field"`
-	Legacy     string `json:"legacy,omitempty"`
-	Canonical  string `json:"canonical,omitempty"`
-}
-type RuntimeConversationV2DiagnosticsResponse struct {
-	Mode       string                          `json:"mode"`
-	Mismatches []RuntimeConversationV2Mismatch `json:"mismatches"`
-}
-
 type RuntimeConversationWindow struct {
 	TurnIDs       []string `json:"turnIds,omitempty"`
 	BeforeCursor  string   `json:"beforeCursor,omitempty"`

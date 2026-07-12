@@ -48,6 +48,22 @@ task lint
 
 ## 开发约束
 
+### Conversation changes
+
+- Treat the Go canonical materialized store as the sole conversation source of
+  truth. Do not add another projection, browser-owned authoritative cache, or
+  periodic conversation writer.
+- Extend the versioned canonical DTO and its Go/TypeScript contract together.
+  Keep UI grouping titles, expansion defaults, and disclosure state out of the
+  Runtime contract.
+- Transport conversation reads only through Wails canonical snapshots and
+  atomic entity-event batches. Never split one raw sequence across batches.
+- Apply snapshot and event entities to the normalized React store by revision,
+  then use the pure Turn selector and the single presentation-grouping pass.
+- Test snapshot-plus-events convergence, duplicate/out-of-order delivery,
+  tombstones, cursor gaps, overflow, restart recovery, and full/window identity
+  equivalence when changing this chain.
+
 - 修改前先定位权威状态所在的 Go 包和 RuntimeService 接口。
 - 新前端能力先设计 DTO/view model 边界，再接入组件。
 - 新 Wails 方法应有对应 runtime 方法；不得为 browser/dev 增加重复 HTTP 契约。

@@ -9,7 +9,8 @@
     "build:dev": "tsc -b && vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "smoke:phase07": "node scripts/phase07-workbench-runtime-rendering-smoke.mjs",
+    "smoke:phase07": "node scripts/canonical-conversation-cutover-smoke.mjs",
+    "smoke:phase7-packaged": "node scripts/phase7-packaged-canonical-conversation-smoke.mjs",
     "smoke:phase02": "node scripts/phase02-input-normalization-adapter-smoke.mjs",
     "smoke:phase03": "node scripts/phase03-tool-loop-diagnostics-smoke.mjs",
     "smoke:phase88": "node scripts/phase88-resume-control-smoke.mjs",
@@ -26,12 +27,12 @@
     "smoke:phase5010": "node scripts/phase5010-checkpoint-marker-adapter-smoke.mjs",
     "smoke:phase55-terminal": "node scripts/phase55-terminal-ownership-adapter-smoke.mjs",
     "smoke:project-sidebar": "node scripts/project-sidebar-projection-smoke.mjs",
-    "smoke:conversation-output": "node scripts/conversation-output-store-smoke.mjs",
     "smoke:conversation-target": "node scripts/conversation-target-submit-smoke.mjs",
     "smoke:conversation-contract-v2": "node scripts/conversation-contract-v2-fixture-smoke.mjs",
     "smoke:canonical-conversation-store": "node scripts/canonical-conversation-store-smoke.mjs",
     "smoke:canonical-conversation-convergence": "node scripts/canonical-conversation-convergence-smoke.mjs",
     "smoke:canonical-structured-activity": "node scripts/canonical-structured-activity-smoke.mjs",
+    "smoke:canonical-conversation-cutover": "node scripts/canonical-conversation-cutover-smoke.mjs",
     "smoke:markdown-message": "node scripts/markdown-message-smoke.mjs"
   },
   "dependencies": {

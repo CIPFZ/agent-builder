@@ -60,11 +60,7 @@ import type {
   WorkbenchViewModel,
 } from './workbenchTypes.ts';
 import { runtimeActionRefreshTargets, type RuntimeActionRefreshTarget, type RuntimeWriteActionResponseDTO } from './actionRefreshSelector.ts';
-import { retargetOutputStore } from './outputStore.ts';
-import { selectConversationMessages } from './outputSelectors.ts';
-import type { RuntimeOutputSnapshot } from './outputTypes.ts';
-import type { CanonicalConversationDiagnostics, CanonicalConversationEventsRequest, CanonicalConversationEventsResponse, CanonicalConversationSnapshot, CanonicalConversationSnapshotRequest } from './canonicalConversationTypes.ts';
-import { resolveCanonicalConversationEnabled } from './canonicalConversationMode.ts';
+import type { CanonicalConversationEventsRequest, CanonicalConversationEventsResponse, CanonicalConversationSnapshot, CanonicalConversationSnapshotRequest } from './canonicalConversationTypes.ts';
 import { getInitialWorkbenchViewModel, staticWorkbenchAdapter } from './staticWorkbenchAdapter.tsx';
 
 interface RuntimeStatusDTO extends RuntimeWriteActionResponseDTO {
@@ -1676,14 +1672,10 @@ interface RuntimeBridgeModule {
   Messages?: () => Promise<RuntimeMessagesResponseDTO>;
   SessionMessages?: (sessionID: string) => Promise<RuntimeMessagesResponseDTO>;
   SessionContextUsage?: (sessionID: string) => Promise<RuntimeContextUsageDTO>;
-  SessionOutput?: (sessionID: string, req: { snapshot?: boolean; cursor?: string; limit?: number }) => Promise<RuntimeOutputSnapshot>;
   SessionConversationSnapshotV2?: (sessionID: string, req: CanonicalConversationSnapshotRequest) => Promise<CanonicalConversationSnapshot>;
   SessionConversationEventsV2?: (sessionID: string, req: CanonicalConversationEventsRequest) => Promise<CanonicalConversationEventsResponse>;
   StartSessionConversationStreamV2?: (req: { sessionId: string; streamId?: string; after: string }) => Promise<{ streamId: string; eventName: string }>;
   StopSessionConversationStreamV2?: (req: { streamId: string }) => Promise<boolean>;
-  ConversationV2Diagnostics?: (sessionID: string) => Promise<CanonicalConversationDiagnostics>;
-  StartSessionOutputStream?: (req: { sessionId: string; streamId?: string; after?: string }) => Promise<{ streamId: string; eventName: string }>;
-  StopSessionOutputStream?: (req: { streamId: string }) => Promise<boolean>;
   SessionActivity?: (sessionID: string) => Promise<RuntimeSessionActivityDTO>;
   SessionActivityWindow?: (sessionID: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
   SessionActivityCursorWindow?: (sessionID: string, cursor: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
@@ -3551,7 +3543,6 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     agentTasks,
     agentRoles,
     contextUsage,
-    conversationDiagnostics,
   ] = await Promise.all([
     fullHydration ? hydrateHooks(bridge) : Promise.resolve(undefined),
     activeSessionID ? hydrateHookExecutions(bridge, activeSessionID) : Promise.resolve(summarizeHookExecutions([])),
@@ -3569,9 +3560,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     activeSessionID ? hydrateAgentTasks(bridge, activeSessionID) : Promise.resolve(undefined),
     fullHydration ? hydrateAgentRoles(bridge) : Promise.resolve(undefined),
     activeSessionID ? optionalRuntimeRequest(() => bridge.SessionContextUsage?.(activeSessionID) ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
-    activeSessionID ? optionalRuntimeRequest(() => bridge.ConversationV2Diagnostics?.(activeSessionID) ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ])
-  const outputStore = current.outputStore;
   const modelOptionList = modelsResponse ? modelOptions(modelsResponse) : current.composer.modelOptions;
   const selectedModel = modelsResponse ? modelOptionList.find((model) => model.selected) : current.composer.selectedModel;
   const currentProjectID = sidebarProjection?.currentProjectId || projectedProjectsResponse?.projects?.find((project) => project.current)?.id;
@@ -3626,8 +3615,6 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       ? { kind: 'session' as const, sessionId: activeSessionID }
       : current.conversationTarget,
     conversation,
-    outputStore,
-    canonicalConversationEnabled: resolveCanonicalConversationEnabled(current.canonicalConversationEnabled, conversationDiagnostics),
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
     runProjection: mapRunProjection(runProjection, schedulerTaskCandidates) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
     agentTasks: agentTasks ?? (activeSessionID ? current.agentTasks?.filter((task) => task.parentSessionId === activeSessionID || task.childSessionId === activeSessionID) : []),
@@ -4028,25 +4015,6 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     }
     return () => undefined;
   },
-  async subscribeSessionOutput(sessionID, handlers, after) {
-    const bridge = await loadRuntimeBridge();
-    if (!bridge?.StartSessionOutputStream || !bridge.StopSessionOutputStream) {
-      return () => undefined;
-    }
-    const { subscribeSessionOutput } = await import('./outputStream.ts');
-    return subscribeSessionOutput({
-      sessionId: sessionID,
-      after,
-      bridge: bridge as Parameters<typeof subscribeSessionOutput>[0]['bridge'],
-      loadWailsEvents: async () => {
-        try {
-          return (await loadWailsRuntime()) as unknown as Parameters<typeof subscribeSessionOutput>[0]['loadWailsEvents'] extends (() => infer R) ? Awaited<R> : never;
-        } catch { throw new Error('Wails events runtime is unavailable'); }
-      },
-      onBatch: handlers.onEvents,
-      onSnapshotRequired: handlers.onSnapshotRequired,
-    });
-  },
   async fetchCanonicalConversationSnapshot(sessionID) {
     const bridge = await loadRuntimeBridge();
     if (!bridge?.SessionConversationSnapshotV2) throw new Error('canonical conversation snapshot API is unavailable');
@@ -4194,24 +4162,19 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
           const busyAfterSubmit = Boolean(response.turnId);
           const normalizedConversation = mapNormalizedInputConversation(response, prompt);
           const normalizedOnly = !response.turnId && response.normalizedInput;
-          const adoptedOutputStore = retargetOutputStore(current.outputStore, responseSessionID);
           // A draft has no session stream until SubmitUserInput returns the
           // authoritative id. Read the initial snapshot before rendering the
           // adopted session so events emitted during that handshake window
           // cannot leave the local loading placeholder stranded.
-          const nextOutputStore = adoptedOutputStore;
-          const canonicalDiagnostics = await optionalRuntimeRequest(() => bridge.ConversationV2Diagnostics?.(responseSessionID) ?? Promise.resolve(undefined));
           return {
             ...current,
             mode: 'new-chat',
             conversationTarget: { kind: 'session', sessionId: responseSessionID },
             sessions: sessionsAfterDraftSubmit(current, responseSessionID, prompt, draftTarget, response.turnId),
-            outputStore: nextOutputStore,
-            canonicalConversationEnabled: resolveCanonicalConversationEnabled(current.canonicalConversationEnabled, canonicalDiagnostics),
             conversation:
               normalizedOnly
                 ? mergeNormalizedConversation(current.conversation, normalizedConversation)
-                : selectConversationMessages(nextOutputStore),
+                : current.conversation,
             composer: {
               ...current.composer,
               busy: busyAfterSubmit,

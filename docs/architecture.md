@@ -63,4 +63,28 @@ Runtime 只通过 Wails bindings 和 Wails events 暴露给 React 客户端，�
 UI -> Transport DTO -> Runtime application service -> Domain capability -> Storage/provider
 ```
 
+## Canonical conversation path
+
+The product has one authoritative conversation read path:
+
+```text
+Go canonical materialized store
+  -> Wails canonical snapshot / atomic entity-event batch
+  -> React normalized canonical store
+  -> pure Turn selector
+  -> one presentation-grouping pass
+  -> Timeline / detail surfaces / Todo capsule
+```
+
+The Runtime owns canonical Turn, Message, AssistantStep, ToolCall, ToolResult,
+Permission, TodoPlan, AgentTask, and Notice identity, ownership, revision, and
+ordering. A full or window snapshot establishes a decimal cursor. The Wails
+stream then delivers complete raw-sequence batches after that cursor and never
+splits one sequence across desktop events. React applies entities by revision
+and treats `snapshotRequired` as a recovery boundary.
+
+Presentation groups are not Runtime entities. They are derived exactly once
+from stable semantic ownership after the Turn selector. Only disclosure,
+selection, scrolling, and other view preferences remain local UI state.
+
 不得让领域逻辑反向依赖 React、Wails 窗口或浏览器 API。前端也不得绕过 RuntimeService 直接读写 SQLite 或 Go 内部存储。

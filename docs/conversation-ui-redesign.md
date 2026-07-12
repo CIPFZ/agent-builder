@@ -260,16 +260,15 @@ Post-completion review:
   conversations; active and historical sessions render the standard Sender
   alone. Opening or creating a project now atomically rebinds the local draft
   target to the hydrated project id instead of retaining standalone scope.
-- Closed the first-submit output hydration gap by reading the new session's
-  Wails `SessionOutput` snapshot immediately after the runtime returns its id,
-  then subscribing from that cursor. Removed the synthetic assistant loading
-  row so missed handshake events cannot leave "generating" stranded onscreen.
-- Restored TodoWrite visibility on the Wails-only output path. Structured todo
-  summaries now hydrate into `OutputStore`, update from live `todo.updated`
-  events, and project directly into the Todo task bar instead of depending on
-  a later full-workbench refresh that the session stream intentionally skips.
-- Removed the duplicate active-session Todo state from `WorkbenchViewModel`,
-  Shell event handling, and adapter `SessionTodos` hydration. Workspace now
-  selects Todo state only from the active session's OutputStore; ownership
-  checks reject stale stores during session switches while the standalone Go
-  query remains available for diagnostics and non-UI consumers.
+- The first submit now hydrates the returned Session through the canonical
+  conversation snapshot and subscribes to atomic entity batches after its
+  cursor. Missed handshakes, gaps, overflow, and reconnects all converge through
+  the same snapshot recovery boundary.
+- TodoWrite is represented by canonical `TodoPlan` entities with stable plan
+  and item identities. The active Turn selector feeds the Todo capsule directly
+  from the normalized canonical store; no workbench refresh or duplicate Todo
+  writer participates in conversation rendering.
+- The completed architecture is Runtime canonical materialized state -> Wails
+  snapshot/atomic entity batches -> normalized React store -> pure Turn
+  selector -> one presentation-grouping pass -> Timeline, detail surfaces, and
+  capsules. Visual groups and disclosure choices remain presentation-only.

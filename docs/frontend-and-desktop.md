@@ -33,16 +33,22 @@ Runtime 投影不能只存在浏览器内存中。提交成功、事件到达、
 - 应用内浏览器环境不保证任意网络 API 都可用。
 - 传输检测和降级集中在适配器，不散落到 feature 组件。
 
-## 输出刷新
+## Canonical conversation state
 
-`outputStore.ts`、`outputReducer.ts`、`outputStream.ts` 和 selectors 组合处理消息流、工具状态与动作后刷新。事件用于提示“哪些数据可能变化”，最终状态仍由 runtime 快照确认。
+Conversation state uses only the canonical V2 path. The adapter requests a
+canonical full/window snapshot, records its decimal cursor in the normalized
+React store, and subscribes to atomic canonical entity batches after that
+cursor. The reducer applies revisioned upserts and tombstones idempotently;
+duplicates and older revisions cannot regress state. A cursor gap, stream
+overflow, reconnect, session switch, or explicit `snapshotRequired` starts a
+new snapshot recovery cycle.
 
-新增运行时动作时，应同时明确：
-
-1. 调用哪个 adapter 方法；
-2. 成功后需要刷新哪些投影；
-3. 哪些事件可触发同一刷新；
-4. 重复事件和乱序事件如何保持幂等。
+The normalized store feeds a pure Turn selector. Tool presentation grouping is
+performed once after semantic selection and is never written back into the
+store. Timeline rows, detail drawers, permission actions, AgentTask surfaces,
+and the Todo capsule all consume the same canonical entities. Workbench
+refreshes may update settings and diagnostics, but must not write conversation
+entities or replace the active canonical store.
 
 ## UI 约束
 
