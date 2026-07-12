@@ -13,9 +13,11 @@ export function TodoTaskBar({ todos, turnStatus }: { todos?: TodoSummaryViewMode
   const currentIndex = display.activeIndex >= 0 ? display.activeIndex : nextIndex >= 0 ? nextIndex : display.completed;
   const currentStep = Math.min(display.total, Math.max(1, currentIndex + 1));
   const active = display.activeIndex >= 0 ? display.items[display.activeIndex] : undefined;
-  const currentText = display.state === 'stopped'
-    ? '对话已结束，计划状态未完全更新'
-    : active?.activeForm || active?.content || display.items[currentIndex]?.content || '任务进行中';
+  const currentText = display.state === 'completed'
+    ? '全部任务已完成'
+    : display.state === 'stopped'
+      ? '对话已结束，计划状态未完全更新'
+      : active?.activeForm || active?.content || display.items[currentIndex]?.content || '任务进行中';
 
   return (
     <div className={styles.taskDock} data-testid="todo-task-bar">
@@ -39,9 +41,9 @@ export function TodoTaskBar({ todos, turnStatus }: { todos?: TodoSummaryViewMode
           </div>
         }
       >
-        <button className={styles.taskChip} data-state={display.state} type="button" aria-label={`查看任务进度：第 ${currentStep} / ${display.total} 步`}>
-          <span className={styles.icon}>{display.state === 'running' && active ? <LoadingOutlined spin /> : <UnorderedListOutlined />}</span>
-          <span className={styles.currentText}>{display.state === 'stopped' ? `已停止 · ${display.completed}/${display.total}` : `第 ${currentStep} / ${display.total} 步`}</span>
+        <button className={styles.taskChip} data-state={display.state} type="button" aria-label={display.state === 'completed' ? `任务已完成：${display.completed} / ${display.total}` : `查看任务进度：第 ${currentStep} / ${display.total} 步`}>
+          <span className={styles.icon}>{display.state === 'running' && active ? <LoadingOutlined spin /> : display.state === 'completed' ? <CheckCircleOutlined /> : <UnorderedListOutlined />}</span>
+          <span className={styles.currentText}>{display.state === 'completed' ? `已完成 · ${display.completed}/${display.total}` : display.state === 'stopped' ? `已停止 · ${display.completed}/${display.total}` : `第 ${currentStep} / ${display.total} 步`}</span>
         </button>
       </Popover>
     </div>

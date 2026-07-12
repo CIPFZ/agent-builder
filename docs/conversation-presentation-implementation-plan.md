@@ -383,7 +383,7 @@ Independent review notes:
 - Final scope review confirmed no Todo dock change, Phase 4 cross-surface
   polish, canonical store mutation, or Wails writer change.
 
-### Phase 4: Todo and cross-surface polish `[ ]`
+### Phase 4: Todo and cross-surface polish `[x]`
 
 - Preserve the Todo capsule as an independent dock action.
 - Verify Todo/Permission/Agent floating controls do not resize the composer.
@@ -392,6 +392,50 @@ Independent review notes:
 - Ensure completed Todo presentation is compact without duplicating history.
 
 Exit gate: no nested indentation and no composer flash across all combinations.
+
+Implementation evidence:
+
+- Todo remains a `ConversationDock` layout action above the composer and is
+  absent from Timeline/process projection. Completed plans retain one compact
+  28px capsule with completion count and popover access instead of disappearing
+  or creating a duplicate history row.
+- Dock actions and floating jump control remain siblings of the fixed-width
+  composer/permission content slot. Todo changes grow upward from the sticky
+  dock; Agent status remains in the Session header, so neither changes composer
+  width or its bottom edge.
+- Pending Permission continues to replace the composer inside the same 100%
+  dock content slot. Its resolved presentation no longer adds a nested left
+  margin.
+- Todo and Permission success/warning/error colors now use Ant theme tokens;
+  completed Todo visual and accessible status language agree.
+- Mobile dock width now shares the Timeline's 14px viewport reading edge, and
+  Todo text remains bounded without horizontal overflow.
+
+Verification:
+
+- `cd client && npm.cmd run smoke:conversation-cross-surface-polish`
+- `cd client && npm.cmd run smoke:agent-monitor-panel`
+- `cd client && npm.cmd run smoke:agent-timeline-projection`
+- `cd client && npm.cmd run smoke:conversation-presentation-model`
+- `cd client && npm.cmd run smoke:process-disclosure-policy`
+- `cd client && npm.cmd run smoke:canonical-conversation-store`
+- `cd client && npm.cmd run smoke:canonical-conversation-convergence`
+- `cd client && npm.cmd run smoke:canonical-structured-activity`
+- `cd client && npm.cmd run smoke:canonical-conversation-cutover`
+- `cd client && npm.cmd run smoke:conversation-contract-v2`
+- `cd client && npm.cmd run lint`
+- `cd client && npm.cmd run build`
+
+Independent review notes:
+
+- Review verified Todo, Permission, and Agent controls occupy separate layout
+  surfaces and do not mutate composer dimensions or canonical entity state.
+- Review confirmed remaining positive left margins belong only to inline text
+  decoration; the TraceRow negative offset removes icon-slot indentation and
+  no recursive disclosure indentation or Ant outer Collapse was introduced.
+- Review aligned completed Todo accessibility text with its compact visual
+  state and confirmed no Runtime ownership, sticky-bottom, or manual process
+  disclosure changes.
 
 ### Phase 5: End-to-end verification `[ ]`
 

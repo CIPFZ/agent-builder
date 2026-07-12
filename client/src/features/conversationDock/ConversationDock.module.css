@@ -17,6 +17,7 @@
 .content > :global([data-testid='permission-dock']),
 .content > :global([data-testid='permission-gate']) {
   width: 100%;
+  min-width: 0;
 }
 
 .content > :global([data-testid='permission-dock']) > :global([data-testid='permission-gate']) {
@@ -91,7 +92,7 @@
 
 @media (max-width: 820px) {
   .dock {
-    width: min(100% - 48px, 720px);
+    width: min(calc(100% - 28px), 720px);
     padding-bottom: 24px;
   }
 }

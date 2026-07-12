@@ -163,21 +163,21 @@
 .resolvedGate {
   gap: 8px;
   width: min(720px, 94%);
-  margin: 2px 0 2px 28px;
+  margin: 2px 0;
   color: rgb(13 13 13 / 52%);
   font-size: 13px;
 }
 
 .allowedStatus {
-  color: #2f8f5b;
+  color: var(--ant-color-success);
 }
 
 .deniedStatus {
-  color: #cf1322;
+  color: var(--ant-color-error);
 }
 
 .pendingStatus {
-  color: #d48806;
+  color: var(--ant-color-warning);
 }
 
 .gate :global(.ant-tag) {

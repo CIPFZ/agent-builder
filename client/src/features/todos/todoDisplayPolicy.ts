@@ -1,6 +1,6 @@
 import type { TodoItemViewModel, TodoSummaryViewModel } from '../../runtime/workbenchTypes.ts';
 
-export type TodoDisplayState = 'hidden' | 'running' | 'stopped';
+export type TodoDisplayState = 'hidden' | 'running' | 'stopped' | 'completed';
 
 export interface TodoDisplayModel {
   state: TodoDisplayState;
@@ -18,10 +18,10 @@ export function todoDisplayModel(todos: TodoSummaryViewModel | undefined, turnSt
   if (total === 0 || !turnStatus) return { state: 'hidden', items, total, completed, activeIndex };
 
   if (isTerminalTurnStatus(turnStatus)) {
-    return { state: completed >= total ? 'hidden' : 'stopped', items, total, completed, activeIndex };
+    return { state: completed >= total ? 'completed' : 'stopped', items, total, completed, activeIndex };
   }
   if (isActiveTurnStatus(turnStatus)) {
-    return { state: completed >= total ? 'hidden' : 'running', items, total, completed, activeIndex };
+    return { state: completed >= total ? 'completed' : 'running', items, total, completed, activeIndex };
   }
   return { state: 'hidden', items, total, completed, activeIndex };
 }
