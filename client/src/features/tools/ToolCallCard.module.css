@@ -418,8 +418,12 @@
 }
 
 .quietRowBodyOpen .quietRowBodyInner {
+  max-height: min(46vh, 360px);
   padding-top: 4px;
   padding-bottom: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 @media (max-width: 720px) {

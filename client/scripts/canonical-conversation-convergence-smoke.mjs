@@ -64,7 +64,15 @@ close();
 
 const shellSource = await readFile(new URL('../src/app/shell/WorkbenchShell.tsx', import.meta.url), 'utf8');
 const adapterSource = await readFile(new URL('../src/runtime/wailsWorkbenchAdapter.ts', import.meta.url), 'utf8');
+const dockSource = await readFile(new URL('../src/features/conversationDock/ConversationDock.tsx', import.meta.url), 'utf8');
+const dockStyles = await readFile(new URL('../src/features/conversationDock/ConversationDock.module.css', import.meta.url), 'utf8');
+const traceStyles = await readFile(new URL('../src/features/timeline/TraceRow.module.css', import.meta.url), 'utf8');
+const toolStyles = await readFile(new URL('../src/features/tools/ToolCallCard.module.css', import.meta.url), 'utf8');
 assert.equal(shellSource.includes('withFresherOutputStore'), false, 'lagging snapshot heuristic is removed');
 assert.ok(shellSource.includes('createCanonicalConversationCoordinator'), 'canonical coordinator is the conversation writer');
 assert.equal(adapterSource.includes('bridge.SessionOutput?.(activeSessionID, { snapshot: true'), false, 'workbench refresh cannot fetch legacy conversation snapshot');
+assert.match(dockSource, /action\.key === 'jump-to-bottom'/, 'jump-to-bottom is separated from layout actions');
+assert.match(dockStyles, /\.floatingActions\s*\{[\s\S]*position:\s*absolute/, 'jump action cannot resize or flash the composer dock');
+assert.match(traceStyles, /max-height:\s*min\(52vh, 420px\)/, 'expanded tool groups have a bounded viewport');
+assert.match(toolStyles, /max-height:\s*min\(46vh, 360px\)/, 'individual tool details have a bounded viewport');
 console.log('canonical conversation convergence smoke passed');

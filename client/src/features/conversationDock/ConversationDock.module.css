@@ -47,6 +47,17 @@
   align-items: center;
 }
 
+.floatingActions {
+  position: absolute;
+  bottom: calc(100% - 2px);
+  left: 50%;
+  z-index: 1;
+  display: flex;
+  width: fit-content;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
 .iconButton,
 .moreButton {
   display: inline-flex;
