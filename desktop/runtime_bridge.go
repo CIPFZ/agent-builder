@@ -1064,6 +1064,7 @@ func (r *RuntimeBridge) StartSessionConversationStreamV2(ctx context.Context, re
 			select {
 			case batch, ok := <-batches:
 				if !ok {
+					app.Event.Emit(eventName, RuntimeCanonicalConversationStreamMessageV2{StreamID: streamID, Lifecycle: "stream_closed"})
 					return
 				}
 				app.Event.Emit(eventName, RuntimeCanonicalConversationStreamMessageV2{StreamID: streamID, RuntimeCanonicalConversationEventBatchV2: batch})

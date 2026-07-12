@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 import type { OutputStore, RuntimeCompactInfo, RuntimeExplorationCount, RuntimeExplorationSummary } from './outputTypes.ts';
+import type { CanonicalConversationStore } from './canonicalConversationStore.ts';
+import type { CanonicalConversationEventBatch, CanonicalConversationSnapshot } from './canonicalConversationTypes.ts';
 
 export type WorkbenchMode = 'project' | 'new-chat' | 'settings' | 'plugins';
 
@@ -255,6 +257,7 @@ export interface ConversationTimelineItemViewModel {
   exploration?: RuntimeExplorationSummary;
   displayCounts?: RuntimeExplorationCount[];
   toolCall?: ToolCallViewModel;
+  toolCalls?: ToolCallViewModel[];
   permission?: PermissionRequestViewModel;
   agentTask?: AgentTaskViewModel;
   diagnostics?: TurnDiagnosticsViewModel;
@@ -1266,6 +1269,8 @@ export interface WorkbenchViewModel {
   sidebarActions: SidebarActionViewModel[];
   conversation: ConversationMessageViewModel[];
   outputStore?: OutputStore;
+  canonicalConversationStore?: CanonicalConversationStore;
+  canonicalConversationEnabled?: boolean;
   turnDiagnostics?: TurnDiagnosticsViewModel;
   runProjection?: RunProjectionViewModel;
   agentTasks?: AgentTaskViewModel[];
@@ -1305,6 +1310,12 @@ export interface WorkbenchAdapter {
       onSnapshotRequired: () => void;
     },
     after?: string,
+  ) => Promise<() => void> | (() => void);
+  fetchCanonicalConversationSnapshot?: (sessionID: string) => Promise<CanonicalConversationSnapshot>;
+  subscribeCanonicalConversation?: (
+    sessionID: string,
+    after: string,
+    handlers: { onBatch: (batch: CanonicalConversationEventBatch) => void; onTransportFailure: () => void },
   ) => Promise<() => void> | (() => void);
   openProject: (current: WorkbenchViewModel, request: OpenProjectRequestViewModel) => Promise<WorkbenchViewModel>;
   createProject: (current: WorkbenchViewModel, request: CreateProjectRequestViewModel) => Promise<WorkbenchViewModel>;

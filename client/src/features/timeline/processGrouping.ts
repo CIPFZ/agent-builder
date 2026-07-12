@@ -59,10 +59,11 @@ function groupAdjacentToolCalls(items: RenderTimelineItem[]): RenderTimelineItem
   const grouped: RenderTimelineItem[] = [];
   let pending: ConversationTimelineItemViewModel[] = [];
   const flush = () => {
-    if (pending.length === 1) grouped.push(pending[0]);
-    if (pending.length > 1) {
+    const stableGroupKey = pending[0]?.toolCall?.groupKey;
+    if (pending.length === 1 && !stableGroupKey) grouped.push(pending[0]);
+    if (pending.length > 1 || stableGroupKey) {
       grouped.push({
-        id: `tool-group:${pending.map((item) => item.toolCallId || item.id).join(':')}`,
+        id: stableGroupKey || `tool-group:${pending.map((item) => item.toolCallId || item.id).join(':')}`,
         kind: 'tool_call_group',
         turnId: pending[0].turnId,
         toolCalls: pending.map((item) => item.toolCall).filter((call): call is ToolCallViewModel => Boolean(call)),
@@ -72,9 +73,15 @@ function groupAdjacentToolCalls(items: RenderTimelineItem[]): RenderTimelineItem
   };
 
   for (const item of items) {
+    if (item.kind === 'tool_group' && item.toolCalls) {
+      flush();
+      grouped.push({ id: item.id, kind: 'tool_call_group', turnId: item.turnId, toolCalls: item.toolCalls });
+      continue;
+    }
     if (item.kind === 'tool_call' && item.toolCall) {
       const previous = pending[pending.length - 1];
-      if (!previous || (previous.turnId === item.turnId && timelineToolKind(previous.toolCall) === timelineToolKind(item.toolCall) && previous.toolCall?.status === item.toolCall.status)) {
+      const sameStableGroup = previous?.toolCall?.groupKey && previous.toolCall.groupKey === item.toolCall.groupKey;
+      if (!previous || sameStableGroup || (!previous.toolCall?.groupKey && !item.toolCall.groupKey && previous.turnId === item.turnId && timelineToolKind(previous.toolCall) === timelineToolKind(item.toolCall) && previous.toolCall?.status === item.toolCall.status)) {
         pending.push(item);
         continue;
       }

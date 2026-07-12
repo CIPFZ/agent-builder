@@ -27,6 +27,7 @@ import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { RecoveryCenter } from '../recovery/RecoveryCenter.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
 import { selectConversationTurns } from '../../runtime/conversation/turnProjection.ts';
+import { selectCanonicalConversationTurnViewModels } from '../../runtime/canonicalConversationView.ts';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import { TodoTaskBar } from '../todos/TodoTaskBar.tsx';
 import { shouldShowTodoTaskBar } from '../todos/todoDisplayPolicy.ts';
@@ -141,7 +142,9 @@ export function Workspace({
   } = useStickToBottom();
   const hasProjectContext = Boolean(viewModel.currentProject.id || viewModel.currentProject.name || viewModel.currentProject.path);
   const canUseProjectSideTools = hasProjectContext;
-  const conversationTurns = selectConversationTurns(viewModel.outputStore);
+  const conversationTurns = viewModel.canonicalConversationStore
+    ? selectCanonicalConversationTurnViewModels(viewModel.canonicalConversationStore)
+    : selectConversationTurns(viewModel.outputStore);
   const hasTimeline = conversationTurns.length > 0;
   const hasConversation = viewModel.conversation.length > 0 || hasTimeline;
   const activeSession = viewModel.sessions.find((session) => session.active);

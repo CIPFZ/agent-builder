@@ -19,7 +19,7 @@ and commit reference after every phase.
 | 2. Runtime snapshot | `[x]` | `30476cf0` | Persisted-only canonical snapshot, stable semantic identity/order, Wails bridge, recovery tests, and independent review completed. |
 | 3. Entity stream | `[x]` | `204608d2` | Persistent atomic entity outbox, materialized snapshot state, recovery cursors, Wails stream, and shadow comparison completed. |
 | 4. Frontend store | `[x]` | `cdd76802` | Normalized reducer, revision-safe snapshot merge, pure Turn selector, stable presentation grouping, tests, and independent review completed. |
-| 5. Convergence | `[~]` | — | In progress: make the Session stream the only live conversation writer. |
+| 5. Convergence | `[x]` | `(this phase commit)` | Canonical-mode Session stream is the only live writer; refresh, switching, reconnect, and explicit recovery converge by cursor. |
 | 6. Structured activity | `[ ]` | — | Migrate Todo, Permission, Subagent, and Agent Team. |
 | 7. Cutover | `[ ]` | — | Remove the old projection and verify end to end. |
 
@@ -516,7 +516,7 @@ Independent review notes:
   to the smoke suite. The second review approved Phase 4 with no remaining
   blocking findings.
 
-### Phase 5: Conversation convergence `[~]`
+### Phase 5: Conversation convergence `[x]`
 
 Deliverables:
 
@@ -527,6 +527,49 @@ Deliverables:
 
 Exit gate: no periodic snapshot/live-event race; switch/reconnect preserves
 cursor and entities.
+
+Implementation evidence:
+
+- `canonicalConversationStream.ts` registers the fixed Wails listener before
+  starting the V2 stream and forwards each Runtime batch atomically.
+- `canonicalConversationCoordinator.ts` owns per-Session cache/cursor,
+  generation guards, switch-back catch-up, and snapshot recovery with bounded
+  exponential retry. Snapshots are limited to first hydrate and explicit
+  gap/conflict/snapshot-required/transport recovery.
+- `canonicalConversationMode.ts` gates the writer on explicit Runtime
+  diagnostics. Missing diagnostics cannot downgrade a confirmed canonical
+  Session; legacy/shadow modes retain the legacy path until cutover.
+- `WorkbenchShell.tsx` activates exactly one writer for the selected mode and
+  preserves canonical state across unrelated workbench refreshes. The old
+  cursor arithmetic and lagging-snapshot reconciliation heuristic are gone.
+- `wailsWorkbenchAdapter.ts` no longer reads `SessionOutput` during normal
+  hydrate or draft submit. Workspace conversation rendering consumes the
+  canonical Turn projection in canonical mode.
+- `canonicalConversationView.ts` uses `groupCanonicalProcess` once and emits
+  stable tool wrappers; the Timeline presentation pass forwards those wrappers
+  without regrouping them.
+- Desktop emits an explicit `stream_closed` lifecycle envelope so silent
+  transport termination enters the same recovery boundary.
+
+Verification:
+
+- `go test ./...`
+- `go build ./...`
+- `cd client && npm.cmd run build`
+- `cd client && npm.cmd run lint`
+- `cd client && npm.cmd run smoke:conversation-output`
+- `cd client && npm.cmd run smoke:canonical-conversation-store`
+- `cd client && npm.cmd run smoke:canonical-conversation-convergence`
+- `cd client && npm.cmd run smoke:conversation-contract-v2`
+
+Independent review notes:
+
+- Initial review found an unconditional canonical-mode switch, a second
+  adjacency grouping pass, and permanent disconnect after transient recovery
+  failure. Runtime diagnostics gating, the canonical grouping wrapper, and
+  generation-aware retry closed these issues.
+- Final review found and then verified the fix for a diagnostics-timeout mode
+  downgrade race. Phase 5 was approved with no remaining blocking findings.
 
 ### Phase 6: Structured activity `[ ]`
 

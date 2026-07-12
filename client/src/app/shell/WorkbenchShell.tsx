@@ -14,6 +14,7 @@ import type { OutputStore } from '../../runtime/outputTypes.ts';
 import { addOptimisticUserSubmit, applyOutputEvents } from '../../runtime/outputReducer.ts';
 import { createOutputStore } from '../../runtime/outputStore.ts';
 import { createConversationSubmitQueue } from '../../runtime/conversationSubmitQueue.ts';
+import { createCanonicalConversationCoordinator, type CanonicalConversationCoordinator } from '../../runtime/canonicalConversationCoordinator.ts';
 import { installWebviewCursorRecovery, nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
 import { selectConversationMessages, selectPendingPermissions } from '../../runtime/outputSelectors.ts';
 import { runtimeEventCoveredByOutputStream, runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
@@ -42,56 +43,8 @@ function getLayoutWidth() {
   return Math.max(window.innerWidth, SHELL_MIN_WIDTH);
 }
 
-// withFresherOutputStore reconciles a freshly hydrated view model with the
-// live one. Full refreshes are async: their snapshot may predate output-stream
-// events that were already applied to the current store, and optimistic user
-// submits may have been added while the refresh was in flight. Applying such
-// a snapshot verbatim would roll the conversation back mid-stream (visible as
-// the timeline "jumping") until the next refresh. Rules:
-//   - carry over in-flight optimistic submits the snapshot has not echoed yet;
-//   - if the snapshot's cursor is behind what the stream already applied,
-//     keep the current store (and its derived projections) instead.
-function withFresherOutputStore(nextViewModel: WorkbenchViewModel, current: WorkbenchViewModel): WorkbenchViewModel {
-  const next = nextViewModel.outputStore;
-  const curr = current.outputStore;
-  if (!next || !curr || !next.sessionId || next.sessionId !== curr.sessionId) {
-    return nextViewModel;
-  }
-  const nextCursor = Number(next.cursor ?? '') || 0;
-  const currCursor = Math.max(Number(curr.cursor ?? '') || 0, Math.floor((curr.lastSequence ?? 0) / 100));
-  if (nextCursor > 0 && currCursor > nextCursor) {
-    return {
-      ...nextViewModel,
-      outputStore: curr,
-      conversation: selectConversationMessages(curr),
-      pendingPermissions: selectPendingPermissions(curr),
-    };
-  }
-  const echoed = new Set<string>();
-  for (const item of Object.values(next.itemsById)) {
-    if (item.clientRequestId) {
-      echoed.add(item.clientRequestId);
-    }
-  }
-  let mergedOptimistic = next.optimisticByClientRequestId;
-  for (const [key, submit] of Object.entries(curr.optimisticByClientRequestId)) {
-    if (!(key in mergedOptimistic) && !echoed.has(key)) {
-      if (mergedOptimistic === next.optimisticByClientRequestId) {
-        mergedOptimistic = { ...mergedOptimistic };
-      }
-      mergedOptimistic[key] = submit;
-    }
-  }
-  if (mergedOptimistic === next.optimisticByClientRequestId) {
-    return nextViewModel;
-  }
-  const store = { ...next, optimisticByClientRequestId: mergedOptimistic };
-  return {
-    ...nextViewModel,
-    outputStore: store,
-    conversation: selectConversationMessages(store),
-    pendingPermissions: selectPendingPermissions(store),
-  };
+function preserveCanonicalConversation(nextViewModel: WorkbenchViewModel, current: WorkbenchViewModel): WorkbenchViewModel {
+  return { ...nextViewModel, canonicalConversationStore: current.canonicalConversationStore };
 }
 
 function getSidebarMaxWidth(workspaceMinVisibleWidth = WORKSPACE_MIN_VISIBLE_WIDTH) {
@@ -115,6 +68,18 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const modeRef = useRef(mode);
   const sessionMutationSeqRef = useRef(0);
   const promptSubmitQueueRef = useRef(createConversationSubmitQueue());
+  const canonicalCoordinatorRef = useRef<CanonicalConversationCoordinator | undefined>(undefined);
+  if (!canonicalCoordinatorRef.current && adapter.fetchCanonicalConversationSnapshot && adapter.subscribeCanonicalConversation) {
+    canonicalCoordinatorRef.current = createCanonicalConversationCoordinator({
+      fetchSnapshot: adapter.fetchCanonicalConversationSnapshot,
+      subscribe: adapter.subscribeCanonicalConversation,
+      onStore: (store) => setViewModel((current) => (
+        current.conversationTarget.kind === 'session' && current.conversationTarget.sessionId === store.sessionId
+          ? { ...current, canonicalConversationStore: store }
+          : current
+      )),
+    });
+  }
   // Most-recently-seen output store per session. Switching back to a session
   // renders its cached conversation instantly (no blank/loading flash) while
   // the authoritative hydrate catches up in the background.
@@ -200,7 +165,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         const nextViewModel = await adapter.refresh({ ...viewModelRef.current, mode: modeRef.current });
         if (!cancelled && sessionMutationSeqRef.current === epoch) {
           setMode(nextViewModel.mode);
-          setViewModel((current) => withFresherOutputStore(nextViewModel, current));
+          setViewModel((current) => preserveCanonicalConversation(nextViewModel, current));
         }
       } catch {
         // Polling remains active while busy; event refresh is an opportunistic fast path.
@@ -222,7 +187,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       refreshTimer = window.setTimeout(refreshFromRuntimeEvent, delay);
     };
 
-    const streamHandlesEvent = Boolean(adapter.subscribeSessionOutput);
+    const streamHandlesEvent = Boolean((viewModelRef.current.canonicalConversationEnabled && adapter.subscribeCanonicalConversation) || adapter.subscribeSessionOutput);
     void Promise.resolve(adapter.subscribeRuntimeEvents((event) => {
       // When the per-session output stream is available it already
       // materializes the message / tool / permission diffs into the
@@ -253,7 +218,20 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   // the live text/tool/permission deltas flow directly into outputStore
   // without a full refresh cycle. Snapshot_required signals fall back to
   // the refresh path via requestFullRefresh.
-  const activeSessionID = viewModel.sessions.find((session) => session.active)?.id;
+  const activeSessionID = viewModel.conversationTarget.kind === 'session' ? viewModel.conversationTarget.sessionId : undefined;
+
+  useEffect(() => {
+    const coordinator = canonicalCoordinatorRef.current;
+    if (!coordinator) return undefined;
+    if (!viewModel.canonicalConversationEnabled) {
+      coordinator.stop();
+      setViewModel((current) => current.canonicalConversationStore ? { ...current, canonicalConversationStore: undefined } : current);
+      return undefined;
+    }
+    setViewModel((current) => current.canonicalConversationStore?.sessionId === activeSessionID ? current : { ...current, canonicalConversationStore: undefined });
+    coordinator.activate(activeSessionID ?? '');
+    return () => coordinator.stop();
+  }, [activeSessionID, viewModel.canonicalConversationEnabled]);
 
   // WP5 refreshNonce: contextUsage.compactCount is only known once a
   // refresh has already delivered it, so the general event-driven refresh
@@ -290,7 +268,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   }, [adapter, viewModel.composer.contextUsage]);
 
   useEffect(() => {
-    if (!adapter.subscribeSessionOutput || !activeSessionID) {
+    if (viewModel.canonicalConversationEnabled || !adapter.subscribeSessionOutput || !activeSessionID) {
       return undefined;
     }
     let cancelled = false;
@@ -302,7 +280,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       void adapter.refresh({ ...viewModelRef.current, mode: modeRef.current }).then((nextViewModel) => {
         if (cancelled || sessionMutationSeqRef.current !== epoch) return;
         setMode(nextViewModel.mode);
-        setViewModel((current) => withFresherOutputStore(nextViewModel, current));
+        setViewModel((current) => preserveCanonicalConversation(nextViewModel, current));
       }).catch(() => undefined);
     };
     const onEvents = (events: import('../../runtime/outputTypes.ts').RuntimeOutputEvent[]) => {
@@ -356,7 +334,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     // subscribing once per (session, adapter) is enough; the stream itself
     // carries its own cursor state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adapter, activeSessionID]);
+  }, [adapter, activeSessionID, viewModel.canonicalConversationEnabled]);
 
   useEffect(() => {
     if (!viewModel.composer.busy && !hasBusySession) {
@@ -370,8 +348,9 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     // aggressive full-workbench refresh loops to render the assistant's
     // live output. We slow the polling to 3s so hooks/tasks/context still
     // pick up eventual state changes.
-    const busyIntervalMs = adapter.subscribeSessionOutput ? 3000 : 1200;
-    const backoffMs = adapter.subscribeSessionOutput ? 4000 : 2000;
+    const hasConversationStream = Boolean((viewModel.canonicalConversationEnabled && adapter.subscribeCanonicalConversation) || adapter.subscribeSessionOutput);
+    const busyIntervalMs = hasConversationStream ? 3000 : 1200;
+    const backoffMs = hasConversationStream ? 4000 : 2000;
 
     const refreshUntilIdle = async () => {
       const epoch = sessionMutationSeqRef.current;
@@ -388,7 +367,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           return;
         }
         setMode(nextViewModel.mode);
-        setViewModel((current) => withFresherOutputStore(nextViewModel, current));
+        setViewModel((current) => preserveCanonicalConversation(nextViewModel, current));
         if (nextViewModel.composer.busy || nextViewModel.sessions.some((session) => session.busy)) {
           timer = window.setTimeout(refreshUntilIdle, busyIntervalMs);
         }
@@ -407,7 +386,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         window.clearTimeout(timer);
       }
     };
-  }, [adapter, mode, viewModel.composer.busy, hasBusySession]);
+  }, [adapter, mode, viewModel.canonicalConversationEnabled, viewModel.composer.busy, hasBusySession]);
 
   const changeMode = (nextMode: WorkbenchMode) => {
     setMode(nextMode);

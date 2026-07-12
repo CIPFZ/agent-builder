@@ -103,7 +103,8 @@ type RuntimeCanonicalConversationStreamResponseV2 struct {
 	EventName string `json:"eventName"`
 }
 type RuntimeCanonicalConversationStreamMessageV2 struct {
-	StreamID string `json:"streamId"`
+	StreamID  string `json:"streamId"`
+	Lifecycle string `json:"lifecycle,omitempty"`
 	RuntimeCanonicalConversationEventBatchV2
 }
 

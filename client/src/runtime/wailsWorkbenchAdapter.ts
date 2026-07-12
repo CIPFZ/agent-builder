@@ -60,11 +60,11 @@ import type {
   WorkbenchViewModel,
 } from './workbenchTypes.ts';
 import { runtimeActionRefreshTargets, type RuntimeActionRefreshTarget, type RuntimeWriteActionResponseDTO } from './actionRefreshSelector.ts';
-import { hydrateOutputStore } from './outputReducer.ts';
-import { selectConversationMessages, selectPendingPermissions } from './outputSelectors.ts';
 import { retargetOutputStore } from './outputStore.ts';
+import { selectConversationMessages } from './outputSelectors.ts';
 import type { RuntimeOutputSnapshot } from './outputTypes.ts';
 import type { CanonicalConversationDiagnostics, CanonicalConversationEventsRequest, CanonicalConversationEventsResponse, CanonicalConversationSnapshot, CanonicalConversationSnapshotRequest } from './canonicalConversationTypes.ts';
+import { resolveCanonicalConversationEnabled } from './canonicalConversationMode.ts';
 import { getInitialWorkbenchViewModel, staticWorkbenchAdapter } from './staticWorkbenchAdapter.tsx';
 
 interface RuntimeStatusDTO extends RuntimeWriteActionResponseDTO {
@@ -3546,18 +3546,15 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const [
     hooks,
     hookExecutions,
-    outputSnapshot,
     activity,
     runProjection,
     agentTasks,
     agentRoles,
     contextUsage,
+    conversationDiagnostics,
   ] = await Promise.all([
     fullHydration ? hydrateHooks(bridge) : Promise.resolve(undefined),
     activeSessionID ? hydrateHookExecutions(bridge, activeSessionID) : Promise.resolve(summarizeHookExecutions([])),
-    activeSessionID && refreshActivity
-      ? optionalRuntimeRequest(() => bridge.SessionOutput?.(activeSessionID, { snapshot: true, limit: fullHydration ? undefined : 64 }) ?? Promise.resolve(undefined))
-      : Promise.resolve(undefined),
     // Narrow-then-wide activity fallback stays sequential internally (narrow hint
     // must fail before we fall back to the full SessionActivity request).
     activeSessionID && refreshActivity
@@ -3572,8 +3569,9 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     activeSessionID ? hydrateAgentTasks(bridge, activeSessionID) : Promise.resolve(undefined),
     fullHydration ? hydrateAgentRoles(bridge) : Promise.resolve(undefined),
     activeSessionID ? optionalRuntimeRequest(() => bridge.SessionContextUsage?.(activeSessionID) ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
+    activeSessionID ? optionalRuntimeRequest(() => bridge.ConversationV2Diagnostics?.(activeSessionID) ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ])
-  const outputStore = outputSnapshot ? hydrateOutputStore(outputSnapshot, current.outputStore) : current.outputStore;
+  const outputStore = current.outputStore;
   const modelOptionList = modelsResponse ? modelOptions(modelsResponse) : current.composer.modelOptions;
   const selectedModel = modelsResponse ? modelOptionList.find((model) => model.selected) : current.composer.selectedModel;
   const currentProjectID = sidebarProjection?.currentProjectId || projectedProjectsResponse?.projects?.find((project) => project.current)?.id;
@@ -3610,14 +3608,8 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       : undefined),
   ]);
   const contextDiagnostics = mapContextDiagnostics(promptAssembliesDTO) ?? (current.contextDiagnostics?.sessionId === activeSessionID ? current.contextDiagnostics : undefined);
-  const activeOutputStore = outputStore?.sessionId === activeSessionID ? outputStore : undefined;
-  const outputConversation = activeOutputStore ? selectConversationMessages(activeOutputStore) : undefined;
-  const outputPendingPermissions = activeOutputStore ? selectPendingPermissions(activeOutputStore) : undefined;
-  // Primary conversation rendering is owned by SessionOutput. SessionActivity,
-  // prompt assemblies, and context diagnostics remain diagnostics-only and must
-  // not reconstruct the main timeline if a runtime output snapshot is absent.
-  const conversation = outputConversation ?? (activeSessionID ? [] : current.conversation);
-  const pendingPermissions = outputPendingPermissions ?? current.pendingPermissions;
+  const conversation = current.conversation;
+  const pendingPermissions = current.pendingPermissions;
   const skills = mapSkills(skillsResponse) ?? current.settings.skills;
   const plugins = mapPlugins(pluginsResponse) ?? current.settings.plugins;
   const mcpServers = mapMCPServers(mcpServersResponse) ?? current.settings.mcpServers;
@@ -3635,6 +3627,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       : current.conversationTarget,
     conversation,
     outputStore,
+    canonicalConversationEnabled: resolveCanonicalConversationEnabled(current.canonicalConversationEnabled, conversationDiagnostics),
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
     runProjection: mapRunProjection(runProjection, schedulerTaskCandidates) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
     agentTasks: agentTasks ?? (activeSessionID ? current.agentTasks?.filter((task) => task.parentSessionId === activeSessionID || task.childSessionId === activeSessionID) : []),
@@ -4054,6 +4047,24 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       onSnapshotRequired: handlers.onSnapshotRequired,
     });
   },
+  async fetchCanonicalConversationSnapshot(sessionID) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.SessionConversationSnapshotV2) throw new Error('canonical conversation snapshot API is unavailable');
+    return bridge.SessionConversationSnapshotV2(sessionID, { scope: 'full' });
+  },
+  async subscribeCanonicalConversation(sessionID, after, handlers) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.StartSessionConversationStreamV2 || !bridge.StopSessionConversationStreamV2) return () => undefined;
+    const { subscribeCanonicalConversation } = await import('./canonicalConversationStream.ts');
+    return subscribeCanonicalConversation({
+      sessionId: sessionID,
+      after,
+      bridge: bridge as Parameters<typeof subscribeCanonicalConversation>[0]['bridge'],
+      loadWailsEvents: async () => (await loadWailsRuntime()) as unknown as Awaited<ReturnType<Parameters<typeof subscribeCanonicalConversation>[0]['loadWailsEvents']>>,
+      onBatch: handlers.onBatch,
+      onTransportFailure: handlers.onTransportFailure,
+    });
+  },
   async loadHookExecution(executionID) {
     const bridge = await loadRuntimeBridge();
     if (!bridge?.HookExecution) {
@@ -4188,18 +4199,15 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
           // authoritative id. Read the initial snapshot before rendering the
           // adopted session so events emitted during that handshake window
           // cannot leave the local loading placeholder stranded.
-          const initialOutputSnapshot = bridge.SessionOutput
-            ? await optionalRuntimeRequest(() => bridge.SessionOutput!(responseSessionID, { snapshot: true }))
-            : undefined;
-          const nextOutputStore = initialOutputSnapshot
-            ? hydrateOutputStore(initialOutputSnapshot, adoptedOutputStore)
-            : adoptedOutputStore;
+          const nextOutputStore = adoptedOutputStore;
+          const canonicalDiagnostics = await optionalRuntimeRequest(() => bridge.ConversationV2Diagnostics?.(responseSessionID) ?? Promise.resolve(undefined));
           return {
             ...current,
             mode: 'new-chat',
             conversationTarget: { kind: 'session', sessionId: responseSessionID },
             sessions: sessionsAfterDraftSubmit(current, responseSessionID, prompt, draftTarget, response.turnId),
             outputStore: nextOutputStore,
+            canonicalConversationEnabled: resolveCanonicalConversationEnabled(current.canonicalConversationEnabled, canonicalDiagnostics),
             conversation:
               normalizedOnly
                 ? mergeNormalizedConversation(current.conversation, normalizedConversation)

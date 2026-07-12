@@ -30,6 +30,7 @@
     "smoke:conversation-target": "node scripts/conversation-target-submit-smoke.mjs",
     "smoke:conversation-contract-v2": "node scripts/conversation-contract-v2-fixture-smoke.mjs",
     "smoke:canonical-conversation-store": "node scripts/canonical-conversation-store-smoke.mjs",
+    "smoke:canonical-conversation-convergence": "node scripts/canonical-conversation-convergence-smoke.mjs",
     "smoke:markdown-message": "node scripts/markdown-message-smoke.mjs"
   },
   "dependencies": {

@@ -142,6 +142,9 @@ function TimelineProcessItem({
       </>
     );
   }
+  if (item.kind === 'tool_group' && item.toolCalls) {
+    return <ToolTraceGroup toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />;
+  }
   if ((item.kind === 'tool_call' || item.kind === 'tool_group') && item.toolCall) {
     return (
       <>
