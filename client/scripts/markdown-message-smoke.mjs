@@ -12,6 +12,7 @@ await mkdir(tempDir, { recursive: true });
 
 const sourcePath = path.join(root, 'src', 'features', 'markdown', 'MarkdownMessage.tsx');
 const source = await readFile(sourcePath, 'utf8');
+const stylesSource = await readFile(path.join(root, 'src', 'features', 'markdown', 'MarkdownMessage.module.css'), 'utf8');
 const shimmed = source.replace(
   "import styles from './MarkdownMessage.module.css';",
   "const styles = new Proxy({}, { get: (_target, key) => String(key) });",
@@ -57,5 +58,7 @@ assert.match(html, /<pre class="markdownPre"><code class="markdownCode language-
 assert.match(html, /target="_blank"/, 'links open outside the webview');
 assert(!html.includes('<script>alert'), 'raw HTML is escaped instead of executed');
 assert(!html.includes('| --- |'), 'markdown table source is not displayed as raw text');
+assert.doesNotMatch(stylesSource, /\.markdownTableWrap table\s*\{[\s\S]*?min-width:\s*max-content/, 'tables cannot expand to the max-content width of long cells');
+assert.match(stylesSource, /\.markdownTableWrap td \.markdownCode[\s\S]*?overflow-wrap:\s*anywhere/, 'long inline code wraps within table cells');
 
 console.log('markdown message smoke passed');

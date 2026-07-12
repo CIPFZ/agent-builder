@@ -160,10 +160,12 @@
 
 .markdownTableWrap table {
   width: 100%;
-  min-width: max-content;
+  min-width: 100%;
+  max-width: 100%;
   margin: 0;
   border-collapse: collapse;
   font-size: 14px;
+  table-layout: auto;
 }
 
 .markdown th,
@@ -173,6 +175,19 @@
   text-align: left;
   vertical-align: top;
   white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Inline code normally keeps compact tokens readable. Inside a table it must
+   be allowed to wrap, otherwise a long path/file list sets the table's
+   max-content width and creates an enormous horizontal scrollbar. Fenced
+   code blocks keep their independent horizontal scrolling behavior. */
+.markdownTableWrap td .markdownCode,
+.markdownTableWrap th .markdownCode {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown th {
