@@ -535,7 +535,11 @@ func canonicalNoticeIdentity(event RuntimeEvent) (string, string, bool) {
 	case strings.HasPrefix(event.Type, "hook.execution."), event.Type == runtimeapi.EventHookContextInjected, event.Type == runtimeapi.EventHookInputRewritten:
 		kind, sourceID = "hook", stringFromMap(event.Payload, "execution_id")
 	case event.Type != runtimeapi.EventContextUsageUpdated && strings.HasPrefix(event.Type, "context."), strings.HasPrefix(event.Type, "skill.context."):
-		kind, sourceID = "context", firstNonEmpty(stringFromMap(event.Payload, "source_id"), stringFromMap(event.Payload, "context_id"))
+		// Prompt/context assembly is diagnostic state, not conversation
+		// activity. Keep the raw events and prompt assembly records for audit
+		// and diagnostics, but do not materialize one timeline notice per
+		// source (skills, AGENTS.md probes, missing optional files, etc.).
+		return "", "", false
 	case strings.HasPrefix(event.Type, "compact.") && event.Type != runtimeapi.EventCompactProgress:
 		kind, sourceID = "compact", firstNonEmpty(stringFromMap(event.Payload, "boundary_id"), stringFromMap(event.Payload, "compact_boundary_id"))
 	case strings.HasPrefix(event.Type, "recovery."):

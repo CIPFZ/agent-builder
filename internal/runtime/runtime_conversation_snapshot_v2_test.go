@@ -123,6 +123,8 @@ func TestCanonicalNoticesMergeLifecycleBySemanticIdentity(t *testing.T) {
 		{Sequence: 10, ID: "compact-start", Type: runtimeapi.EventCompactStarted, SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:00:00Z", Payload: map[string]any{"boundary_id": "boundary-1", "trigger": "auto"}},
 		{Sequence: 11, ID: "compact-done", Type: runtimeapi.EventCompactCompleted, SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:01:00Z", Payload: map[string]any{"boundary_id": "boundary-1", "summary": "done"}},
 		{Sequence: 12, ID: "hook-done", Type: runtimeapi.EventHookExecutionCompleted, SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:02:00Z", Payload: map[string]any{"execution_id": "hook-1", "summary": "checked"}},
+		{Sequence: 13, ID: "context-loaded", Type: runtimeapi.EventContextSourceLoaded, SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:03:00Z", Payload: map[string]any{"source_id": "project:/work/AGENTS.md", "summary": "loaded"}},
+		{Sequence: 14, ID: "skill-context", Type: runtimeapi.EventSkillContextInjected, SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:04:00Z", Payload: map[string]any{"source_id": "skill:jq", "summary": "loaded"}},
 	}
 	notices := canonicalNotices(events, "session-1", canonicalEventRanges(events))
 	if len(notices) != 2 {

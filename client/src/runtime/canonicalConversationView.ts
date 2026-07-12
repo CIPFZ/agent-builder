@@ -38,11 +38,14 @@ function projectProcessEntity(entity: CanonicalProcessEntity, store: CanonicalCo
   return undefined;
 }
 
-function projectNotice(notice: CanonicalConversationStore['noticesById'][string]): ConversationTimelineItemViewModel {
+function projectNotice(notice: CanonicalConversationStore['noticesById'][string]): ConversationTimelineItemViewModel | undefined {
+  // Context-source load/injection events describe prompt assembly, not agent
+  // work. They remain available through diagnostics/audit but never belong in
+  // the user-facing conversation timeline (including historical snapshots).
+  if (notice.kind === 'context') return undefined;
   const data = parseNoticeData(notice.dataJson);
   const common = { id: `notice:${notice.id}`, sessionId: notice.sessionId, turnId: notice.turnId, title: String(data.trigger || data.source_id || notice.kind), content: notice.summary, summary: notice.summary, status: notice.status, createdAt: notice.createdAt, updatedAt: notice.updatedAt };
   if (notice.kind === 'hook') return { ...common, kind: 'hook_run' };
-  if (notice.kind === 'context') return { ...common, kind: 'context_source' };
   if (notice.kind === 'compact') return { ...common, kind: 'compact_boundary', compact: { trigger: stringValue(data.trigger), status: notice.status, preTokens: numberValue(data.pre_tokens), postTokens: numberValue(data.post_tokens), summarizedCount: numberValue(data.summarized_count), summaryMessageId: stringValue(data.summary_message_id), summaryText: stringValue(data.summary_text), error: stringValue(data.error) }, error: stringValue(data.error) };
   return { ...common, kind: 'recovery_notice', error: notice.status === 'failed' ? notice.summary : undefined };
 }
