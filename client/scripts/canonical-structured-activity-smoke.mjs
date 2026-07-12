@@ -18,9 +18,9 @@ assert.equal(structured.agentTasksById['task-1'].messagesTruncated, true);
 
 const turn = selectCanonicalConversationTurnViewModels(store, structured)[0];
 const permissionRow = turn.process.items.find((item) => item.kind === 'permission');
-const taskRow = turn.process.items.find((item) => item.kind === 'agent_task');
+const teamRow = turn.process.items.find((item) => item.kind === 'agent_team');
 assert.equal(permissionRow.permission, structured.permissionsById['permission-1'], 'timeline and gate share one Permission projection');
-assert.equal(taskRow.agentTask, structured.agentTasksById[taskRow.agentTask.id], 'timeline and detail share one AgentTask projection');
+assert.deepEqual(teamRow.agentTasks, [structured.agentTasksById['task-1'], structured.agentTasksById['task-2']], 'Team timeline and detail share the ordered canonical AgentTask projections');
 assert.equal(turn.process.items.find((item) => item.kind === 'tool_group').toolCalls[0].agentTask, structured.agentTasksById['task-1'], 'tool detail shares the canonical AgentTask projection');
 assert.equal(turn.process.items.filter((item) => item.kind === 'hook_run').length, 1);
 assert.equal(turn.process.items.filter((item) => item.kind === 'compact_boundary').length, 1);

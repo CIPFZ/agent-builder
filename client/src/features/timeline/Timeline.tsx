@@ -6,7 +6,7 @@ import { HookExecutionDetailDrawer } from '../hooks/HookExecutionDetailDrawer.ts
 import { HookTimelineRow } from '../hooks/HookTimelineRow.tsx';
 import { TimelineMessage } from './TimelineMessage.tsx';
 import { CompactTraceRow, ContextGovernanceRow, TurnDiagnosticWarning, WorkflowNoticeRow } from './ProcessNoticeItems.tsx';
-import { AgentTaskTimelineRow, PermissionTraceRow } from './InteractiveProcessItems.tsx';
+import { AgentTaskTimelineRow, AgentTeamTimelineRow, PermissionTraceRow } from './InteractiveProcessItems.tsx';
 import { ToolTraceGroup } from './ToolProcessItems.tsx';
 import { ProcessNarration } from './ProcessNarration.tsx';
 import type { RenderTimelineItem } from './processGrouping.ts';
@@ -190,6 +190,9 @@ function TimelineProcessItem({
   }
   if (item.kind === 'agent_task') {
     return item.agentTask ? <AgentTaskTimelineRow item={item} onAgentTaskOpen={onAgentTaskOpen} /> : <WorkflowNoticeRow item={item} />;
+  }
+  if (item.kind === 'agent_team') {
+    return <AgentTeamTimelineRow item={item} onAgentTaskOpen={onAgentTaskOpen} />;
   }
   if (item.kind === 'message' || item.kind === 'assistant_message') {
     return <ProcessNarration item={item} />;

@@ -1,7 +1,8 @@
 import { BranchesOutlined, SafetyCertificateOutlined, WarningOutlined } from '@ant-design/icons';
-import { Progress, Tag } from 'antd';
-import type { ConversationTimelineItemViewModel } from '../../runtime/workbenchTypes.ts';
-import { InlineExpandable, TraceRow } from './TraceRow.tsx';
+import { Tag } from 'antd';
+import { isFailedAgentTaskStatus, isWaitingAgentTaskStatus } from '../../runtime/agentTimelineProjection.ts';
+import type { AgentTaskViewModel, ConversationTimelineItemViewModel } from '../../runtime/workbenchTypes.ts';
+import { TraceRow } from './TraceRow.tsx';
 import styles from './Timeline.module.css';
 
 export function PermissionTraceRow({ item }: { item: ConversationTimelineItemViewModel }) {
@@ -17,13 +18,32 @@ export function PermissionTraceRow({ item }: { item: ConversationTimelineItemVie
 export function AgentTaskTimelineRow({ item, onAgentTaskOpen }: { item: ConversationTimelineItemViewModel; onAgentTaskOpen?: (taskID: string) => void }) {
   const task = item.agentTask;
   if (!task) return null;
-  const refs = [...(task.outputRefs ?? []), ...(task.artifactRefs ?? [])];
-  const summary = task.resultSummary || task.promptSummary || '';
-  const failed = task.status === 'failed' || task.status === 'interrupted';
-  const metaLine = [task.role || task.kind, task.provider && task.model ? `${task.provider}/${task.model}` : task.model, task.childSessionId ? `child ${task.childSessionId}` : undefined].filter(Boolean).join(' / ');
+  const failed = isFailedAgentTaskStatus(task.status);
   return (
-    <TraceRow clickable dataAttrs={{ 'data-task-id': task.id }} extra={<div className={styles.agentTaskExtra}><Progress percent={task.progress ?? 0} size="small" showInfo={false} />{metaLine ? <div className={styles.agentTaskMetaLine}>{metaLine}</div> : null}{summary ? <InlineExpandable summary={summarizeProcessNote(summary)}>{summary}</InlineExpandable> : null}{refs.length ? <div className={styles.agentTaskRefsLine}>{refs.slice(0, 3).join(' / ')}</div> : null}</div>} icon={<BranchesOutlined />} meta={<Tag color={agentTaskStatusColor(task.status)}>{task.status}</Tag>} testId="timeline-agent-task-row" title={task.title || task.id} tone={failed ? 'error' : 'default'} onRowClick={() => onAgentTaskOpen?.(task.id)} />
+    <TraceRow clickable dataAttrs={{ 'data-task-id': task.id }} icon={<BranchesOutlined />} meta={<Tag color={agentTaskStatusColor(task.status)}>{task.status}</Tag>} testId="timeline-agent-task-row" title={task.title || task.id} tone={failed ? 'error' : isWaitingAgentTaskStatus(task.status) ? 'warning' : 'default'} onRowClick={() => onAgentTaskOpen?.(task.id)} />
   );
+}
+
+export function AgentTeamTimelineRow({ item, onAgentTaskOpen }: { item: ConversationTimelineItemViewModel; onAgentTaskOpen?: (taskID: string) => void }) {
+  const members = item.agentTasks ?? [];
+  if (!item.teamId || members.length === 0) return null;
+  const active = members.filter((task) => ['queued', 'running', 'streaming', 'in_progress', 'starting'].includes(task.status)).length;
+  const completed = members.filter((task) => ['completed', 'complete', 'success', 'succeeded', 'done'].includes(task.status)).length;
+  const waiting = members.filter((task) => isWaitingAgentTaskStatus(task.status)).length;
+  const failed = members.filter((task) => isFailedAgentTaskStatus(task.status)).length;
+  const attention = members.some((task) => isFailedAgentTaskStatus(task.status) || isWaitingAgentTaskStatus(task.status));
+  const counts = [`${active} running`, `${completed} completed`, waiting ? `${waiting} waiting` : '', failed ? `${failed} failed` : ''].filter(Boolean).join(' · ');
+  return (
+    <TraceRow dataAttrs={{ 'data-team-id': item.teamId }} defaultOpen={attention} expandable icon={<BranchesOutlined />} meta={<span>{counts}</span>} testId="timeline-agent-team-row" title="Agent Team" tone={failed ? 'error' : attention ? 'warning' : 'default'}>
+      <div className={styles.agentTeamMembers}>
+        {members.map((task) => <AgentTeamMember key={task.id} task={task} onAgentTaskOpen={onAgentTaskOpen} />)}
+      </div>
+    </TraceRow>
+  );
+}
+
+function AgentTeamMember({ task, onAgentTaskOpen }: { task: AgentTaskViewModel; onAgentTaskOpen?: (taskID: string) => void }) {
+  return <AgentTaskTimelineRow item={{ id: `agentTask:${task.id}`, kind: 'agent_task', status: task.status, agentTask: task }} onAgentTaskOpen={onAgentTaskOpen} />;
 }
 
 function permissionStatusLabel(status?: string) {
@@ -41,9 +61,4 @@ function agentTaskStatusColor(status?: string) {
   if (status === 'completed') return 'success';
   if (status === 'failed' || status === 'interrupted') return 'error';
   return 'default';
-}
-
-function summarizeProcessNote(content: string) {
-  const normalized = content.replace(/\s+/g, ' ').trim();
-  return normalized.length <= 140 ? normalized : `${normalized.slice(0, 140)}...`;
 }

@@ -216,20 +216,10 @@
   font-size: 12px;
 }
 
-.agentTaskExtra {
+.agentTeamMembers {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 2px;
-}
-
-.agentTaskMetaLine,
-.agentTaskRefsLine {
-  overflow: hidden;
-  color: rgb(13 13 13 / 42%);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  gap: 2px;
 }
 
 .processTrace :global(.ant-collapse-header) {

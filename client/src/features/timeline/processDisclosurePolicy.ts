@@ -47,7 +47,7 @@ export function isSafelyCompleteProcess(signal: ProcessDisclosureSignal) {
 }
 
 export function isActiveProcessStatus(status?: string) {
-  return status === 'running' || status === 'queued' || status === 'waiting_permission' || status === 'streaming' || status === 'in_progress' || status === 'starting';
+  return status === 'running' || status === 'queued' || status === 'waiting' || status === 'blocked' || status === 'waiting_permission' || status === 'streaming' || status === 'in_progress' || status === 'starting';
 }
 
 export function isFailedProcessStatus(status?: string) {

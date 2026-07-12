@@ -35,7 +35,8 @@
     "smoke:canonical-conversation-cutover": "node scripts/canonical-conversation-cutover-smoke.mjs",
     "smoke:markdown-message": "node scripts/markdown-message-smoke.mjs",
     "smoke:conversation-presentation-model": "node scripts/conversation-presentation-model-smoke.mjs",
-    "smoke:process-disclosure-policy": "node scripts/process-disclosure-policy-smoke.mjs"
+    "smoke:process-disclosure-policy": "node scripts/process-disclosure-policy-smoke.mjs",
+    "smoke:agent-timeline-projection": "node scripts/agent-timeline-projection-smoke.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.3",

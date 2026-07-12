@@ -6,13 +6,14 @@ import type { CanonicalMessage, CanonicalToolCall } from './canonicalConversatio
 import type { ConversationTurnViewModel, ConversationTurnStatus } from './conversation/conversationTypes.ts';
 import type { ConversationTimelineItemViewModel, OptimisticConversationSubmit, ToolCallViewModel } from './workbenchTypes.ts';
 import { selectCanonicalStructuredActivity, type CanonicalStructuredActivity } from './canonicalStructuredActivity.ts';
+import { projectAgentTimeline } from './agentTimelineProjection.ts';
 
 export function selectCanonicalConversationTurnViewModels(store?: CanonicalConversationStore, structured = selectCanonicalStructuredActivity(store), optimistic?: Record<string, OptimisticConversationSubmit>): ConversationTurnViewModel[] {
   const turns: ConversationTurnViewModel[] = selectCanonicalConversationTurns(store).map(({ turn, user, final, process }) => {
     const status = turn.status as ConversationTurnStatus;
-    const items = groupCanonicalProcess(process).map((item) => item.type === 'tool-group'
+    const items = projectAgentTimeline(groupCanonicalProcess(process).map((item) => item.type === 'tool-group'
       ? projectToolGroup(item.key, item.tools, store!, structured)
-      : projectProcessEntity(item.entity, store!, structured)).filter((item): item is ConversationTimelineItemViewModel => Boolean(item));
+      : projectProcessEntity(item.entity, store!, structured)).filter((item): item is ConversationTimelineItemViewModel => Boolean(item)));
     return {
       id: turn.id, sessionId: turn.sessionId, status,
       user: user ? projectMessage(user) : undefined,

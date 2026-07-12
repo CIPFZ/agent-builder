@@ -228,6 +228,7 @@ export type ConversationTimelineKind =
   | 'recovery_notice'
   | 'context_source'
   | 'agent_task'
+  | 'agent_team'
   | 'turn_terminal'
   | 'compact_boundary'
   | 'exploration_summary';
@@ -260,6 +261,8 @@ export interface ConversationTimelineItemViewModel {
   toolCalls?: ToolCallViewModel[];
   permission?: PermissionRequestViewModel;
   agentTask?: AgentTaskViewModel;
+  agentTasks?: AgentTaskViewModel[];
+  teamId?: string;
   diagnostics?: TurnDiagnosticsViewModel;
   compact?: RuntimeCompactInfo;
 }

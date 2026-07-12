@@ -278,7 +278,7 @@ Independent review notes:
 - Final scope review found no Todo capsule, Agent aggregation, Agent panel, or
   canonical store/Wails writer changes.
 
-### Phase 2: Agent timeline projection `[ ]`
+### Phase 2: Agent timeline projection `[x]`
 
 - Reduce individual Agent rows to compact lifecycle capsules.
 - Aggregate explicit Team members into one stable Team row.
@@ -289,6 +289,46 @@ Independent review notes:
 
 Exit gate: one task has one stable timeline identity; one Team has one stable
 aggregate identity; updates never append duplicates.
+
+Implementation evidence:
+
+- `agentTimelineProjection.ts` performs one pure projection over the existing
+  canonical process rows. Independent tasks retain `agentTask:<taskId>` and
+  explicit Teams reuse the Phase 0 `agent-team:<teamId>` contract.
+- A Team is emitted at its first canonical member position; later members are
+  collected into that row in canonical activity order. Status revisions
+  update the same task/Team ids and never append duplicate rows.
+- Individual Subagents now render as compact lifecycle capsules containing
+  only title and status. Prompt, progress, model, messages, outputs, and
+  artifacts remain in the existing right-side task detail.
+- Team capsules expose running/completed/waiting/failed counts and expand to
+  compact member capsules on the same flat reading edge. Waiting and failed
+  states keep the Phase 1 process boundary open.
+- Every independent/member capsule forwards its canonical task id through the
+  existing `openAgentTask` path, which selects the task and opens the existing
+  Tasks panel.
+
+Verification:
+
+- `cd client && npm.cmd run smoke:agent-timeline-projection`
+- `cd client && npm.cmd run smoke:conversation-presentation-model`
+- `cd client && npm.cmd run smoke:process-disclosure-policy`
+- `cd client && npm.cmd run smoke:canonical-conversation-store`
+- `cd client && npm.cmd run smoke:canonical-conversation-convergence`
+- `cd client && npm.cmd run smoke:canonical-structured-activity`
+- `cd client && npm.cmd run smoke:canonical-conversation-cutover`
+- `cd client && npm.cmd run smoke:conversation-contract-v2`
+- `cd client && npm.cmd run lint`
+- `cd client && npm.cmd run build`
+
+Independent review notes:
+
+- Review replaced a locally derived Team identity with the frozen Phase 0
+  `AgentTeamPresentation` identity and ordering contract.
+- Review added explicit waiting/failed Team counts so attention remains visible
+  without copying detail-panel content into the timeline.
+- Final scope review confirmed no persistent Agent monitor, Tasks panel
+  restructuring, Todo change, or canonical store/Wails writer change.
 
 ### Phase 3: Persistent Agent/Team monitor `[ ]`
 
