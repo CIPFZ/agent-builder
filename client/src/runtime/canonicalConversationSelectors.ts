@@ -1,4 +1,4 @@
-import type { CanonicalConversationStore } from './canonicalConversationStore.ts';
+import { canonicalEntityKeysForTurn, type CanonicalConversationStore } from './canonicalConversationStore.ts';
 import type { CanonicalAgentTask, CanonicalAssistantStep, CanonicalMessage, CanonicalNotice, CanonicalPermission, CanonicalTodoPlan, CanonicalToolCall, CanonicalToolResult, CanonicalTurn } from './canonicalConversationTypes.ts';
 
 export type CanonicalProcessEntity = CanonicalMessage | CanonicalAssistantStep | CanonicalToolCall | CanonicalToolResult | CanonicalPermission | CanonicalAgentTask | CanonicalNotice;
@@ -37,24 +37,38 @@ export function selectCanonicalTurn(store: CanonicalConversationStore, turn: Can
   const finalCandidate = ownedMessage(store, turn, turn.finalMessageId);
   const final = finalCandidate?.phase === 'final' ? finalCandidate : undefined;
   const excluded = new Set([user?.id, final?.id].filter((id): id is string => Boolean(id)));
-  const process: CanonicalProcessEntity[] = [
-    ...Object.values(store.messagesById),
-    ...Object.values(store.assistantStepsById),
-    ...Object.values(store.toolCallsById),
-    ...Object.values(store.toolResultsById),
-    ...Object.values(store.permissionsById),
-    ...Object.values(store.agentTasksById),
-    ...Object.values(store.noticesById),
-  ].filter((entity) => entity.sessionId === store.sessionId && entity.turnId === turn.id && !excluded.has(entity.id));
+  const process: CanonicalProcessEntity[] = [];
+  for (const key of canonicalEntityKeysForTurn(store, turn.id)) {
+    const separator = key.indexOf(':');
+    const kind = key.slice(0, separator);
+    const id = key.slice(separator + 1);
+    const entity = processEntityByKind(store, kind, id);
+    if (entity && entity.sessionId === store.sessionId && !excluded.has(entity.id)) process.push(entity);
+  }
   process.sort(compareCanonicalEntities);
   return { turn, user, final, process, todoPlan: selectTodoPlanForTurn(store, turn.id) };
 }
 
 export function selectTodoPlanForTurn(store: CanonicalConversationStore, turnId: string): CanonicalTodoPlan | undefined {
-  return Object.values(store.todoPlansById)
-    .filter((plan) => plan.sessionId === store.sessionId && plan.ownerTurnId === turnId)
+  return canonicalEntityKeysForTurn(store, turnId)
+    .filter((key) => key.startsWith('todoPlan:'))
+    .map((key) => store.todoPlansById[key.slice('todoPlan:'.length)])
+    .filter((plan): plan is CanonicalTodoPlan => Boolean(plan) && plan.sessionId === store.sessionId && plan.ownerTurnId === turnId)
     .sort(compareCanonicalEntities)
     .at(-1);
+}
+
+function processEntityByKind(store: CanonicalConversationStore, kind: string, id: string): CanonicalProcessEntity | undefined {
+  switch (kind) {
+    case 'message': return store.messagesById[id];
+    case 'assistantStep': return store.assistantStepsById[id];
+    case 'toolCall': return store.toolCallsById[id];
+    case 'toolResult': return store.toolResultsById[id];
+    case 'permission': return store.permissionsById[id];
+    case 'agentTask': return store.agentTasksById[id];
+    case 'notice': return store.noticesById[id];
+    default: return undefined;
+  }
 }
 
 function ownedMessage(store: CanonicalConversationStore, turn: CanonicalTurn, id?: string) {

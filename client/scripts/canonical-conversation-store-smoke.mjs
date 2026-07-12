@@ -15,10 +15,15 @@ const batch = (afterCursor, cursor, events, extra = {}) => ({ schemaVersion: 2, 
 
 let store = hydrateCanonicalConversationStore(snapshot());
 assert.equal(store.toolCallsById['tool-1'].id, 'tool-1');
+assert.ok(store.entityKeysByTurnId['turn-1'].includes('toolCall:tool-1'), 'snapshot hydration builds the Turn entity index');
 store = hydrateCanonicalConversationStore(snapshot('window', '11', { turns: [], messages: [], toolCalls: [], window: { turnIds: [] } }), store);
 assert.ok(store.toolCallsById['tool-1'], 'window omission does not delete');
 
+const messagesBeforeToolUpdate = store.messagesById;
+const permissionsBeforeToolUpdate = store.permissionsById;
 store = applyCanonicalConversationBatch(store, batch('11', '12', [event('toolCall', 'tool-1', '12', tool('tool-1', '12', 'completed'))]));
+assert.equal(store.messagesById, messagesBeforeToolUpdate, 'tool-only batch preserves the untouched Message dictionary reference');
+assert.equal(store.permissionsById, permissionsBeforeToolUpdate, 'tool-only batch preserves the untouched Permission dictionary reference');
 store = hydrateCanonicalConversationStore(snapshot('full', '10', { toolCalls: [] }), store);
 assert.equal(store.toolCallsById['tool-1'].revision, '12', 'older full snapshot preserves newer local entity');
 assert.equal(applyCanonicalConversationBatch(store, batch('12', '13', [event('toolCall', 'tool-1', '11', tool('tool-1', '11'))])).toolCallsById['tool-1'].revision, '12');
@@ -32,6 +37,7 @@ const multiConflict = applyCanonicalConversationBatch(store, batch('12', '13', [
 assert.equal(multiConflict.toolCallsById['tool-2'], undefined, 'a later conflict rolls back earlier events in the batch');
 const deleted = applyCanonicalConversationBatch(store, batch('12', '13', [event('toolCall', 'tool-1', '13', undefined, 'delete')]));
 assert.equal(deleted.toolCallsById['tool-1'], undefined);
+assert.equal(deleted.entityKeysByTurnId['turn-1'].includes('toolCall:tool-1'), false, 'deleting an entity removes its Turn index entry');
 assert.equal(applyCanonicalConversationBatch(deleted, batch('13', '14', [event('toolCall', 'tool-1', '12', tool('tool-1', '12'))])).toolCallsById['tool-1'], undefined, 'tombstone blocks stale resurrection');
 assert.equal(applyCanonicalConversationBatch(deleted, batch('99', '100', [])).recovery.reason, 'cursor_gap');
 assert.equal(applyCanonicalConversationBatch(deleted, batch('13', '14', [], { snapshotRequired: true })).recovery.reason, 'snapshot_required');
@@ -66,6 +72,13 @@ assert.notEqual(collisionItems[0].key, collisionItems[1].key, 'cross-type IDs ca
 
 const todoStore = hydrateCanonicalConversationStore(snapshot('full', '10', { todoPlans: [{ ...meta('todo-1'), ownerTurnId: 'turn-1', status: 'running', items: [] }, { ...meta('todo-other', 'turn-2'), ownerTurnId: 'turn-2', status: 'running', items: [] }] }));
 assert.equal(selectTodoPlanForTurn(todoStore, 'turn-1').id, 'todo-1');
+assert.ok(todoStore.entityKeysByTurnId['turn-1'].includes('todoPlan:todo-1'), 'Todo plans are indexed by semantic owner Turn');
+
+const manyTurns = Array.from({ length: 500 }, (_, index) => ({ ...turn(), id: `bulk-turn-${index}`, userMessageId: undefined, finalMessageId: undefined, activitySequence: String(index + 1) }));
+const manyMessages = manyTurns.map((item, index) => ({ ...message(`bulk-message-${index}`, 'intermediate'), turnId: item.id, activitySequence: String(index + 501) }));
+const indexedLargeStore = hydrateCanonicalConversationStore(snapshot('full', '2000', { turns: manyTurns, messages: manyMessages, toolCalls: [] }));
+const selectedLargeTurn = selectCanonicalConversationTurns(indexedLargeStore).find((item) => item.turn.id === 'bulk-turn-321');
+assert.deepEqual(selectedLargeTurn.process.map((item) => item.id), ['bulk-message-321'], 'a Turn selector reads only entities from its canonical Turn index');
 
 const optimistic = { 'request-1': { clientRequestId: 'request-1', sessionId: 'session-1', prompt: 'stay visible', createdAt: 1, status: 'submitting' } };
 const echoedUser = { ...message('user-echo', 'intermediate'), role: 'user', clientRequestId: 'request-1' };

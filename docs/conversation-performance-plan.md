@@ -4,7 +4,7 @@
 
 - `[x]` Investigation and root-cause confirmation
 - `[~]` Phase 1: bounded conversation loading and rendering
-- `[ ]` Phase 2: indexed projections and event allocation reduction
+- `[~]` Phase 2: indexed projections and event allocation reduction
 - `[ ]` Phase 3: durable large-content references and conversation search
 - `[ ]` Phase 4: profiling gates and long-session regression coverage
 
@@ -93,6 +93,18 @@ must only retain a bounded working set that can be reconstructed from Runtime.
 - Coalesce high-frequency streaming message updates to a frame or bounded
   50-100 ms interval.
 - Add Turn-level render memoization and Timeline virtualization.
+
+Implementation progress:
+
+- Canonical store maintains revision-safe `Turn -> entity key` indexes during
+  snapshot hydration, historical merge, event upsert, and tombstone deletion.
+- Turn selection now visits only indexed entities owned by that Turn instead
+  of concatenating every entity dictionary once per Turn.
+- Live event batches clone only the entity dictionaries whose kinds occur in
+  that batch; untouched dictionaries preserve referential identity.
+- Workspace canonical projections are memoized by normalized store identity.
+- Remaining Phase 2 work is Turn-level render reuse, streaming-event
+  coalescing, and mounted-Turn virtualization.
 
 ## Phase 3: content and navigation
 
