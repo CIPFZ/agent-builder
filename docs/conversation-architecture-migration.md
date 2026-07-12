@@ -20,7 +20,7 @@ and commit reference after every phase.
 | 3. Entity stream | `[x]` | `204608d2` | Persistent atomic entity outbox, materialized snapshot state, recovery cursors, Wails stream, and shadow comparison completed. |
 | 4. Frontend store | `[x]` | `cdd76802` | Normalized reducer, revision-safe snapshot merge, pure Turn selector, stable presentation grouping, tests, and independent review completed. |
 | 5. Convergence | `[x]` | `faf0344c` | Canonical-mode Session stream is the only live writer; refresh, switching, reconnect, and explicit recovery converge by cursor. |
-| 6. Structured activity | `[~]` | — | In progress: migrate Todo, Permission, Subagent, Agent Team, and semantic notices. |
+| 6. Structured activity | `[x]` | `(this phase commit)` | Todo, Permission, Subagent, Agent Team, and semantic notices now share canonical ownership and projections. |
 | 7. Cutover | `[ ]` | — | Remove the old projection and verify end to end. |
 
 ## Why this migration exists
@@ -571,7 +571,7 @@ Independent review notes:
 - Final review found and then verified the fix for a diagnostics-timeout mode
   downgrade race. Phase 5 was approved with no remaining blocking findings.
 
-### Phase 6: Structured activity `[~]`
+### Phase 6: Structured activity `[x]`
 
 Deliverables:
 
@@ -583,6 +583,51 @@ Deliverables:
 
 Exit gate: ownership is never inferred from a windowed event; timeline and
 detail surfaces consume the same canonical entities.
+
+Implementation evidence:
+
+- TodoPlan ownership remains the first persisted `todo.updated` Turn and is
+  never inferred from a window. Plans expose active/completed/cleared/abandoned
+  lifecycle; terminal Turn revisions propagate to owned plans.
+- Canonical Permission carries persisted policy semantics while display-only
+  tool name/target data is joined from its referenced ToolCall. Timeline and
+  PermissionGate consume the same projected object.
+- AgentTask parent/team/dependency fields are persisted with a reversible
+  Goose migration and propagated through AgentParams, coordinator execution,
+  recorder, Runtime store/events, snapshot, stream, and frontend view models.
+- AgentTask messages are nested as a stable recent window of at most 64 with
+  total/truncation metadata. Late messages/results advance task revision; the
+  Timeline, tool detail, Agent Team list, and detail panel share one task
+  projection.
+- Hook/context/compact/recovery Runtime events materialize stable Notice IDs by
+  source identity and merge lifecycle payloads. Internal
+  `conversation.reconciled` is intentionally excluded to preserve restart
+  idempotency.
+- Canonical Workspace uses TodoPlan for the capsule, canonical pending
+  Permissions for the gate, canonical tasks for Timeline/detail, and disables
+  legacy synthetic hook/Todo/compact/recovery injection.
+
+Verification:
+
+- `go test ./...`
+- `go build ./...`
+- `cd client && npm.cmd run build`
+- `cd client && npm.cmd run lint`
+- `cd client && npm.cmd run smoke:canonical-conversation-store`
+- `cd client && npm.cmd run smoke:canonical-conversation-convergence`
+- `cd client && npm.cmd run smoke:canonical-structured-activity`
+- `cd client && npm.cmd run smoke:conversation-contract-v2`
+- `cd client && npm.cmd run smoke:conversation-output`
+
+Independent review notes:
+
+- Review identified missing real-execution propagation for Agent Team fields,
+  missing nested task messages, an unbounded message payload, and a
+  self-referential reconciliation Notice. Each was corrected with end-to-end
+  propagation tests, a stable 64-message window, and exclusion of the internal
+  reconciliation event.
+- Final review approved Phase 6 with no remaining blocking findings after the
+  historical reconciliation/restart tests and bounded-message tests passed.
 
 ### Phase 7: Cutover `[ ]`
 

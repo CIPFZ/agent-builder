@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/CIPFZ/agent-builder/internal/message"
@@ -79,12 +81,12 @@ func TestCanonicalWindowFiltersAfterStableIdentityConstruction(t *testing.T) {
 
 func TestCanonicalTodoPlansRequirePersistedStableItemIDs(t *testing.T) {
 	events := []RuntimeEvent{{Sequence: 20, ID: "event-1", Type: "todo.updated", SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:00:00Z", Payload: map[string]any{"plan_id": "plan-1", "todos": []any{map[string]any{"id": "item-1", "content": "Do it", "status": "pending"}}}}}
-	plans := canonicalTodoPlans(events, "session-1", canonicalEventRanges(events))
+	plans := canonicalTodoPlans(events, "session-1", canonicalEventRanges(events), nil)
 	if len(plans) != 1 || plans[0].ID != "plan-1" || plans[0].Items[0].ID != "item-1" || plans[0].OwnerTurnID != "turn-1" {
 		t.Fatalf("plans = %#v", plans)
 	}
 	events[0].Payload["todos"] = []any{map[string]any{"content": "legacy"}}
-	if legacy := canonicalTodoPlans(events, "session-1", canonicalEventRanges(events)); len(legacy) != 0 {
+	if legacy := canonicalTodoPlans(events, "session-1", canonicalEventRanges(events), nil); len(legacy) != 0 {
 		t.Fatalf("legacy todo received fake identity: %#v", legacy)
 	}
 }
@@ -94,12 +96,60 @@ func TestCanonicalTodoPlanKeepsFirstCreatedAtAcrossUpdates(t *testing.T) {
 		{Sequence: 20, Type: "todo.updated", SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:00:00Z", Payload: map[string]any{"plan_id": "plan-1", "todos": []any{map[string]any{"id": "item-1", "content": "Do it", "status": "pending"}}}},
 		{Sequence: 30, Type: "todo.updated", SessionID: "session-1", TurnID: "turn-2", CreatedAt: "2026-01-01T00:01:00Z", Payload: map[string]any{"plan_id": "plan-1", "todos": []any{map[string]any{"id": "item-1", "content": "Do it", "status": "completed"}}}},
 	}
-	plans := canonicalTodoPlans(events, "session-1", canonicalEventRanges(events))
+	plans := canonicalTodoPlans(events, "session-1", canonicalEventRanges(events), nil)
 	if len(plans) != 1 {
 		t.Fatalf("plans=%#v", plans)
 	}
 	if plans[0].CreatedAt != parseRuntimeEventMillis(events[0].CreatedAt) || plans[0].UpdatedAt != parseRuntimeEventMillis(events[1].CreatedAt) || plans[0].Revision != "30" || plans[0].OwnerTurnID != "turn-1" {
 		t.Fatalf("unstable todo meta: %#v", plans[0])
+	}
+}
+
+func TestCanonicalTodoPlanTerminalAndClearStatesKeepOwner(t *testing.T) {
+	events := []RuntimeEvent{{Sequence: 20, ID: "todo-1", Type: runtimeapi.EventTodoUpdated, SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:00:00Z", Payload: map[string]any{"plan_id": "plan-1", "todos": []any{map[string]any{"id": "item-1", "content": "Do it", "status": "pending"}}}}}
+	plans := canonicalTodoPlans(events, "session-1", canonicalEventRanges(events), map[string]RuntimeTurn{"turn-1": {ID: "turn-1", Status: "completed"}})
+	if len(plans) != 1 || plans[0].Status != "abandoned" || plans[0].OwnerTurnID != "turn-1" {
+		t.Fatalf("terminal plan = %#v", plans)
+	}
+	events = append(events, RuntimeEvent{Sequence: 21, ID: "todo-2", Type: runtimeapi.EventTodoUpdated, SessionID: "session-1", TurnID: "turn-2", CreatedAt: "2026-01-01T00:01:00Z", Payload: map[string]any{"plan_id": "plan-1", "todos": []any{}}})
+	plans = canonicalTodoPlans(events, "session-1", canonicalEventRanges(events), nil)
+	if len(plans) != 1 || plans[0].Status != "cleared" || plans[0].OwnerTurnID != "turn-1" {
+		t.Fatalf("cleared plan = %#v", plans)
+	}
+}
+
+func TestCanonicalNoticesMergeLifecycleBySemanticIdentity(t *testing.T) {
+	events := []RuntimeEvent{
+		{Sequence: 10, ID: "compact-start", Type: runtimeapi.EventCompactStarted, SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:00:00Z", Payload: map[string]any{"boundary_id": "boundary-1", "trigger": "auto"}},
+		{Sequence: 11, ID: "compact-done", Type: runtimeapi.EventCompactCompleted, SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:01:00Z", Payload: map[string]any{"boundary_id": "boundary-1", "summary": "done"}},
+		{Sequence: 12, ID: "hook-done", Type: runtimeapi.EventHookExecutionCompleted, SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:02:00Z", Payload: map[string]any{"execution_id": "hook-1", "summary": "checked"}},
+	}
+	notices := canonicalNotices(events, "session-1", canonicalEventRanges(events))
+	if len(notices) != 2 {
+		t.Fatalf("notices = %#v", notices)
+	}
+	for _, notice := range notices {
+		if notice.Kind == "compact" && (notice.ID != "notice:compact:boundary-1" || notice.Revision != "11" || notice.Status != "completed" || notice.Summary != "done") {
+			t.Fatalf("compact notice = %#v", notice)
+		}
+	}
+}
+
+func TestCanonicalAgentTaskMessagesAreBoundedAndKeepLatest(t *testing.T) {
+	source := make([]RuntimeAgentTaskMessage, canonicalAgentTaskMessageLimit+1)
+	for i := range source {
+		source[i] = RuntimeAgentTaskMessage{ID: fmt.Sprintf("message-%03d", i), Sequence: int64(i), ContentSummary: fmt.Sprintf("summary-%03d", i)}
+	}
+	messages, count, truncated := canonicalAgentTaskMessages(source)
+	if count != canonicalAgentTaskMessageLimit+1 || !truncated || len(messages) != canonicalAgentTaskMessageLimit {
+		t.Fatalf("bounded messages: count=%d truncated=%v len=%d", count, truncated, len(messages))
+	}
+	if messages[0].ID != "message-001" || messages[len(messages)-1].ID != fmt.Sprintf("message-%03d", canonicalAgentTaskMessageLimit) {
+		t.Fatalf("message window = first=%#v last=%#v", messages[0], messages[len(messages)-1])
+	}
+	replayed, replayCount, replayTruncated := canonicalAgentTaskMessages(append([]RuntimeAgentTaskMessage(nil), source...))
+	if !reflect.DeepEqual(messages, replayed) || replayCount != count || replayTruncated != truncated {
+		t.Fatalf("message window is not restart-stable")
 	}
 }
 

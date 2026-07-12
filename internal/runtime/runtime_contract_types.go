@@ -852,7 +852,10 @@ type RuntimeAgentTaskExecutionRequest struct {
 	ParentSessionID         string   `json:"parentSessionId"`
 	ParentTurnID            string   `json:"parentTurnId"`
 	ParentToolCallID        string   `json:"parentToolCallId,omitempty"`
+	ParentTaskID            string   `json:"parentTaskId,omitempty"`
 	ChildSessionID          string   `json:"childSessionId,omitempty"`
+	TeamID                  string   `json:"teamId,omitempty"`
+	Dependencies            []string `json:"dependencies,omitempty"`
 	Title                   string   `json:"title,omitempty"`
 	Kind                    string   `json:"kind,omitempty"`
 	Role                    string   `json:"role,omitempty"`
@@ -1343,7 +1346,10 @@ type RuntimeAgentTask struct {
 	ParentTurnID       string                  `json:"parentTurnId,omitempty"`
 	ParentSessionID    string                  `json:"parentSessionId"`
 	ParentToolCallID   string                  `json:"parentToolCallId,omitempty"`
+	ParentTaskID       string                  `json:"parentTaskId,omitempty"`
 	ChildSessionID     string                  `json:"childSessionId,omitempty"`
+	TeamID             string                  `json:"teamId,omitempty"`
+	Dependencies       []string                `json:"dependencies,omitempty"`
 	Title              string                  `json:"title"`
 	Kind               string                  `json:"kind"`
 	Role               string                  `json:"role,omitempty"`

@@ -4068,7 +4068,10 @@ func TestRuntimeAgentTaskRecorderEmitsEventsAndAudit(t *testing.T) {
 		ParentTurnID:     "turn-1",
 		ParentSessionID:  "session-parent",
 		ParentToolCallID: "tool-1",
+		ParentTaskID:     "task-parent",
 		ChildSessionID:   "session-child",
+		TeamID:           "team-1",
+		Dependencies:     []string{"task-dependency"},
 		Title:            "Fetch Analysis",
 		Kind:             agentTaskKindAgenticFetch,
 		Role:             "fetch",
@@ -4094,6 +4097,9 @@ func TestRuntimeAgentTaskRecorderEmitsEventsAndAudit(t *testing.T) {
 	}
 	if task.Task.Status != agentTaskStatusCompleted || task.Task.ParentToolCallID != "tool-1" || task.Task.ChildSessionID != "session-child" {
 		t.Fatalf("task = %#v", task.Task)
+	}
+	if task.Task.ParentTaskID != "task-parent" || task.Task.TeamID != "team-1" || len(task.Task.Dependencies) != 1 || task.Task.Dependencies[0] != "task-dependency" {
+		t.Fatalf("task hierarchy = %#v", task.Task)
 	}
 	events, err := service.Events(context.Background())
 	if err != nil {

@@ -28,6 +28,7 @@ import { RecoveryCenter } from '../recovery/RecoveryCenter.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
 import { selectConversationTurns } from '../../runtime/conversation/turnProjection.ts';
 import { selectCanonicalConversationTurnViewModels } from '../../runtime/canonicalConversationView.ts';
+import { selectCanonicalStructuredActivity } from '../../runtime/canonicalStructuredActivity.ts';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import { TodoTaskBar } from '../todos/TodoTaskBar.tsx';
 import { shouldShowTodoTaskBar } from '../todos/todoDisplayPolicy.ts';
@@ -142,13 +143,14 @@ export function Workspace({
   } = useStickToBottom();
   const hasProjectContext = Boolean(viewModel.currentProject.id || viewModel.currentProject.name || viewModel.currentProject.path);
   const canUseProjectSideTools = hasProjectContext;
+  const canonicalStructured = selectCanonicalStructuredActivity(viewModel.canonicalConversationStore);
   const conversationTurns = viewModel.canonicalConversationStore
-    ? selectCanonicalConversationTurnViewModels(viewModel.canonicalConversationStore)
+    ? selectCanonicalConversationTurnViewModels(viewModel.canonicalConversationStore, canonicalStructured)
     : selectConversationTurns(viewModel.outputStore);
   const hasTimeline = conversationTurns.length > 0;
   const hasConversation = viewModel.conversation.length > 0 || hasTimeline;
   const activeSession = viewModel.sessions.find((session) => session.active);
-  const sessionTodos = selectSessionTodos(viewModel.outputStore, activeSession?.id);
+  const sessionTodos = viewModel.canonicalConversationStore ? canonicalStructured.activeTodo : selectSessionTodos(viewModel.outputStore, activeSession?.id);
   const isDraftSurface = !activeSession && !hasConversation && !switchingSessionID;
   const composerDraftTarget = isDraftSurface
     ? viewModel.conversationTarget.kind === 'draft'
@@ -159,9 +161,10 @@ export function Workspace({
         }
       : defaultComposerDraftTarget(viewModel)
     : undefined;
+  const displayPermissions = viewModel.canonicalConversationStore ? canonicalStructured.pendingPermissions : viewModel.pendingPermissions;
   const activePendingPermission = activeSession?.id
-    ? viewModel.pendingPermissions.find((permission) => permission.sessionId === activeSession.id)
-    : viewModel.pendingPermissions[0];
+    ? displayPermissions.find((permission) => permission.sessionId === activeSession.id)
+    : displayPermissions[0];
   const isSessionSwitching = Boolean(switchingSessionID && activeSession?.id === switchingSessionID && !hasConversation);
   const sessionTitle = activeSession?.title || viewModel.currentProject.name || '新对话';
   const title =
@@ -179,7 +182,8 @@ export function Workspace({
   const rightPanelOpen = rightPanelVisible;
   const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
   const activeSessionID = activeSession?.id ?? '';
-  const hasAgentTasks = Boolean(viewModel.agentTasks?.length);
+  const displayAgentTasks = viewModel.canonicalConversationStore ? canonicalStructured.agentTasks : viewModel.agentTasks;
+  const hasAgentTasks = Boolean(displayAgentTasks?.length);
   const todoTurn = sessionTodos?.turnId
     ? conversationTurns.find((turn) => turn.id === sessionTodos.turnId)
     : undefined;
@@ -592,7 +596,7 @@ export function Workspace({
           {hasTimeline ? (
             <div className={styles.timelineLayout}>
               <div className={styles.timelineColumn}>
-                <Timeline turns={conversationTurns} hookExecutions={viewModel.hookExecutions} onAgentTaskOpen={openAgentTask} onHookExecutionLoad={onHookExecutionLoad} />
+                <Timeline turns={conversationTurns} hookExecutions={viewModel.canonicalConversationStore ? undefined : viewModel.hookExecutions} onAgentTaskOpen={openAgentTask} onHookExecutionLoad={onHookExecutionLoad} />
               </div>
             </div>
           ) : viewModel.conversation.length > 0 ? (
@@ -790,7 +794,7 @@ export function Workspace({
             ) : activeRightPanelTab?.kind === 'review' ? (
               <div className={styles.sideToolPane} role="tabpanel">
                 <div className={styles.reviewStack}>
-                  <AgentTaskPanel tasks={viewModel.agentTasks} onCancelTask={onAgentTaskCancel} onFollowUp={onAgentTaskFollowUp} />
+                  <AgentTaskPanel tasks={displayAgentTasks} onCancelTask={onAgentTaskCancel} onFollowUp={onAgentTaskFollowUp} />
                   <RecoveryCenter
                     recovery={viewModel.recovery}
                     onResumeTurn={onInterruptedResume}
@@ -807,7 +811,7 @@ export function Workspace({
                     hookExecutions={viewModel.hookExecutions}
                     onHookExecutionLoad={onHookExecutionLoad}
                   />
-                  {!viewModel.agentTasks?.length &&
+                  {!displayAgentTasks?.length &&
                   !viewModel.runProjection &&
                   !viewModel.reactCallchain &&
                   !viewModel.contextDiagnostics &&
@@ -828,7 +832,7 @@ export function Workspace({
                   <AgentTaskPanel
                     agentRoles={viewModel.agentRoles}
                     selectedTaskID={selectedAgentTaskID}
-                    tasks={viewModel.agentTasks}
+                    tasks={displayAgentTasks}
                     onCancelTask={onAgentTaskCancel}
                     onFollowUp={onAgentTaskFollowUp}
                     onSelectTask={setSelectedAgentTaskID}

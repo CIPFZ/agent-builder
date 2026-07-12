@@ -29,6 +29,7 @@ export function AgentTaskList({
           <span className={styles.taskButtonTitle}>{task.title || task.id}</span>
           <span className={styles.taskButtonMeta}>
             <Tag color={agentTaskStatusColor(task.status)}>{task.status}</Tag>
+            {task.teamId ? <Tag color="blue">Team</Tag> : null}
             <span>{roleLabel(task, roles)}</span>
           </span>
         </button>

@@ -438,7 +438,10 @@ type AgentTaskToolTask struct {
 	Status         string   `json:"status"`
 	Progress       int      `json:"progress"`
 	ParentTurnID   string   `json:"parent_turn_id,omitempty"`
+	ParentTaskID   string   `json:"parent_task_id,omitempty"`
 	ChildSessionID string   `json:"child_session_id,omitempty"`
+	TeamID         string   `json:"team_id,omitempty"`
+	Dependencies   []string `json:"dependencies,omitempty"`
 	Summary        string   `json:"summary,omitempty"`
 	Error          string   `json:"error,omitempty"`
 	ArtifactRefs   []string `json:"artifact_refs,omitempty"`
@@ -475,7 +478,10 @@ type AgentTaskRecord struct {
 	ParentTurnID     string
 	ParentSessionID  string
 	ParentToolCallID string
+	ParentTaskID     string
 	ChildSessionID   string
+	TeamID           string
+	Dependencies     []string
 	Title            string
 	Kind             string
 	Role             string
@@ -1746,6 +1752,9 @@ type subAgentParams struct {
 	SessionID       string
 	AgentMessageID  string
 	ToolCallID      string
+	ParentTaskID    string
+	TeamID          string
+	Dependencies    []string
 	Prompt          string
 	SessionTitle    string
 	Kind            string
@@ -1764,7 +1773,10 @@ type StartedAgentTaskExecutionRequest struct {
 	ParentSessionID         string
 	ParentTurnID            string
 	ParentToolCallID        string
+	ParentTaskID            string
 	ChildSessionID          string
+	TeamID                  string
+	Dependencies            []string
 	Title                   string
 	Kind                    string
 	Role                    string
@@ -2131,6 +2143,9 @@ func startedAgentTaskSubAgentParams(req StartedAgentTaskExecutionRequest) subAge
 		Agent:           req.Agent,
 		SessionID:       req.ParentSessionID,
 		ToolCallID:      req.ParentToolCallID,
+		ParentTaskID:    req.ParentTaskID,
+		TeamID:          req.TeamID,
+		Dependencies:    append([]string(nil), req.Dependencies...),
 		Prompt:          firstNonEmpty(req.Prompt, req.PromptSummary, req.Title),
 		SessionTitle:    req.Title,
 		Kind:            req.Kind,
@@ -2151,7 +2166,10 @@ func (c *coordinator) startedAgentTaskRecord(req StartedAgentTaskExecutionReques
 		ParentTurnID:     req.ParentTurnID,
 		ParentSessionID:  req.ParentSessionID,
 		ParentToolCallID: req.ParentToolCallID,
+		ParentTaskID:     req.ParentTaskID,
 		ChildSessionID:   req.ChildSessionID,
+		TeamID:           req.TeamID,
+		Dependencies:     append([]string(nil), req.Dependencies...),
 		Title:            req.Title,
 		Kind:             req.Kind,
 		Role:             req.Role,
@@ -2190,7 +2208,10 @@ func (c *coordinator) agentTaskRecord(ctx context.Context, params subAgentParams
 		ParentTurnID:     parentTurnID,
 		ParentSessionID:  params.SessionID,
 		ParentToolCallID: params.ToolCallID,
+		ParentTaskID:     params.ParentTaskID,
 		ChildSessionID:   childSessionID,
+		TeamID:           params.TeamID,
+		Dependencies:     append([]string(nil), params.Dependencies...),
 		Title:            params.SessionTitle,
 		Kind:             kind,
 		Role:             params.Role,

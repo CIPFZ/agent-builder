@@ -103,7 +103,10 @@ function InfoGrid({ roleLabel: taskRoleLabel, task }: { roleLabel?: string; task
     ['Parent session', task.parentSessionId],
     ['Parent turn', task.parentTurnId],
     ['Parent tool', task.parentToolCallId],
+    ['Parent task', task.parentTaskId],
     ['Child session', task.childSessionId],
+    ['Agent Team', task.teamId],
+    ['Dependencies', task.dependencies?.join(', ')],
     ['Role', taskRoleLabel],
     ['Provider/model', [task.provider, task.model].filter(Boolean).join(' / ')],
     ['CWD', task.cwd],
@@ -145,7 +148,7 @@ function MessageList({ task }: { task: AgentTaskViewModel }) {
   }
   return (
     <div className={styles.messages}>
-      <Text type="secondary">Messages</Text>
+      <Text type="secondary">Messages{task.messagesTruncated ? ` (latest ${messages.length} of ${task.messageCount})` : ''}</Text>
       {messages.slice(-6).map((message) => (
         <div key={message.id} className={styles.messageRow}>
           <span>{message.sequence}</span>

@@ -19,10 +19,13 @@ import (
 var agentToolDescription string
 
 type AgentParams struct {
-	Description  string `json:"description,omitempty" description:"Short title for the delegated task"`
-	Prompt       string `json:"prompt" description:"The task for the agent to perform"`
-	SubagentType string `json:"subagent_type,omitempty" description:"Specialized agent role to use"`
-	Role         string `json:"role,omitempty" description:"Agent Builder role id; alias of subagent_type"`
+	Description  string   `json:"description,omitempty" description:"Short title for the delegated task"`
+	Prompt       string   `json:"prompt" description:"The task for the agent to perform"`
+	SubagentType string   `json:"subagent_type,omitempty" description:"Specialized agent role to use"`
+	Role         string   `json:"role,omitempty" description:"Agent Builder role id; alias of subagent_type"`
+	ParentTaskID string   `json:"parent_task_id,omitempty" description:"Parent task id for nested delegation"`
+	TeamID       string   `json:"team_id,omitempty" description:"Stable Agent Team id for coordinated tasks"`
+	Dependencies []string `json:"dependencies,omitempty" description:"Task ids that must complete first"`
 }
 
 const (
@@ -67,6 +70,9 @@ func (c *coordinator) agentTool(ctx context.Context) (fantasy.AgentTool, error) 
 				SessionID:      sessionID,
 				AgentMessageID: agentMessageID,
 				ToolCallID:     call.ID,
+				ParentTaskID:   strings.TrimSpace(params.ParentTaskID),
+				TeamID:         strings.TrimSpace(params.TeamID),
+				Dependencies:   append([]string(nil), params.Dependencies...),
 				Prompt:         params.Prompt,
 				SessionTitle:   firstNonEmpty(strings.TrimSpace(params.Description), "New Agent Session"),
 				Kind:           "subagent",

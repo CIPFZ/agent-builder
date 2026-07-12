@@ -874,7 +874,10 @@ export interface AgentTaskViewModel {
   parentSessionId: string;
   parentTurnId?: string;
   parentToolCallId?: string;
+  parentTaskId?: string;
   childSessionId?: string;
+  teamId?: string;
+  dependencies?: string[];
   title: string;
   kind: string;
   role?: string;
@@ -894,6 +897,8 @@ export interface AgentTaskViewModel {
   compactBoundaryRefs?: string[];
   cancellationDetail?: string;
   messages?: AgentTaskMessageViewModel[];
+  messageCount?: number;
+  messagesTruncated?: boolean;
   result?: AgentTaskResultViewModel;
   startedAt?: number;
   updatedAt?: number;

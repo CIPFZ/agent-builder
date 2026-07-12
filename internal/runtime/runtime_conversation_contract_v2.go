@@ -182,6 +182,22 @@ type RuntimeCanonicalToolCall struct {
 	Error            string   `json:"error,omitempty"`
 }
 
+type RuntimeCanonicalAgentTaskMessage struct {
+	ID                string   `json:"id"`
+	Direction         string   `json:"direction"`
+	Kind              string   `json:"kind"`
+	Status            string   `json:"status"`
+	Sequence          int64    `json:"sequence,omitempty"`
+	ContentSummary    string   `json:"contentSummary,omitempty"`
+	RelatedToolCallID string   `json:"relatedToolCallId,omitempty"`
+	RelatedMessageID  string   `json:"relatedMessageId,omitempty"`
+	ArtifactRefs      []string `json:"artifactRefs,omitempty"`
+	CreatedAt         int64    `json:"createdAt,omitempty"`
+	DeliveredAt       int64    `json:"deliveredAt,omitempty"`
+	ProcessedAt       int64    `json:"processedAt,omitempty"`
+	Error             string   `json:"error,omitempty"`
+}
+
 type RuntimeCanonicalToolResult struct {
 	RuntimeConversationEntityMeta
 	ToolCallID       string   `json:"toolCallId"`
@@ -197,15 +213,24 @@ type RuntimeCanonicalToolResult struct {
 
 type RuntimeCanonicalPermission struct {
 	RuntimeConversationEntityMeta
-	ToolCallID  string `json:"toolCallId"`
-	Status      string `json:"status"`
-	Action      string `json:"action,omitempty"`
-	Risk        string `json:"risk,omitempty"`
-	PolicyMode  string `json:"policyMode,omitempty"`
-	Reason      string `json:"reason,omitempty"`
-	Decision    string `json:"decision,omitempty"`
-	RequestedAt int64  `json:"requestedAt,omitempty"`
-	DecidedAt   int64  `json:"decidedAt,omitempty"`
+	ToolCallID          string `json:"toolCallId"`
+	Status              string `json:"status"`
+	Description         string `json:"description,omitempty"`
+	Action              string `json:"action,omitempty"`
+	Path                string `json:"path,omitempty"`
+	Target              string `json:"target,omitempty"`
+	Risk                string `json:"risk,omitempty"`
+	PolicyMode          string `json:"policyMode,omitempty"`
+	PolicyReason        string `json:"policyReason,omitempty"`
+	PolicyRuleID        string `json:"policyRuleId,omitempty"`
+	PolicyRuleSource    string `json:"policyRuleSource,omitempty"`
+	PolicyScopeKind     string `json:"policyScopeKind,omitempty"`
+	PolicyScopeValue    string `json:"policyScopeValue,omitempty"`
+	PolicyTargetSummary string `json:"policyTargetSummary,omitempty"`
+	Reason              string `json:"reason,omitempty"`
+	Decision            string `json:"decision,omitempty"`
+	RequestedAt         int64  `json:"requestedAt,omitempty"`
+	DecidedAt           int64  `json:"decidedAt,omitempty"`
 }
 
 type RuntimeCanonicalTodoPlan struct {
@@ -225,17 +250,34 @@ type RuntimeCanonicalTodoItem struct {
 
 type RuntimeCanonicalAgentTask struct {
 	RuntimeConversationEntityMeta
-	ParentToolCallID string   `json:"parentToolCallId,omitempty"`
-	ParentTaskID     string   `json:"parentTaskId,omitempty"`
-	ChildSessionID   string   `json:"childSessionId,omitempty"`
-	TeamID           string   `json:"teamId,omitempty"`
-	TeamRole         string   `json:"teamRole,omitempty"`
-	Title            string   `json:"title,omitempty"`
-	Status           string   `json:"status"`
-	Progress         int      `json:"progress,omitempty"`
-	Dependencies     []string `json:"dependencies,omitempty"`
-	ResultRefs       []string `json:"resultRefs,omitempty"`
-	OutputRefs       []string `json:"outputRefs,omitempty"`
+	ParentToolCallID  string                             `json:"parentToolCallId,omitempty"`
+	ParentTaskID      string                             `json:"parentTaskId,omitempty"`
+	ChildSessionID    string                             `json:"childSessionId,omitempty"`
+	TeamID            string                             `json:"teamId,omitempty"`
+	TeamRole          string                             `json:"teamRole,omitempty"`
+	Title             string                             `json:"title,omitempty"`
+	Kind              string                             `json:"kind,omitempty"`
+	Name              string                             `json:"name,omitempty"`
+	PromptSummary     string                             `json:"promptSummary,omitempty"`
+	Model             string                             `json:"model,omitempty"`
+	Provider          string                             `json:"provider,omitempty"`
+	AllowedTools      []string                           `json:"allowedTools,omitempty"`
+	CapabilityScope   []string                           `json:"capabilityScope,omitempty"`
+	CWD               string                             `json:"cwd,omitempty"`
+	Worktree          string                             `json:"worktree,omitempty"`
+	Status            string                             `json:"status"`
+	Progress          int                                `json:"progress,omitempty"`
+	ResultSummary     string                             `json:"resultSummary,omitempty"`
+	ArtifactRefs      []string                           `json:"artifactRefs,omitempty"`
+	Dependencies      []string                           `json:"dependencies,omitempty"`
+	ResultRefs        []string                           `json:"resultRefs,omitempty"`
+	OutputRefs        []string                           `json:"outputRefs,omitempty"`
+	StartedAt         int64                              `json:"startedAt,omitempty"`
+	FinishedAt        int64                              `json:"finishedAt,omitempty"`
+	Error             string                             `json:"error,omitempty"`
+	Messages          []RuntimeCanonicalAgentTaskMessage `json:"messages,omitempty"`
+	MessageCount      int                                `json:"messageCount,omitempty"`
+	MessagesTruncated bool                               `json:"messagesTruncated,omitempty"`
 }
 
 type RuntimeCanonicalNotice struct {

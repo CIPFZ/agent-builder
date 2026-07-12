@@ -295,6 +295,7 @@ func canonicalEntityEventsForRaw(raw RuntimeEvent, s RuntimeCanonicalConversatio
 	perms := map[string]RuntimeCanonicalPermission{}
 	todos := map[string]RuntimeCanonicalTodoPlan{}
 	tasks := map[string]RuntimeCanonicalAgentTask{}
+	notices := map[string]RuntimeCanonicalNotice{}
 	for _, v := range s.Turns {
 		turns[v.ID] = v
 	}
@@ -318,6 +319,9 @@ func canonicalEntityEventsForRaw(raw RuntimeEvent, s RuntimeCanonicalConversatio
 	}
 	for _, v := range s.AgentTasks {
 		tasks[v.ID] = v
+	}
+	for _, v := range s.Notices {
+		notices[v.ID] = v
 	}
 	out := []RuntimeConversationEntityEventV2{}
 	created := parseRuntimeEventMillis(raw.CreatedAt)
@@ -388,9 +392,21 @@ func canonicalEntityEventsForRaw(raw RuntimeEvent, s RuntimeCanonicalConversatio
 			out = append(out, e)
 		}
 	}
+	addNotice := func(id string) {
+		if v, ok := notices[id]; ok {
+			e := base(RuntimeConversationEntityNotice, id, v.TurnID, v.Revision)
+			e.Notice = &v
+			out = append(out, e)
+		}
+	}
 	switch raw.Type {
 	case runtimeapi.EventTurnStarted, runtimeapi.EventTurnCompleted, runtimeapi.EventTurnFailed, runtimeapi.EventTurnCancelled, runtimeapi.EventTurnInterrupted:
 		addTurn(raw.TurnID)
+		for _, plan := range todos {
+			if plan.OwnerTurnID == raw.TurnID {
+				addTodo(plan.ID)
+			}
+		}
 		if turn, ok := turns[raw.TurnID]; ok && turn.FinalMessageID != "" {
 			addMessage(turn.FinalMessageID)
 		}
@@ -416,7 +432,7 @@ func canonicalEntityEventsForRaw(raw RuntimeEvent, s RuntimeCanonicalConversatio
 		addPermission(stringFromMap(raw.Payload, "permission_id"))
 	case runtimeapi.EventTodoUpdated:
 		addTodo(stringFromMap(raw.Payload, "plan_id"))
-	case runtimeapi.EventTaskStarted, runtimeapi.EventTaskProgress, runtimeapi.EventTaskCompleted, runtimeapi.EventTaskFailed, runtimeapi.EventTaskCancelled, runtimeapi.EventTaskInterrupted, runtimeapi.EventTaskRoleLoaded, runtimeapi.EventTaskScopeApplied, runtimeapi.EventTaskScopeDenied, runtimeapi.EventTaskResultUpdated, runtimeapi.EventTaskArtifactCreated:
+	case runtimeapi.EventTaskStarted, runtimeapi.EventTaskProgress, runtimeapi.EventTaskCompleted, runtimeapi.EventTaskFailed, runtimeapi.EventTaskCancelled, runtimeapi.EventTaskInterrupted, runtimeapi.EventTaskRoleLoaded, runtimeapi.EventTaskScopeApplied, runtimeapi.EventTaskScopeDenied, runtimeapi.EventTaskMessageCreated, runtimeapi.EventTaskMessageDelivered, runtimeapi.EventTaskMessageProcessed, runtimeapi.EventTaskMessageRejected, runtimeapi.EventTaskResultUpdated, runtimeapi.EventTaskArtifactCreated:
 		addTask(firstNonEmpty(stringFromMap(raw.Payload, "task_id"), stringFromMap(raw.Payload, "agent_task_id")))
 	case runtimeapi.EventSessionDeleted:
 		for _, ref := range canonicalEntityRefsFromPayload(raw.Payload["entity_refs"]) {
@@ -429,6 +445,9 @@ func canonicalEntityEventsForRaw(raw RuntimeEvent, s RuntimeCanonicalConversatio
 			e.TombstoneReason = "session_deleted"
 			out = append(out, e)
 		}
+	}
+	if id, _, ok := canonicalNoticeIdentity(raw); ok {
+		addNotice(id)
 	}
 	// One raw sequence is an atomic group. Remove dependency duplicates then
 	// sort by semantic rank and stable ID.

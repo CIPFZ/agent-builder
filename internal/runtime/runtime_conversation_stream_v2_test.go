@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -269,6 +270,36 @@ func TestCanonicalMessageDeleteConvergesAndUpdatesToolDependencies(t *testing.T)
 	if !foundToolUpdate {
 		t.Fatal("delete batch omitted ToolCall dependency update")
 	}
+}
+
+func TestCanonicalStructuredRawEventsProjectOwnedEntities(t *testing.T) {
+	meta := RuntimeConversationEntityMeta{SessionID: "session-1", TurnID: "turn-1", ActivitySequence: "1", Revision: "5", CreatedAt: 1, UpdatedAt: 5}
+	snapshot := RuntimeCanonicalConversationSnapshot{
+		TodoPlans:  []RuntimeCanonicalTodoPlan{{RuntimeConversationEntityMeta: withCanonicalID(meta, "plan-1"), OwnerTurnID: "turn-1", Status: "abandoned", Items: []RuntimeCanonicalTodoItem{{ID: "todo-1", Status: "pending"}}}},
+		AgentTasks: []RuntimeCanonicalAgentTask{{RuntimeConversationEntityMeta: withCanonicalID(meta, "task-1"), Status: "running"}},
+		Notices:    []RuntimeCanonicalNotice{{RuntimeConversationEntityMeta: withCanonicalID(meta, "notice:compact:boundary-1"), Kind: "compact", Status: "completed"}},
+	}
+	turnEvents, err := canonicalEntityEventsForRaw(RuntimeEvent{ID: "turn-done", Sequence: 5, Type: runtimeapi.EventTurnCompleted, SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:00:00Z"}, snapshot)
+	if err != nil || !slices.ContainsFunc(turnEvents, func(event RuntimeConversationEntityEventV2) bool {
+		return event.EntityType == RuntimeConversationEntityTodoPlan && event.EntityID == "plan-1"
+	}) {
+		t.Fatalf("terminal TodoPlan event = %#v, err=%v", turnEvents, err)
+	}
+	taskEvents, err := canonicalEntityEventsForRaw(RuntimeEvent{ID: "task-message", Sequence: 5, Type: runtimeapi.EventTaskMessageCreated, SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:00:00Z", Payload: map[string]any{"task_id": "task-1"}}, snapshot)
+	if err != nil || !slices.ContainsFunc(taskEvents, func(event RuntimeConversationEntityEventV2) bool {
+		return event.EntityType == RuntimeConversationEntityAgentTask && event.EntityID == "task-1"
+	}) {
+		t.Fatalf("task message AgentTask event = %#v, err=%v", taskEvents, err)
+	}
+	noticeEvents, err := canonicalEntityEventsForRaw(RuntimeEvent{ID: "compact-done", Sequence: 5, Type: runtimeapi.EventCompactCompleted, SessionID: "session-1", TurnID: "turn-1", CreatedAt: "2026-01-01T00:00:00Z", Payload: map[string]any{"boundary_id": "boundary-1"}}, snapshot)
+	if err != nil || len(noticeEvents) != 1 || noticeEvents[0].EntityType != RuntimeConversationEntityNotice || noticeEvents[0].EntityID != "notice:compact:boundary-1" {
+		t.Fatalf("compact Notice event = %#v, err=%v", noticeEvents, err)
+	}
+}
+
+func withCanonicalID(meta RuntimeConversationEntityMeta, id string) RuntimeConversationEntityMeta {
+	meta.ID = id
+	return meta
 }
 
 func TestCanonicalConversationCursorRejectsGapsAndPreservesLargeDecimals(t *testing.T) {

@@ -285,16 +285,20 @@ func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Contex
 	}
 	for _, p := range permissions {
 		meta := canonicalMeta("permission", p.ID, sessionID, p.TurnID, p.CreatedAt, max64(p.CreatedAt, p.DecidedAt), ranges)
-		snapshot.Permissions = append(snapshot.Permissions, RuntimeCanonicalPermission{RuntimeConversationEntityMeta: meta, ToolCallID: p.ToolCallID, Status: p.Status, Action: p.Action, Risk: p.Risk, PolicyMode: p.PolicyMode, Reason: firstNonEmpty(p.Reason, p.PolicyReason), Decision: p.Decision, RequestedAt: p.CreatedAt, DecidedAt: p.DecidedAt})
+		snapshot.Permissions = append(snapshot.Permissions, RuntimeCanonicalPermission{RuntimeConversationEntityMeta: meta, ToolCallID: p.ToolCallID, Status: p.Status, Description: p.Description, Action: p.Action, Path: p.Path, Target: p.Target, Risk: p.Risk, PolicyMode: p.PolicyMode, PolicyReason: p.PolicyReason, PolicyRuleID: p.PolicyRuleID, PolicyRuleSource: p.PolicyRuleSource, PolicyScopeKind: p.PolicyScopeKind, PolicyScopeValue: p.PolicyScopeValue, PolicyTargetSummary: p.PolicyTargetSummary, Reason: p.Reason, Decision: p.Decision, RequestedAt: p.CreatedAt, DecidedAt: p.DecidedAt})
 	}
 	for _, task := range tasks {
 		if task.ParentSessionID != sessionID {
 			continue
 		}
 		meta := canonicalMeta("agentTask", task.ID, sessionID, task.ParentTurnID, task.StartedAt, task.UpdatedAt, ranges)
-		snapshot.AgentTasks = append(snapshot.AgentTasks, RuntimeCanonicalAgentTask{RuntimeConversationEntityMeta: meta, ParentToolCallID: task.ParentToolCallID, ChildSessionID: task.ChildSessionID, TeamRole: task.Role, Title: task.Title, Status: task.Status, Progress: task.Progress, ResultRefs: append([]string(nil), task.ArtifactRefs...)})
+		output, _ := r.AgentTaskOutput(ctx, task.ID)
+		detail, _ := r.AgentTask(ctx, task.ID)
+		messages, messageCount, messagesTruncated := canonicalAgentTaskMessages(detail.Messages)
+		snapshot.AgentTasks = append(snapshot.AgentTasks, RuntimeCanonicalAgentTask{RuntimeConversationEntityMeta: meta, ParentToolCallID: task.ParentToolCallID, ParentTaskID: task.ParentTaskID, ChildSessionID: task.ChildSessionID, TeamID: task.TeamID, TeamRole: task.Role, Title: task.Title, Kind: task.Kind, Name: task.Name, PromptSummary: task.PromptSummary, Model: task.Model, Provider: task.Provider, AllowedTools: append([]string(nil), task.AllowedTools...), CapabilityScope: append([]string(nil), task.CapabilityScope...), CWD: task.CWD, Worktree: task.Worktree, Status: task.Status, Progress: task.Progress, ResultSummary: output.Summary, ArtifactRefs: append([]string(nil), output.ArtifactRefs...), Dependencies: append([]string(nil), task.Dependencies...), ResultRefs: append([]string(nil), output.RelatedMessageRefs...), OutputRefs: append([]string(nil), output.OutputRefs...), StartedAt: task.StartedAt, FinishedAt: task.FinishedAt, Error: task.Error, Messages: messages, MessageCount: messageCount, MessagesTruncated: messagesTruncated})
 	}
-	snapshot.TodoPlans = canonicalTodoPlans(eventsResp.Events, sessionID, ranges)
+	snapshot.TodoPlans = canonicalTodoPlans(eventsResp.Events, sessionID, ranges, turnByID)
+	snapshot.Notices = canonicalNotices(eventsResp.Events, sessionID, ranges)
 
 	canonicalSortSnapshot(&snapshot)
 	if req.Before != "" {
@@ -343,10 +347,13 @@ func canonicalEventRanges(events []RuntimeEvent) map[string]canonicalEventRange 
 			add("toolCall", e.ToolCallID, e.Sequence)
 		case "permission.requested", "permission.decided":
 			add("permission", stringFromMap(e.Payload, "permission_id"), e.Sequence)
-		case "task.started", "task.progress", "task.completed", "task.failed", "task.cancelled", "task.interrupted", "task.result.updated":
+		case runtimeapi.EventTaskStarted, runtimeapi.EventTaskProgress, runtimeapi.EventTaskCompleted, runtimeapi.EventTaskFailed, runtimeapi.EventTaskCancelled, runtimeapi.EventTaskInterrupted, runtimeapi.EventTaskRoleLoaded, runtimeapi.EventTaskScopeApplied, runtimeapi.EventTaskScopeDenied, runtimeapi.EventTaskMessageCreated, runtimeapi.EventTaskMessageDelivered, runtimeapi.EventTaskMessageProcessed, runtimeapi.EventTaskMessageRejected, runtimeapi.EventTaskResultUpdated, runtimeapi.EventTaskArtifactCreated:
 			add("agentTask", firstNonEmpty(stringFromMap(e.Payload, "task_id"), stringFromMap(e.Payload, "agent_task_id")), e.Sequence)
 		case "todo.updated":
 			add("todoPlan", stringFromMap(e.Payload, "plan_id"), e.Sequence)
+		}
+		if id, _, ok := canonicalNoticeIdentity(e); ok {
+			add("notice", id, e.Sequence)
 		}
 	}
 	return out
@@ -419,7 +426,7 @@ func assignMessagesToTurns(messages []RuntimeMessage, turns []RuntimeTurn, owner
 		}
 	}
 }
-func canonicalTodoPlans(events []RuntimeEvent, sid string, ranges map[string]canonicalEventRange) []RuntimeCanonicalTodoPlan {
+func canonicalTodoPlans(events []RuntimeEvent, sid string, ranges map[string]canonicalEventRange, turns map[string]RuntimeTurn) []RuntimeCanonicalTodoPlan {
 	latest := map[string]RuntimeEvent{}
 	first := map[string]RuntimeEvent{}
 	for _, e := range events {
@@ -462,7 +469,11 @@ func canonicalTodoPlans(events []RuntimeEvent, sid string, ranges map[string]can
 		updated := parseRuntimeEventMillis(e.CreatedAt)
 		ownerTurnID := first[id].TurnID
 		meta := canonicalMeta("todoPlan", id, sid, ownerTurnID, created, updated, ranges)
+		meta.Revision = maxDecimal(meta.Revision, strconv.FormatInt(ranges["turn:"+ownerTurnID].last, 10))
 		status := "active"
+		if len(items) == 0 {
+			status = "cleared"
+		}
 		complete := len(items) > 0
 		for _, item := range items {
 			if item.Status != "completed" {
@@ -472,10 +483,106 @@ func canonicalTodoPlans(events []RuntimeEvent, sid string, ranges map[string]can
 		}
 		if complete {
 			status = "completed"
+		} else if status == "active" && canonicalTurnTerminal(turns[ownerTurnID].Status) {
+			status = "abandoned"
 		}
 		out = append(out, RuntimeCanonicalTodoPlan{RuntimeConversationEntityMeta: meta, OwnerTurnID: ownerTurnID, Status: status, Items: items})
 	}
 	return out
+}
+
+func canonicalNotices(events []RuntimeEvent, sid string, ranges map[string]canonicalEventRange) []RuntimeCanonicalNotice {
+	latest := map[string]RuntimeEvent{}
+	first := map[string]RuntimeEvent{}
+	kinds := map[string]string{}
+	data := map[string]map[string]any{}
+	for _, event := range events {
+		id, kind, ok := canonicalNoticeIdentity(event)
+		if !ok {
+			continue
+		}
+		if _, exists := first[id]; !exists {
+			first[id] = event
+		}
+		if data[id] == nil {
+			data[id] = map[string]any{}
+		}
+		for key, value := range event.Payload {
+			data[id][key] = value
+		}
+		latest[id], kinds[id] = event, kind
+	}
+	out := make([]RuntimeCanonicalNotice, 0, len(latest))
+	for id, event := range latest {
+		payloadJSON, _ := json.Marshal(data[id])
+		created, updated := parseRuntimeEventMillis(first[id].CreatedAt), parseRuntimeEventMillis(event.CreatedAt)
+		meta := canonicalMeta("notice", id, sid, firstNonEmpty(first[id].TurnID, event.TurnID), created, updated, ranges)
+		out = append(out, RuntimeCanonicalNotice{RuntimeConversationEntityMeta: meta, Kind: kinds[id], Status: canonicalNoticeStatus(event.Type), Summary: canonicalNoticeSummary(event), Refs: canonicalNoticeRefs(data[id]), DataJSON: string(payloadJSON)})
+	}
+	return out
+}
+
+const canonicalAgentTaskMessageLimit = 64
+
+func canonicalAgentTaskMessages(source []RuntimeAgentTaskMessage) ([]RuntimeCanonicalAgentTaskMessage, int, bool) {
+	ordered := append([]RuntimeAgentTaskMessage(nil), source...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].Sequence != ordered[j].Sequence {
+			return ordered[i].Sequence < ordered[j].Sequence
+		}
+		return ordered[i].ID < ordered[j].ID
+	})
+	count := len(ordered)
+	if count > canonicalAgentTaskMessageLimit {
+		ordered = ordered[count-canonicalAgentTaskMessageLimit:]
+	}
+	out := make([]RuntimeCanonicalAgentTaskMessage, 0, len(ordered))
+	for _, message := range ordered {
+		out = append(out, RuntimeCanonicalAgentTaskMessage{ID: message.ID, Direction: message.Direction, Kind: message.Kind, Status: message.Status, Sequence: message.Sequence, ContentSummary: message.ContentSummary, RelatedToolCallID: message.RelatedToolCallID, RelatedMessageID: message.RelatedMessageID, ArtifactRefs: append([]string(nil), message.ArtifactRefs...), CreatedAt: message.CreatedAt, DeliveredAt: message.DeliveredAt, ProcessedAt: message.ProcessedAt, Error: message.Error})
+	}
+	return out, count, count > len(out)
+}
+
+func canonicalNoticeIdentity(event RuntimeEvent) (string, string, bool) {
+	kind := ""
+	sourceID := ""
+	switch {
+	case strings.HasPrefix(event.Type, "hook.execution."), event.Type == runtimeapi.EventHookContextInjected, event.Type == runtimeapi.EventHookInputRewritten:
+		kind, sourceID = "hook", stringFromMap(event.Payload, "execution_id")
+	case event.Type != runtimeapi.EventContextUsageUpdated && strings.HasPrefix(event.Type, "context."), strings.HasPrefix(event.Type, "skill.context."):
+		kind, sourceID = "context", firstNonEmpty(stringFromMap(event.Payload, "source_id"), stringFromMap(event.Payload, "context_id"))
+	case strings.HasPrefix(event.Type, "compact.") && event.Type != runtimeapi.EventCompactProgress:
+		kind, sourceID = "compact", firstNonEmpty(stringFromMap(event.Payload, "boundary_id"), stringFromMap(event.Payload, "compact_boundary_id"))
+	case strings.HasPrefix(event.Type, "recovery."):
+		kind, sourceID = "recovery", firstNonEmpty(stringFromMap(event.Payload, "error_id"), stringFromMap(event.Payload, "recovery_id"))
+	default:
+		return "", "", false
+	}
+	if sourceID == "" {
+		sourceID = event.ID
+	}
+	return "notice:" + kind + ":" + sourceID, kind, true
+}
+
+func canonicalNoticeStatus(eventType string) string {
+	switch {
+	case strings.HasSuffix(eventType, ".started"), strings.HasSuffix(eventType, ".loading"):
+		return "running"
+	case strings.HasSuffix(eventType, ".failed"), strings.HasSuffix(eventType, ".blocked"):
+		return "failed"
+	case strings.HasSuffix(eventType, ".skipped"), strings.HasSuffix(eventType, ".omitted"):
+		return "skipped"
+	default:
+		return "completed"
+	}
+}
+
+func canonicalNoticeSummary(event RuntimeEvent) string {
+	return firstNonEmpty(stringFromMap(event.Payload, "summary"), stringFromMap(event.Payload, "error"), stringFromMap(event.Payload, "reason"), stringFromMap(event.Payload, "source_id"), event.Type)
+}
+
+func canonicalNoticeRefs(payload map[string]any) []string {
+	return nonEmptyStrings(stringFromMap(payload, "source_id"), stringFromMap(payload, "error_id"), stringFromMap(payload, "boundary_id"), stringFromMap(payload, "execution_id"))
 }
 func parseRuntimeEventMillis(v string) int64 {
 	t, err := time.Parse(time.RFC3339Nano, v)

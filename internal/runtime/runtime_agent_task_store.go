@@ -83,18 +83,25 @@ func (s runtimeAgentTaskStore) Upsert(ctx context.Context, task RuntimeAgentTask
 	if err != nil {
 		return RuntimeAgentTask{}, err
 	}
+	dependencies, err := encodeStringSlice(task.Dependencies)
+	if err != nil {
+		return RuntimeAgentTask{}, err
+	}
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO runtime_agent_tasks (
-    id, parent_turn_id, parent_session_id, parent_tool_call_id, child_session_id,
+    id, parent_turn_id, parent_session_id, parent_tool_call_id, parent_task_id, child_session_id, team_id, dependencies_json,
     title, kind, role, name, prompt_summary, model, provider,
     allowed_tools_json, capability_scope_json, cwd, worktree, status, progress,
     result_summary, artifact_refs_json, started_at, updated_at, finished_at, error
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     parent_turn_id = COALESCE(NULLIF(excluded.parent_turn_id, ''), runtime_agent_tasks.parent_turn_id),
     parent_session_id = COALESCE(NULLIF(excluded.parent_session_id, ''), runtime_agent_tasks.parent_session_id),
     parent_tool_call_id = COALESCE(NULLIF(excluded.parent_tool_call_id, ''), runtime_agent_tasks.parent_tool_call_id),
+    parent_task_id = COALESCE(NULLIF(excluded.parent_task_id, ''), runtime_agent_tasks.parent_task_id),
     child_session_id = COALESCE(NULLIF(excluded.child_session_id, ''), runtime_agent_tasks.child_session_id),
+    team_id = COALESCE(NULLIF(excluded.team_id, ''), runtime_agent_tasks.team_id),
+    dependencies_json = COALESCE(excluded.dependencies_json, runtime_agent_tasks.dependencies_json),
     title = COALESCE(NULLIF(excluded.title, ''), runtime_agent_tasks.title),
     kind = COALESCE(NULLIF(excluded.kind, ''), runtime_agent_tasks.kind),
     role = COALESCE(NULLIF(excluded.role, ''), runtime_agent_tasks.role),
@@ -133,7 +140,10 @@ ON CONFLICT(id) DO UPDATE SET
 		nullableString(task.ParentTurnID),
 		task.ParentSessionID,
 		nullableString(task.ParentToolCallID),
+		nullableString(task.ParentTaskID),
 		nullableString(task.ChildSessionID),
+		nullableString(task.TeamID),
+		dependencies,
 		task.Title,
 		task.Kind,
 		nullableString(task.Role),
@@ -261,7 +271,7 @@ func (s runtimeAgentTaskStore) list(ctx context.Context, where string, args ...a
 
 func runtimeAgentTaskSelectSQL() string {
 	return `
-SELECT id, parent_turn_id, parent_session_id, parent_tool_call_id, child_session_id,
+SELECT id, parent_turn_id, parent_session_id, parent_tool_call_id, parent_task_id, child_session_id, team_id, dependencies_json,
     title, kind, role, name, prompt_summary, model, provider,
     allowed_tools_json, capability_scope_json, cwd, worktree, status, progress,
     result_summary, artifact_refs_json, started_at, updated_at, finished_at, error
@@ -274,14 +284,17 @@ type runtimeAgentTaskScanner interface {
 
 func scanRuntimeAgentTask(scanner runtimeAgentTaskScanner) (RuntimeAgentTask, error) {
 	var task RuntimeAgentTask
-	var parentTurnID, parentToolCallID, childSessionID, role, name, promptSummary, model, provider, allowedTools, capabilityScope, cwd, worktree, resultSummary, artifactRefs, errText sql.NullString
+	var parentTurnID, parentToolCallID, parentTaskID, childSessionID, teamID, dependencies, role, name, promptSummary, model, provider, allowedTools, capabilityScope, cwd, worktree, resultSummary, artifactRefs, errText sql.NullString
 	var finishedAt sql.NullInt64
 	if err := scanner.Scan(
 		&task.ID,
 		&parentTurnID,
 		&task.ParentSessionID,
 		&parentToolCallID,
+		&parentTaskID,
 		&childSessionID,
+		&teamID,
+		&dependencies,
 		&task.Title,
 		&task.Kind,
 		&role,
@@ -306,7 +319,10 @@ func scanRuntimeAgentTask(scanner runtimeAgentTaskScanner) (RuntimeAgentTask, er
 	}
 	task.ParentTurnID = parentTurnID.String
 	task.ParentToolCallID = parentToolCallID.String
+	task.ParentTaskID = parentTaskID.String
 	task.ChildSessionID = childSessionID.String
+	task.TeamID = teamID.String
+	task.Dependencies = decodeStringSlice(dependencies.String)
 	task.Role = role.String
 	task.Name = name.String
 	task.PromptSummary = promptSummary.String

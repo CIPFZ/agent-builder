@@ -27,7 +27,10 @@ func TestRuntimeAgentTaskStoreUpsertListGetAndInterrupt(t *testing.T) {
 		ParentTurnID:     "turn-1",
 		ParentSessionID:  "session-parent",
 		ParentToolCallID: "tool-1",
+		ParentTaskID:     "task-parent",
 		ChildSessionID:   "session-child",
+		TeamID:           "team-1",
+		Dependencies:     []string{"task-dependency"},
 		Title:            "Fetch Analysis",
 		Kind:             agentTaskKindAgenticFetch,
 		Role:             "fetch",
@@ -47,6 +50,9 @@ func TestRuntimeAgentTaskStoreUpsertListGetAndInterrupt(t *testing.T) {
 	}
 	if task.ID != "task-1" || task.ParentTurnID != "turn-1" || task.ParentToolCallID != "tool-1" || task.ChildSessionID != "session-child" {
 		t.Fatalf("task linkage = %#v", task)
+	}
+	if task.ParentTaskID != "task-parent" || task.TeamID != "team-1" || len(task.Dependencies) != 1 || task.Dependencies[0] != "task-dependency" {
+		t.Fatalf("task hierarchy = %#v", task)
 	}
 	if len(task.AllowedTools) != 2 || task.CapabilityScope[0] != "network" {
 		t.Fatalf("scope = %#v %#v", task.AllowedTools, task.CapabilityScope)

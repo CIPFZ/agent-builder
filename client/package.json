@@ -31,6 +31,7 @@
     "smoke:conversation-contract-v2": "node scripts/conversation-contract-v2-fixture-smoke.mjs",
     "smoke:canonical-conversation-store": "node scripts/canonical-conversation-store-smoke.mjs",
     "smoke:canonical-conversation-convergence": "node scripts/canonical-conversation-convergence-smoke.mjs",
+    "smoke:canonical-structured-activity": "node scripts/canonical-structured-activity-smoke.mjs",
     "smoke:markdown-message": "node scripts/markdown-message-smoke.mjs"
   },
   "dependencies": {

@@ -471,7 +471,10 @@ func TestExecuteStartedAgentTask(t *testing.T) {
 			ParentSessionID:         parent.ID,
 			ParentTurnID:            "turn-1",
 			ParentToolCallID:        "tool-1",
+			ParentTaskID:            "task-parent",
 			ChildSessionID:          child.ID,
+			TeamID:                  "team-1",
+			Dependencies:            []string{"task-dependency"},
 			Title:                   "Review output",
 			Kind:                    "subagent",
 			Role:                    "reviewer",
@@ -500,6 +503,9 @@ func TestExecuteStartedAgentTask(t *testing.T) {
 		require.Len(t, recorder.completed, 1)
 		assert.Equal(t, "task-started-1", recorder.completed[0].ID)
 		assert.Equal(t, child.ID, recorder.completed[0].ChildSessionID)
+		assert.Equal(t, "task-parent", recorder.completed[0].ParentTaskID)
+		assert.Equal(t, "team-1", recorder.completed[0].TeamID)
+		assert.Equal(t, []string{"task-dependency"}, recorder.completed[0].Dependencies)
 		assert.Equal(t, "completed summary", recorder.completed[0].ResultSummary)
 	})
 
