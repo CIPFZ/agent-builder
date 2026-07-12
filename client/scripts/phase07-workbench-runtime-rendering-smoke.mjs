@@ -12,6 +12,9 @@ const turnProjectionPath = resolve(repoRoot, 'client', 'src', 'runtime', 'conver
 const timelinePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'Timeline.tsx');
 const disclosurePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'ProcessDisclosure.tsx');
 const narrationPath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'ProcessNarration.tsx');
+const timelineHooksPath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'hooks.ts');
+const markdownPath = resolve(repoRoot, 'client', 'src', 'features', 'markdown', 'MarkdownMessage.tsx');
+const markdownStylePath = resolve(repoRoot, 'client', 'src', 'features', 'markdown', 'MarkdownMessage.module.css');
 const timelineStylePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'Timeline.module.css');
 const toolStylePath = resolve(repoRoot, 'client', 'src', 'features', 'tools', 'ToolCallCard.module.css');
 const workspacePath = resolve(repoRoot, 'client', 'src', 'features', 'workspace', 'Workspace.tsx');
@@ -20,7 +23,7 @@ const traceRowPath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 
 const traceRowStylePath = resolve(repoRoot, 'client', 'src', 'features', 'timeline', 'TraceRow.module.css');
 const outputStreamPath = resolve(repoRoot, 'client', 'src', 'runtime', 'outputStream.ts');
 
-const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource, narrationSource, timelineStyleSource, toolStyleSource, workspaceSource, composerSource, traceRowSource, traceRowStyleSource, outputStreamSource] = await Promise.all([
+const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSource, timelineSource, disclosureSource, narrationSource, timelineHooksSource, markdownSource, markdownStyleSource, timelineStyleSource, toolStyleSource, workspaceSource, composerSource, traceRowSource, traceRowStyleSource, outputStreamSource] = await Promise.all([
   readFile(adapterPath, 'utf8'),
   readFile(typesPath, 'utf8'),
   readFile(toolCardPath, 'utf8'),
@@ -29,6 +32,9 @@ const [adapterSource, typesSource, toolCardSource, shellSource, turnProjectionSo
   readFile(timelinePath, 'utf8'),
   readFile(disclosurePath, 'utf8'),
   readFile(narrationPath, 'utf8'),
+  readFile(timelineHooksPath, 'utf8'),
+  readFile(markdownPath, 'utf8'),
+  readFile(markdownStylePath, 'utf8'),
   readFile(timelineStylePath, 'utf8'),
   readFile(toolStylePath, 'utf8'),
   readFile(workspacePath, 'utf8'),
@@ -56,16 +62,21 @@ assert.match(turnProjectionSource, /turn\.latestAssistantMessageId/);
 assert.match(turnProjectionSource, /item\.phase === 'final'/);
 assert.match(timelineSource, /<ProcessDisclosure/);
 assert.match(timelineSource, /<TimelineMessage/);
-assert.match(disclosureSource, /shouldAutoOpenProcess/);
-assert.match(disclosureSource, /return '正在思考'/);
-assert.match(disclosureSource, /return '正在使用工具'/);
-assert.match(disclosureSource, /return '正在组织回复'/);
+assert.doesNotMatch(disclosureSource, /shouldAutoOpenProcess|<Collapse|activeKey=/);
+assert.match(disclosureSource, /\? '处理中' : '处理完成'/);
+assert.doesNotMatch(disclosureSource, /formatElapsed|formatDuration|failedCount|subagentCount/);
 assert.match(disclosureSource, /isRedundantActivePlaceholder/);
 assert.doesNotMatch(disclosureSource, /正在探索/);
-assert.doesNotMatch(disclosureSource, /failedCount: props\.exploration/);
 assert.match(disclosureSource, /data-testid="process-stream"/);
+assert.match(disclosureSource, /className=\{styles\.processTraceHeader\}/);
 assert.match(narrationSource, /data-testid="process-narration"/);
 assert.match(narrationSource, /<MarkdownMessage/);
+assert.match(narrationSource, /variant="process"/);
+assert.match(markdownSource, /data-markdown-variant=\{resolvedVariant\}/);
+assert.match(markdownStyleSource, /\.finalMarkdown\s*\{[^}]*var\(--ant-color-text\)[^}]*font-size:\s*15px/s);
+assert.match(markdownStyleSource, /\.processMarkdown\s*\{[^}]*var\(--ant-color-text-secondary\)[^}]*font-size:\s*14px/s);
+assert.match(timelineHooksSource, /autoOpen \? 'active' : 'settled'/);
+assert.match(timelineHooksSource, /state\.resetKey === lifecycleKey \? state\.manual \?\? autoOpen : autoOpen/);
 assert.doesNotMatch(timelineSource, /ThinkingItem|AssistantProcessNote/);
 assert.doesNotMatch(timelineStyleSource, /\.stepRail|\.stepDot|\.processSteps/);
 assert.match(traceRowSource, /useState\(defaultOpen\)/);
@@ -124,6 +135,8 @@ assert.match(adapterSource, /bindDraftToCurrentProject\(await hydrateWorkbench\(
 assert.doesNotMatch(adapterSource, /forceDraftChatSubmit|bridge\.NewChat\(''\)/);
 assert.match(shellSource, /createConversationSubmitQueue\(\)/);
 assert.match(shellSource, /promptSubmitQueueRef\.current\.enqueue/);
+assert.match(shellSource, /const conversationEpoch = \+\+sessionMutationSeqRef\.current/);
+assert.match(shellSource, /sessionMutationSeqRef\.current \+= 1;[\s\S]*viewModelRef\.current = nextViewModel/);
 assert.match(adapterSource, /retargetOutputStore\(current\.outputStore, responseSessionID\)/);
 assert.match(adapterSource, /bridge\.SessionOutput!\(responseSessionID, \{ snapshot: true \}\)/);
 assert.match(adapterSource, /hydrateOutputStore\(initialOutputSnapshot, adoptedOutputStore\)/);

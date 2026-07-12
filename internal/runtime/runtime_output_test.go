@@ -255,6 +255,13 @@ func TestRuntimeConversationProjectionGovernanceItems(t *testing.T) {
 				TurnID:    "turn-1",
 				CreatedAt: "2026-06-28T00:00:00Z",
 				Payload:   map[string]any{"source_id": "project:/work/AGENTS.md", "kind": "agents", "path": "/work/AGENTS.md", "state": "loaded", "reason": "runtime_selected", "content_summary": "project instructions"},
+			}, {
+				ID:        "event-todo",
+				Sequence:  4,
+				Type:      runtimeapi.EventTodoUpdated,
+				SessionID: "session-1",
+				TurnID:    "turn-1",
+				CreatedAt: "2026-06-28T00:00:01Z",
 			}},
 		},
 		Hooks: []RuntimeHookExecution{
@@ -263,12 +270,15 @@ func TestRuntimeConversationProjectionGovernanceItems(t *testing.T) {
 			{ID: "hook-rewrite", SessionID: "session-1", TurnID: "turn-1", HookName: "rewrite", Status: hookStatusCompleted, InputRewritten: true, StartedAt: 15, CompletedAt: 16},
 		},
 		Tasks:   []RuntimeAgentTask{{ID: "task-1", ParentSessionID: "session-1", ParentTurnID: "turn-1", ParentToolCallID: "tool-agent", Title: "Investigate", Status: "running", StartedAt: 21, UpdatedAt: 22}},
-		Todos:   &RuntimeTodoSummary{SessionID: "session-1", TurnID: "turn-1", Todos: []RuntimeTodo{{Content: "a", Status: "pending"}}, Pending: 1, Total: 1, UpdatedAt: 30},
+		Todos:   &RuntimeTodoSummary{SessionID: "session-1", Todos: []RuntimeTodo{{Content: "a", Status: "pending"}}, Pending: 1, Total: 1, UpdatedAt: 30},
 		Compact: []RuntimeCompactBoundary{{ID: "compact-1", SessionID: "session-1", TurnID: "turn-1", Kind: compactKindFull, Status: compactStatusCompleted, Trigger: "manual", CreatedAt: 40, CompletedAt: 41, MessageRefs: []string{"user-1"}}},
 	}).snapshot("session-1", "1")
 	assertHasConversationKind(t, snapshot.Items, "hook_run")
 	assertHasConversationKind(t, snapshot.Items, "agent_task")
 	assertHasConversationKind(t, snapshot.Items, "todo_summary")
+	if todo := findConversationItem(t, snapshot.Items, "todo_summary"); todo.TurnID != "turn-1" || snapshot.Todos == nil || snapshot.Todos.TurnID != "turn-1" {
+		t.Fatalf("todo turn ownership was not recovered: item=%#v summary=%#v", todo, snapshot.Todos)
+	}
 	assertHasConversationKind(t, snapshot.Items, "compact_boundary")
 	assertHasConversationKind(t, snapshot.Items, "turn_terminal")
 	assertHasConversationKind(t, snapshot.Items, "recovery_notice")

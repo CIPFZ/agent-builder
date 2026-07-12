@@ -5,6 +5,7 @@ import styles from './MarkdownMessage.module.css';
 interface MarkdownMessageProps {
   content?: string;
   role?: string;
+  variant?: 'final' | 'process' | 'user';
 }
 
 const markdownComponents: Components = {
@@ -43,9 +44,13 @@ const markdownComponents: Components = {
   },
 };
 
-export function MarkdownMessage({ content = '', role }: MarkdownMessageProps) {
+export function MarkdownMessage({ content = '', role, variant }: MarkdownMessageProps) {
+  const resolvedVariant = variant ?? (role === 'user' ? 'user' : 'final');
   return (
-    <div className={`${styles.markdown} ${role === 'user' ? styles.userMarkdown : ''}`}>
+    <div
+      className={`${styles.markdown} ${resolvedVariant === 'user' ? styles.userMarkdown : resolvedVariant === 'process' ? styles.processMarkdown : styles.finalMarkdown}`}
+      data-markdown-variant={resolvedVariant}
+    >
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
         {content}
       </ReactMarkdown>

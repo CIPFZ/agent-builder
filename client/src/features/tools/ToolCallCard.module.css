@@ -1,7 +1,7 @@
 .process {
   width: min(720px, 100%);
   margin: 1px 0;
-  padding: 0 4px;
+  padding: 0;
   border-left: 2px solid transparent;
   border-radius: 6px;
   color: rgb(13 13 13 / 78%);
@@ -60,7 +60,7 @@
 .details {
   display: grid;
   gap: 8px;
-  padding: 0 4px 4px 21px;
+  padding: 0 0 4px;
 }
 
 .groupDetails {
@@ -298,7 +298,7 @@
 
 .process :global(.ant-collapse-expand-icon) {
   height: 28px !important;
-  padding-inline-start: 6px !important;
+  padding-inline-start: 0 !important;
   color: rgb(13 13 13 / 36%);
 }
 
@@ -332,7 +332,7 @@
 .quietGroupList {
   display: flex;
   flex-direction: column;
-  padding-left: 21px;
+  padding-left: 0;
 }
 
 .quietRow {
@@ -414,7 +414,7 @@
 .quietRowBodyInner {
   overflow: hidden;
   min-height: 0;
-  padding-left: 21px;
+  padding-left: 0;
 }
 
 .quietRowBodyOpen .quietRowBodyInner {
@@ -437,12 +437,12 @@
   }
 
   .details {
-    padding-left: 14px;
+    padding-left: 0;
   }
 
   .quietGroupList,
   .quietRowBodyInner {
-    padding-left: 12px;
+    padding-left: 0;
   }
 
   .summaryMeta {
@@ -463,7 +463,7 @@
   .details,
   .quietGroupList,
   .quietRowBodyInner {
-    padding-left: 8px;
+    padding-left: 0;
   }
 
   .detailRow {

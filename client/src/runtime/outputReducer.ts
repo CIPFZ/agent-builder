@@ -44,7 +44,43 @@ export function hydrateOutputStore(snapshot: RuntimeOutputSnapshot | undefined, 
   for (const task of snapshot.agentTasks ?? []) {
     store.agentTasksById[task.id] = task;
   }
+  preserveUnconfirmedLiveTurnOutput(store, previous);
   return store;
+}
+
+// A persisted snapshot can briefly lag behind the Wails event stream. Keep
+// live entities that belong to an active turn until a later snapshot confirms
+// them, otherwise running tools visibly flash and disappear every time the
+// workbench performs its low-frequency background hydration.
+function preserveUnconfirmedLiveTurnOutput(store: OutputStore, previous?: OutputStore) {
+  if (!previous || previous.sessionId !== store.sessionId) return;
+  const activeTurnIds = new Set(
+    [...Object.values(previous.turnsById), ...Object.values(store.turnsById)]
+      .filter((turn) => !isTerminalTurnStatus(turn.status))
+      .map((turn) => turn.id),
+  );
+  if (activeTurnIds.size === 0) return;
+
+  for (const [id, turn] of Object.entries(previous.turnsById)) {
+    if (activeTurnIds.has(id) && !store.turnsById[id]) store.turnsById[id] = turn;
+  }
+  for (const [id, item] of Object.entries(previous.itemsById)) {
+    if (item.turnId && activeTurnIds.has(item.turnId) && !store.itemsById[id]) store.itemsById[id] = item;
+  }
+  for (const [id, call] of Object.entries(previous.toolCallsById)) {
+    if (activeTurnIds.has(call.turnId) && !store.toolCallsById[id]) store.toolCallsById[id] = call;
+  }
+  for (const [id, result] of Object.entries(previous.toolResultsById)) {
+    if (activeTurnIds.has(result.turnId) && !store.toolResultsById[id]) store.toolResultsById[id] = result;
+  }
+  for (const [id, step] of Object.entries(previous.assistantStepsById)) {
+    if (activeTurnIds.has(step.turnId) && !store.assistantStepsById[id]) store.assistantStepsById[id] = step;
+  }
+  store.streamingByMessageId = { ...previous.streamingByMessageId, ...store.streamingByMessageId };
+}
+
+function isTerminalTurnStatus(status?: string) {
+  return status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'interrupted';
 }
 
 export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent): OutputStore {

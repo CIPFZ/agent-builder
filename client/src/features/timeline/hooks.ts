@@ -96,13 +96,14 @@ export function useMinDisplay<T>(value: T, minMs = 700): T {
 // `resetKey` changes (e.g. the turn the trace belongs to moves to a new
 // status generation).
 export function useLatchedOpen(autoOpen: boolean, resetKey: string | undefined): [boolean, (value: boolean) => void] {
-  const [state, setState] = useState<{ resetKey: string | undefined; manual?: boolean }>({ resetKey });
+  const lifecycleKey = `${resetKey ?? ''}:${autoOpen ? 'active' : 'settled'}`;
+  const [state, setState] = useState<{ resetKey: string; manual?: boolean }>({ resetKey: lifecycleKey });
 
-  if (state.resetKey !== resetKey) {
-    setState({ resetKey });
+  if (state.resetKey !== lifecycleKey) {
+    setState({ resetKey: lifecycleKey });
   }
 
-  const open = state.manual ?? autoOpen;
+  const open = state.resetKey === lifecycleKey ? state.manual ?? autoOpen : autoOpen;
   const setOpen = (value: boolean) => setState((previous) => ({ ...previous, manual: value }));
   return [open, setOpen];
 }

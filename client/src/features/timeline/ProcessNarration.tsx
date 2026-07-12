@@ -6,7 +6,7 @@ import styles from './Timeline.module.css';
 export function ProcessNarration({ item }: { item: ConversationTimelineItemViewModel }) {
   const content = item.content?.trim();
   if (content) {
-    return <div className={styles.processNarration} data-testid="process-narration"><MarkdownMessage content={content} role="assistant" /></div>;
+    return <div className={styles.processNarration} data-testid="process-narration"><MarkdownMessage content={content} role="assistant" variant="process" /></div>;
   }
   if (item.source === 'react_callchain' && item.title) {
     return <div className={styles.processNarrationMuted} data-testid="process-narration">{item.title}</div>;

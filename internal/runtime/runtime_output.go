@@ -250,6 +250,22 @@ func buildRuntimeOutputProjectionFromInput(input runtimeConversationProjectionIn
 	}
 	p.todos = input.Todos
 	p.events = append([]RuntimeEvent(nil), activity.Events...)
+	// SessionTodos is session-scoped and therefore has no turn id. Recover
+	// the owner from the latest persisted todo.updated event so clients can
+	// safely bind the live plan to its turn instead of either hiding it or
+	// leaking a stale plan into a later turn.
+	if p.todos != nil && p.todos.TurnID == "" {
+		for i := len(p.events) - 1; i >= 0; i-- {
+			event := p.events[i]
+			if event.Type != runtimeapi.EventTodoUpdated || event.TurnID == "" {
+				continue
+			}
+			summary := *p.todos
+			summary.TurnID = event.TurnID
+			p.todos = &summary
+			break
+		}
+	}
 
 	messageTurnIDs := runtimeOutputMessageTurnIDs(activity.Messages, activity.Turns, activity.ToolCalls)
 	// Mid-stream the turn record may not yet reference a freshly created

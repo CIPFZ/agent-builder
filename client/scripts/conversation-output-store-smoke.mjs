@@ -369,4 +369,27 @@ assert.equal(compactItem?.compact?.postTokens, 800, 'compact item carries postTo
 assert.equal(compactItem?.compact?.summarizedCount, 3, 'compact item carries summarizedCount');
 assert.equal(compactItem?.compact?.summaryText, 'the compacted summary text', 'compact item carries the full summary text');
 
+// A background snapshot may lag a live tool.started event. Hydration must
+// keep the running entity until persistence catches up instead of making the
+// tool row flash and disappear.
+let liveToolStore = hydrateOutputStore({
+  sessionId: 'session-live', cursor: '1', version: 1,
+  items: [], messages: [],
+  turns: [{ id: 'turn-live', sessionId: 'session-live', status: 'running' }],
+  assistantSteps: [], toolCalls: [], toolResults: [], permissions: [], agentTasks: [],
+});
+liveToolStore = applyOutputEvent(liveToolStore, {
+  id: 'tool-started', sequence: 101, sessionId: 'session-live', turnId: 'turn-live', kind: 'tool_call.started', entityId: 'tool-live', operation: 'append',
+  item: { id: 'tool-item-live', kind: 'tool_call', sessionId: 'session-live', turnId: 'turn-live', sequence: 20, status: 'running', toolCallId: 'tool-live' },
+  toolCall: { id: 'tool-live', sessionId: 'session-live', turnId: 'turn-live', name: 'edit', kind: 'file_edit', status: 'running' },
+});
+liveToolStore = hydrateOutputStore({
+  sessionId: 'session-live', cursor: '1', version: 1,
+  items: [], messages: [],
+  turns: [{ id: 'turn-live', sessionId: 'session-live', status: 'running' }],
+  assistantSteps: [], toolCalls: [], toolResults: [], permissions: [], agentTasks: [],
+}, liveToolStore);
+assert.ok(liveToolStore.itemsById['tool-item-live'], 'lagging snapshot preserves the live tool item');
+assert.equal(liveToolStore.toolCallsById['tool-live']?.status, 'running', 'lagging snapshot preserves the running tool call');
+
 console.log('conversation output store smoke passed');

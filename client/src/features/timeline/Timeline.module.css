@@ -25,8 +25,6 @@
 
 .assistantBubble :global(.ant-bubble-content) {
   color: var(--ant-color-text);
-  font-size: 14px;
-  line-height: 1.7;
   white-space: normal;
 }
 
@@ -90,7 +88,7 @@
 
 .processTrace {
   width: min(760px, 100%);
-  color: rgb(13 13 13 / 58%);
+  color: var(--ant-color-text-secondary);
 }
 
 .processTraceLabel {
@@ -100,18 +98,25 @@
   min-width: 0;
   align-items: center;
   gap: 6px;
-  color: rgb(13 13 13 / 52%);
+  color: var(--ant-color-text-secondary);
   font-size: 13px;
   line-height: 1.45;
 }
 
 .processTraceLabel span + span {
-  color: rgb(13 13 13 / 42%);
+  color: var(--ant-color-text-tertiary);
 }
 
 .processTraceStandalone {
   min-height: 28px;
   padding: 4px 12px;
+}
+
+.processTraceHeader {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 2px 0;
 }
 
 .processTrace[data-process-status='failed'] .processTraceLabel,
@@ -149,7 +154,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 6px 0 2px 4px;
+  padding: 6px 0 2px;
 }
 
 .processStreamItem {
@@ -159,8 +164,6 @@
 .processNarration {
   width: min(760px, 100%);
   color: var(--ant-color-text-secondary);
-  font-size: 13px;
-  line-height: 1.65;
 }
 
 .processNarrationMuted {

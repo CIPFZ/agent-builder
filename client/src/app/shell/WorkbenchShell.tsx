@@ -630,11 +630,12 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const sendPrompt = (prompt: string) => {
     // Serialize the draft -> session transition. Each queued submit re-reads
     // viewModelRef only after the preceding submit has stored its session id.
-    const conversationEpoch = sessionMutationSeqRef.current;
     return promptSubmitQueueRef.current.enqueue(async () => {
-    if (sessionMutationSeqRef.current !== conversationEpoch) {
-      return;
-    }
+    // Give this submit an exclusive mutation generation. Refreshes that
+    // started before the submit, or while the runtime is adopting a draft
+    // into its new session, must not overwrite the transition with a stale
+    // draft projection.
+    const conversationEpoch = ++sessionMutationSeqRef.current;
     const currentViewModel = viewModelRef.current;
     const currentMode = modeRef.current;
     const createdAt = Date.now();
@@ -678,6 +679,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       if (sessionMutationSeqRef.current !== conversationEpoch) {
         return;
       }
+      sessionMutationSeqRef.current += 1;
       modeRef.current = nextViewModel.mode;
       viewModelRef.current = nextViewModel;
       setSwitchingSessionID('');
@@ -687,6 +689,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       if (sessionMutationSeqRef.current !== conversationEpoch) {
         return;
       }
+      sessionMutationSeqRef.current += 1;
       const failedOutputStore = {
         ...optimisticOutputStore,
         optimisticByClientRequestId: {
