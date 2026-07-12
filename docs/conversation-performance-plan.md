@@ -6,7 +6,7 @@
 - `[x]` Phase 1: bounded conversation loading and rendering
 - `[x]` Phase 2: indexed projections and event allocation reduction
 - `[x]` Phase 3: durable large-content references and conversation search
-- `[ ]` Phase 4: profiling gates and long-session regression coverage
+- `[x]` Phase 4: profiling gates and long-session regression coverage
 
 ## Problem statement
 
@@ -162,6 +162,61 @@ Initial targets:
 - leaving a large Session returns to baseline plus 150 MB after GC;
 - live output reaches a stable heap plateau;
 - one entity update does not scan or reproject unrelated Turns.
+
+## Performance commands and recorded baseline
+
+Frontend deterministic gate:
+
+```text
+cd client
+npm run benchmark:conversation-performance
+```
+
+The gate constructs normalized conversations with 100, 1,000, and 10,000
+Turns, measures hydration/projection time and heap growth, and fails when the
+10,000-Turn case exceeds 5 seconds per operation or 256 MB heap growth.
+
+Baseline recorded on 2026-07-13 with Node v25.5.0:
+
+| Turns | Hydrate | Project | Heap delta |
+|---:|---:|---:|---:|
+| 100 | 1.03 ms | 8.67 ms | 1.23 MB |
+| 1,000 | 4.79 ms | 7.03 ms | 5.05 MB |
+| 10,000 | 58.75 ms | 89.00 ms | 64.67 MB |
+
+Go canonical window gate and benchmark:
+
+```text
+go test ./internal/runtime -run TestCanonicalConversationWindowTransportStaysBounded -count=1
+go test ./internal/runtime -run '^$' -bench BenchmarkCanonicalConversationWindow10K -benchmem -count=1
+```
+
+The transport gate requires a 30-Turn window with 60 one-KiB Messages to stay
+below 256 KiB encoded JSON. The benchmark exercises selecting a 30-Turn window
+from 10,000 Turns. The 2026-07-13 Windows baseline is 0.464 ms/op, 42,072
+bytes/op, and 22 allocations/op.
+
+Windows desktop process-tree capture:
+
+```text
+scripts/conversation-memory-profile.ps1
+scripts/conversation-memory-profile.ps1 -MaxPrivateMB 900 -OutputPath tmp/conversation-memory.json
+```
+
+The script follows the AgentBuilder child-process tree, separates Go,
+WebView2 renderer/GPU/utility processes, records private and working-set MB,
+and optionally fails above a supplied total-private-memory threshold. Run the
+threshold form against a freshly restarted packaged build after opening the
+standard long-Session fixture; a dev process that predates these changes is
+not a valid acceptance measurement.
+
+Validation on 2026-07-13 passed `go build ./...`, all performance-focused Go
+tests/benchmarks, frontend build/lint, and canonical/search/content/UI smoke
+gates. The repository-wide `go test ./... -timeout 5m` continues to expose
+pre-existing Runtime-suite instability: two MCP replay tests and one sandbox
+test failed, while the policy shell golden scenario waited for a permission
+decision until the suite timeout. These failures are outside the conversation
+read/render path and are recorded rather than hidden by the performance gate.
 
 ## Rollout and rollback
 

@@ -39,6 +39,7 @@
     "smoke:timeline-virtualization": "node scripts/timeline-virtualization-smoke.mjs",
     "smoke:message-content-window": "node scripts/message-content-window-smoke.mjs",
     "smoke:conversation-search-window": "node scripts/conversation-search-window-smoke.mjs",
+    "benchmark:conversation-performance": "node --expose-gc scripts/conversation-performance-benchmark.mjs",
     "smoke:agent-timeline-projection": "node scripts/agent-timeline-projection-smoke.mjs",
     "smoke:agent-monitor-panel": "node scripts/agent-monitor-panel-smoke.mjs",
     "smoke:conversation-cross-surface-polish": "node scripts/conversation-cross-surface-polish-smoke.mjs"
