@@ -28,6 +28,7 @@
     "smoke:project-sidebar": "node scripts/project-sidebar-projection-smoke.mjs",
     "smoke:conversation-output": "node scripts/conversation-output-store-smoke.mjs",
     "smoke:conversation-target": "node scripts/conversation-target-submit-smoke.mjs",
+    "smoke:conversation-contract-v2": "node scripts/conversation-contract-v2-fixture-smoke.mjs",
     "smoke:markdown-message": "node scripts/markdown-message-smoke.mjs"
   },
   "dependencies": {

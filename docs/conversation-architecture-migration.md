@@ -14,8 +14,8 @@ and commit reference after every phase.
 | Phase | Status | Commit | Result |
 |---|---|---|---|
 | Baseline | `[x]` | `50377c48` | Preserve current UI and convergence mitigations before migration. |
-| Plan | `[x]` | recorded by this commit | Persist architecture, contracts, phases, and acceptance gates; independently reviewed. |
-| 1. Contract | `[ ]` | — | Freeze canonical snapshot and entity-event contracts. |
+| Plan | `[x]` | `6c58cadd` | Persist architecture, contracts, phases, and acceptance gates; independently reviewed. |
+| 1. Contract | `[x]` | recorded by this commit | Versioned Go/TypeScript contracts, validation, and shared fixture completed and independently reviewed. |
 | 2. Runtime snapshot | `[ ]` | — | Add a semantic snapshot without UI grouping. |
 | 3. Entity stream | `[ ]` | — | Add revisioned canonical upsert/delete events. |
 | 4. Frontend store | `[ ]` | — | Normalize entities and group for presentation exactly once. |
@@ -257,7 +257,7 @@ interactive PTY, cancellation, exit code, late output, and large durable refs.
 
 ## Phases
 
-### Phase 1: Freeze contract `[ ]`
+### Phase 1: Freeze contract `[x]`
 
 Deliverables:
 
@@ -268,6 +268,36 @@ Deliverables:
 
 Exit gate: grouping ownership is unambiguous; every structured activity and
 late-event scenario is representable; independent contract review passes.
+
+Implementation evidence:
+
+- Go contract: `internal/runtime/runtime_conversation_contract_v2.go`
+- TypeScript mirror: `client/src/runtime/canonicalConversationTypes.ts`
+- Shared fixture: `internal/runtime/testdata/conversation_contract_v2.json`
+- Cursor, activity sequence, and revision use decimal strings so values beyond
+  JavaScript's safe integer range remain exact.
+- Entity events use typed optional payloads; Go validation enforces exactly one
+  matching payload for upserts and no payload for deletes.
+- Contract contains no `tool_group`, `quiet`, `defaultExpanded`, `any`, or
+  `map[string]any` presentation/transport escape hatch.
+
+Verification:
+
+- `go test ./internal/runtime -run TestCanonicalConversationV2 -count=1`
+- `go build ./internal/runtime`
+- `cd client && npm run build`
+- `cd client && npm run lint`
+- `cd client && npm run smoke:conversation-contract-v2`
+
+Independent review notes:
+
+- Corrected window cursors to decimal strings as well as the main cursor.
+- Added event/payload identity validation for entity, Session, Turn, and
+  revision ownership.
+- Full snapshots reject window metadata; window snapshots require it.
+- Snapshot validation rejects nil collections so canonical JSON uses arrays,
+  never ambiguous `null` values.
+- Added required event creation timestamp. Review approved after these changes.
 
 ### Phase 2: Runtime canonical snapshot `[ ]`
 
