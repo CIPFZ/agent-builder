@@ -1,4 +1,5 @@
 import { useLayoutEffect, useReducer, type ReactNode } from 'react';
+import { RightOutlined } from '@ant-design/icons';
 import type { ConversationTimelineItemViewModel } from '../../runtime/workbenchTypes.ts';
 import type { RuntimeExplorationSummary } from '../../runtime/conversationPresentationTypes.ts';
 import { compactProcessItems } from './processGrouping.ts';
@@ -47,7 +48,7 @@ export function ProcessDisclosure(props: ProcessDisclosureProps) {
   }
   return (
     <section {...sectionProps}>
-      <button className={styles.processTraceHeader} type="button" aria-expanded={disclosure.open} onClick={() => dispatch({ type: 'manual', open: !disclosure.open })}><ProcessLabel {...props} /><span className={styles.processTraceChevron} aria-hidden="true">›</span></button>
+      <button className={styles.processTraceHeader} type="button" aria-expanded={disclosure.open} onClick={() => dispatch({ type: 'manual', open: !disclosure.open })}><ProcessLabel {...props} /><RightOutlined className={styles.processTraceChevron} aria-hidden="true" /></button>
       <div className={styles.processStream} data-testid="process-stream" hidden={!disclosure.open}>
         {groupedItems.map((item) => <div key={item.id} className={styles.processStreamItem}>{props.renderItem(item)}</div>)}
       </div>

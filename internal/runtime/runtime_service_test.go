@@ -2204,6 +2204,58 @@ func TestRecordToolCallsFromMessageWaitsForToolResult(t *testing.T) {
 	}
 }
 
+func TestReconcileTerminalRuntimeToolCallsClosesStaleRunningCallFromPersistedResult(t *testing.T) {
+	t.Parallel()
+
+	h := newRuntimeScenarioHarness(t)
+	h.attachBackend()
+	service := h.service
+	sess, err := service.runtime.CreateSession(h.ctx, service.workspace.ID, "terminal tool reconcile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := service.runtime.GetWorkspace(service.workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assistant := apitypes.Message{
+		ID:        "assistant-1",
+		SessionID: sess.ID,
+		Role:      apitypes.Assistant,
+		Parts: []apitypes.ContentPart{apitypes.ToolCall{
+			ID: "tool-1", Name: "grep", Input: `{"pattern":"runtime"}`, Finished: true,
+		}},
+	}
+	service.recordToolCallsFromMessage(context.Background(), assistant, "turn-1", time.Now())
+	if call, err := service.toolCalls.GetCall(context.Background(), "tool-1"); err != nil || call.Status != scheduler.ToolCallRunning {
+		t.Fatalf("stale call setup = %#v, %v", call, err)
+	}
+
+	// Persist the durable result without exercising the runtime event recorder,
+	// reproducing an out-of-order or missed scheduler completion callback.
+	if _, err := ws.Messages.Create(h.ctx, sess.ID, message.CreateMessageParams{
+		Role: message.Tool,
+		Parts: []message.ContentPart{message.ToolResult{
+			ToolCallID: "tool-1", Name: "grep", Content: "matches",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reconciled := service.reconcileTerminalRuntimeToolCalls(context.Background(), sess.ID, "turn-1")
+	if len(reconciled) != 1 || reconciled[0].ID != "tool-1" {
+		t.Fatalf("reconciled calls = %#v, want tool-1", reconciled)
+	}
+	call, err := service.toolCalls.GetCall(context.Background(), "tool-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.Status != scheduler.ToolCallCompleted || call.OutputSummary != "matches" || call.FinishedAt.IsZero() {
+		t.Fatalf("reconciled call = %#v, want completed from persisted tool result", call)
+	}
+}
+
 func TestRuntimeCapabilitiesAreMetadataOnlyForSkillsResourcesAndPrompts(t *testing.T) {
 	t.Parallel()
 

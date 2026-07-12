@@ -161,16 +161,6 @@
   padding-top: 6px;
 }
 
-/* Large file reads and command output stay inspectable without expanding a
-   single tool row to several viewport heights. Scrolling is local to the
-   opened tool group and does not move the conversation composer. */
-.row[data-testid='tool-group-disclosure'] .rowExpandOpen > .rowExpandInner {
-  max-height: min(52vh, 420px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-}
-
 .inline {
   display: flex;
   flex-direction: column;

@@ -11,6 +11,7 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
 	"github.com/CIPFZ/agent-builder/internal/message"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 const (
@@ -799,6 +800,22 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 		turnStatus = turnStatusFailed
 	} else if entry.Event == "cancelled" {
 		turnStatus = turnStatusCancelled
+	}
+	// Tool-result messages are the durable completion evidence. Reconcile them
+	// before publishing the terminal turn so canonical consumers never observe
+	// a completed turn with a stale running tool call merely because recorder
+	// callbacks arrived out of order.
+	for _, call := range r.reconcileTerminalRuntimeToolCalls(context.Background(), sessionID, requestID) {
+		eventType := runtimeapi.EventToolCallCompleted
+		if call.Status == scheduler.ToolCallFailed {
+			eventType = runtimeapi.EventToolCallFailed
+		}
+		r.storeRuntimeEvent(runtimeToolCallEvent(eventType, call, map[string]any{
+			"name":    call.Name,
+			"summary": call.OutputSummary,
+			"status":  string(call.Status),
+			"error":   call.Error,
+		}))
 	}
 	runStatusBefore := r.runtimeRunStatusForSession(context.Background(), sessionID)
 	finishedTurn := RuntimeTurn{

@@ -4,7 +4,9 @@ import { todoDisplayModel } from '../src/features/todos/todoDisplayPolicy.ts';
 
 const todos = { sessionId: 'session-1', turnId: 'turn-1', pending: 0, inProgress: 0, completed: 2, total: 2, items: [{ id: 'a', content: 'A', status: 'completed' }, { id: 'b', content: 'B', status: 'completed' }] };
 assert.equal(todoDisplayModel(todos, 'running').state, 'completed');
-assert.equal(todoDisplayModel(todos, 'completed').state, 'completed', 'completed Todo remains as one compact capsule');
+assert.equal(todoDisplayModel(todos, 'completed').state, 'hidden', 'Todo disappears when its owner Turn completes');
+assert.equal(todoDisplayModel(todos, 'failed').state, 'hidden', 'Todo disappears when its owner Turn otherwise terminates');
+assert.equal(todoDisplayModel(todos, 'done').state, 'hidden', 'runtime terminal aliases also hide Todo');
 
 const dock = fs.readFileSync(new URL('../src/features/conversationDock/ConversationDock.tsx', import.meta.url), 'utf8');
 const dockStyles = fs.readFileSync(new URL('../src/features/conversationDock/ConversationDock.module.css', import.meta.url), 'utf8');

@@ -25,9 +25,13 @@ export function initialProcessDisclosureState(signal: ProcessDisclosureSignal): 
 
 export function reduceProcessDisclosure(state: ProcessDisclosureState, action: ProcessDisclosureAction): ProcessDisclosureState {
   if (action.type === 'manual') return { ...state, mode: action.open ? 'manual_open' : 'manual_closed', open: action.open };
-  if (state.mode !== 'auto') return state;
   const complete = isSafelyCompleteProcess(action.signal);
-  if (complete && !state.completionObserved) return { ...state, open: false, completionObserved: true };
+  // Completion is a lifecycle boundary: collapse once even when the user
+  // changed disclosure while the process was still active. A manual choice
+  // made after completion remains authoritative because completionObserved is
+  // already true by then.
+  if (complete && !state.completionObserved) return { mode: 'auto', open: false, completionObserved: true };
+  if (state.mode !== 'auto') return state;
   if (shouldKeepProcessOpen(action.signal)) return { ...state, open: true, completionObserved: false };
   return { ...state, completionObserved: state.completionObserved || complete };
 }
@@ -57,4 +61,6 @@ export function isTerminalProcessStatus(status?: string) {
   return isSuccessfulTerminalStatus(status) || isFailedProcessStatus(status);
 }
 
-function isSuccessfulTerminalStatus(status?: string) { return status === 'completed' || status === 'success' || status === 'succeeded'; }
+function isSuccessfulTerminalStatus(status?: string) {
+  return status === 'completed' || status === 'complete' || status === 'success' || status === 'succeeded' || status === 'done';
+}

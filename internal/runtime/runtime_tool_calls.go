@@ -52,6 +52,48 @@ func (r *runtimeService) TurnToolCalls(ctx context.Context, turnID string) (Runt
 	return RuntimeToolCallsResponse{ToolCalls: out}, nil
 }
 
+// reconcileTerminalRuntimeToolCalls replays persisted tool results before a
+// turn becomes terminal. Scheduler callbacks normally finish calls eagerly,
+// but message persistence is the durable evidence delivered to the model. A
+// missed or reordered recorder callback must not leave canonical conversation
+// state showing a tool as running after the turn has finished.
+func (r *runtimeService) reconcileTerminalRuntimeToolCalls(ctx context.Context, sessionID, turnID string) []scheduler.ToolCall {
+	if r.toolCalls == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(turnID) == "" {
+		return nil
+	}
+	messages, err := r.runtime.ListSessionMessages(ctx, r.workspace.ID, sessionID)
+	if err != nil {
+		return nil
+	}
+	var reconciled []scheduler.ToolCall
+	for _, persisted := range messages {
+		msg := toAPITypeMessage(persisted)
+		for _, result := range msg.ToolResults() {
+			call, getErr := r.toolCalls.GetCall(ctx, result.ToolCallID)
+			if getErr != nil || call.TurnID != turnID || isFinalToolCallStatus(string(call.Status)) {
+				continue
+			}
+			status := scheduler.ToolCallCompleted
+			errText := ""
+			if result.IsError {
+				status = scheduler.ToolCallFailed
+				errText = preview(firstNonEmpty(result.Content, result.Data), runtimePartPreviewLimit)
+			}
+			updated, completeErr := r.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{
+				ToolCallID:    result.ToolCallID,
+				Status:        status,
+				OutputSummary: preview(firstNonEmpty(result.Content, result.Data), runtimePartPreviewLimit),
+				IsError:       result.IsError,
+				Error:         errText,
+			})
+			if completeErr == nil {
+				reconciled = append(reconciled, updated)
+			}
+		}
+	}
+	return reconciled
+}
+
 func cancelUnfinishedRuntimeToolCalls(ctx context.Context, calls *scheduler.Scheduler, db *sql.DB) ([]scheduler.ToolCall, error) {
 	if calls == nil || db == nil {
 		return nil, nil

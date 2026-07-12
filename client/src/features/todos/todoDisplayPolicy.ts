@@ -18,7 +18,7 @@ export function todoDisplayModel(todos: TodoSummaryViewModel | undefined, turnSt
   if (total === 0 || !turnStatus) return { state: 'hidden', items, total, completed, activeIndex };
 
   if (isTerminalTurnStatus(turnStatus)) {
-    return { state: completed >= total ? 'completed' : 'stopped', items, total, completed, activeIndex };
+    return { state: 'hidden', items, total, completed, activeIndex };
   }
   if (isActiveTurnStatus(turnStatus)) {
     return { state: completed >= total ? 'completed' : 'running', items, total, completed, activeIndex };
@@ -31,7 +31,8 @@ export function shouldShowTodoTaskBar(todos: TodoSummaryViewModel | undefined, t
 }
 
 function isTerminalTurnStatus(status: string) {
-  return status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'interrupted';
+  return status === 'completed' || status === 'complete' || status === 'success' || status === 'succeeded' || status === 'done'
+    || status === 'failed' || status === 'cancelled' || status === 'canceled' || status === 'interrupted' || status === 'error';
 }
 
 function isActiveTurnStatus(status: string) {

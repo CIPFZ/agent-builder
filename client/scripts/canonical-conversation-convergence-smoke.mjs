@@ -74,6 +74,6 @@ assert.equal(adapterSource.includes('bridge.SessionOutput?.(activeSessionID, { s
 assert.doesNotMatch(dockSource, /action\.key === 'jump-to-bottom'/, 'dock layout does not special-case a business action key');
 assert.match(dockSource, /<ConversationActions actions=\{activeActions\}/, 'all visible dock actions share the centered action rail');
 assert.doesNotMatch(dockStyles, /\.floatingActions\s*\{/, 'jump action is not rendered in a separate absolute layer');
-assert.match(traceStyles, /max-height:\s*min\(52vh, 420px\)/, 'expanded tool groups have a bounded viewport');
+assert.doesNotMatch(traceStyles, /max-height:\s*min\(52vh, 420px\)/, 'tool groups do not create a second nested scroll viewport');
 assert.match(toolStyles, /max-height:\s*min\(46vh, 360px\)/, 'individual tool details have a bounded viewport');
 console.log('canonical conversation convergence smoke passed');

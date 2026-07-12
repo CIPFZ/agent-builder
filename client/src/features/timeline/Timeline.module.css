@@ -135,14 +135,20 @@
 
 .processTraceChevron {
   display: inline-flex;
-  width: 16px;
-  height: 16px;
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
   align-items: center;
   justify-content: center;
   color: var(--ant-color-text-tertiary);
+  font-size: 10px;
   line-height: 1;
   transform: rotate(0deg);
   transition: transform 0.15s ease;
+}
+
+.processTraceChevron svg {
+  display: block;
 }
 
 .processTrace[data-process-open='true'] .processTraceChevron {
