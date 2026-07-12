@@ -15,9 +15,9 @@ and commit reference after every phase.
 |---|---|---|---|
 | Baseline | `[x]` | `50377c48` | Preserve current UI and convergence mitigations before migration. |
 | Plan | `[x]` | `6c58cadd` | Persist architecture, contracts, phases, and acceptance gates; independently reviewed. |
-| 1. Contract | `[x]` | recorded by this commit | Versioned Go/TypeScript contracts, validation, and shared fixture completed and independently reviewed. |
-| 2. Runtime snapshot | `[x]` | recorded by this commit | Persisted-only canonical snapshot, stable semantic identity/order, Wails bridge, recovery tests, and independent review completed. |
-| 3. Entity stream | `[ ]` | — | Add revisioned canonical upsert/delete events. |
+| 1. Contract | `[x]` | `83e62781` | Versioned Go/TypeScript contracts, validation, and shared fixture completed and independently reviewed. |
+| 2. Runtime snapshot | `[x]` | `30476cf0` | Persisted-only canonical snapshot, stable semantic identity/order, Wails bridge, recovery tests, and independent review completed. |
+| 3. Entity stream | `[~]` | — | In progress: add revisioned canonical upsert/delete events and deterministic snapshot/event convergence. |
 | 4. Frontend store | `[ ]` | — | Normalize entities and group for presentation exactly once. |
 | 5. Convergence | `[ ]` | — | Make the Session stream the only live conversation writer. |
 | 6. Structured activity | `[ ]` | — | Migrate Todo, Permission, Subagent, and Agent Team. |
@@ -374,7 +374,7 @@ Independent review notes:
 - Follow-up review ran the Go suite and frontend build/lint and approved Phase
   2 with no remaining blocking findings.
 
-### Phase 3: Canonical entity stream `[ ]`
+### Phase 3: Canonical entity stream `[~]`
 
 Deliverables:
 
