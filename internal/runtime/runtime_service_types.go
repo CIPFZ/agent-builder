@@ -35,6 +35,7 @@ type RuntimeService interface {
 	DeleteProjectMemory(context.Context, string, RuntimeMemoryDeleteRequest) (RuntimeMemoryRecord, error)
 	RefreshProjectMemoryIndex(context.Context, string) (RuntimeMemoryIndexResponse, error)
 	ProjectMemoryDiagnostics(context.Context, string) (RuntimeMemoryDiagnostics, error)
+	ProjectStorageDiagnostics(context.Context, string) (RuntimeProjectStorageDiagnostics, error)
 	Models(context.Context) (RuntimeModelsResponse, error)
 	SelectedModel(context.Context) (RuntimeSelectedModelResponse, error)
 	SaveSelectedModel(context.Context, RuntimeSelectedModelRequest) (RuntimeSelectedModelResponse, error)

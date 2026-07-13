@@ -31,6 +31,7 @@ type RuntimeMemoryDeleteRequest = runtime.RuntimeMemoryDeleteRequest
 type RuntimeMemoryIndexResponse = runtime.RuntimeMemoryIndexResponse
 type RuntimeMemoryIssue = runtime.RuntimeMemoryIssue
 type RuntimeMemoryDiagnostics = runtime.RuntimeMemoryDiagnostics
+type RuntimeProjectStorageDiagnostics = runtime.RuntimeProjectStorageDiagnostics
 type RuntimeModel = runtime.RuntimeModel
 type RuntimeModelsResponse = runtime.RuntimeModelsResponse
 type RuntimeSelectedModel = runtime.RuntimeSelectedModel
@@ -397,6 +398,10 @@ func (r *RuntimeBridge) ProjectMemoryDiagnostics(ctx context.Context, projectID 
 
 	return r.service.ProjectMemoryDiagnostics(ctx, projectID)
 
+}
+
+func (r *RuntimeBridge) ProjectStorageDiagnostics(ctx context.Context, projectID string) (RuntimeProjectStorageDiagnostics, error) {
+	return r.service.ProjectStorageDiagnostics(ctx, projectID)
 }
 
 func (r *RuntimeBridge) SelectProjectDirectory(ctx context.Context) (string, error) {

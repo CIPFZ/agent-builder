@@ -1925,6 +1925,10 @@ func (s *recordingRuntimeService) ProjectMemoryDiagnostics(context.Context, stri
 	return RuntimeMemoryDiagnostics{}, nil
 }
 
+func (s *recordingRuntimeService) ProjectStorageDiagnostics(context.Context, string) (RuntimeProjectStorageDiagnostics, error) {
+	return RuntimeProjectStorageDiagnostics{}, nil
+}
+
 func (s *recordingRuntimeService) ContextSources(context.Context) (RuntimeContextSourcesResponse, error) {
 	return RuntimeContextSourcesResponse{}, nil
 }

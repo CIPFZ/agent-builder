@@ -18,6 +18,10 @@
 
 `internal/config` 负责配置加载、作用域解析、provider、MCP、LSP、上下文治理和原子写入。配置可能来自全局和项目范围，调用方应使用解析后的配置而不是自行拼接路径或覆盖优先级。
 
+桌面产品路径不使用 ConfigStore JSON 作为持久化权威来源。Provider、模型选择、
+终端偏好、Policy、Skill 注册和 MCP Server 配置保存在 SQLite，再由 Runtime 组装
+`config.Config` 运行视图；JSON ConfigStore 只服务遗留 CLI/适配路径。
+
 Provider 配置与所选模型由 runtime 暴露给客户端，并包含验证、模型目录、endpoint、代理、密钥引用和 context window 等信息。敏感值不应通过普通日志或前端诊断完整回显。
 
 ## Skills
@@ -41,6 +45,10 @@ Hook 属于运行时边界：前端可以配置和展示 Hook，但不能在浏�
 ## 项目记忆
 
 `internal/memory` 提供项目级 Markdown 记忆的路径、扫描、索引、检索和存储。Runtime API 支持列表、创建、更新、禁用、删除、刷新索引和诊断。记忆注入应遵守项目范围、启用状态和上下文预算。
+
+Memory 原文位于 `data/projects/<project-id>/memory`。大型工具输出、Artifact、Diff、
+任务产物和文件快照统一保存到同一项目的 `objects` 目录，SQLite `objects` 表保存
+显式项目归属及引用元数据。项目存储诊断可发现缺失 Object 和孤儿文件。
 
 ## 终端、子任务与 Worktree
 

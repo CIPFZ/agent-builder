@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/CIPFZ/agent-builder/internal/db"
 )
 
 func TestRuntimeProjectStorageLifecycleAndProjection(t *testing.T) {
@@ -169,5 +172,51 @@ func TestRuntimeProjectHardDeletePurgesDBOnly(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("hard-deleted session still exists: count=%d", count)
+	}
+	projectDataRoot := filepath.Join(root, "data", "projects", opened.Project.ID)
+	if _, err := os.Stat(projectDataRoot); !os.IsNotExist(err) {
+		t.Fatalf("hard-deleted project data directory still exists: %v", err)
+	}
+}
+
+func TestProjectStorageDiagnosticsFindsMissingAndOrphanObjects(t *testing.T) {
+	root := runtimeDevTestRoot(t, "project-storage-diagnostics")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	t.Cleanup(db.ResetPool)
+	projectPath := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(projectPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	service := newRuntimeService()
+	opened, err := service.OpenProject(context.Background(), RuntimeOpenProjectRequest{Path: projectPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := service.projectStore(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := newRuntimeObjectStore(store.db, store.dataDir)
+	object, err := objects.Create(context.Background(), runtimeObjectCreateRequest{ProjectID: opened.Project.ID, SessionID: "session-1", Kind: runtimeObjectKindOutput, Payload: []byte(strings.Repeat("payload", 2000))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectPath, err := objects.resolveStoragePath(opened.Project.ID, object.StoragePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(objectPath); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(root, "data", "projects", opened.Project.ID, "objects", "orphan.blob")
+	if err := os.WriteFile(orphan, []byte("orphan"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := service.ProjectStorageDiagnostics(context.Background(), opened.Project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.MissingObjects) != 1 || report.MissingObjects[0] != object.ID || len(report.OrphanFiles) != 1 || report.OrphanFiles[0] != "orphan.blob" {
+		t.Fatalf("storage diagnostics = %#v", report)
 	}
 }
