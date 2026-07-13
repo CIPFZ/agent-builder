@@ -13,8 +13,9 @@
 3. [运行时](runtime.md)：会话、Turn、Run、工具、权限、上下文和事件模型。
 4. [前端与桌面端](frontend-and-desktop.md)：React、Wails 桥接、传输适配和状态边界。
 5. [数据与能力](data-and-capabilities.md)：SQLite、配置、项目记忆、Skills、MCP、Hooks、LSP。
-6. [开发指南](development.md)：构建、测试、调试和改动约束。
-7. [目录索引](repository-map.md)：按目录快速定位代码职责。
+6. [数据存储规范](data-storage.md)：权威来源、作用域、项目目录、Objects 和生命周期。
+7. [开发指南](development.md)：构建、测试、调试和改动约束。
+8. [目录索引](repository-map.md)：按目录快速定位代码职责。
 
 ## 文档维护规则
 
