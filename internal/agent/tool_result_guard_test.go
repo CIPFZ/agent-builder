@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"os"
+	"context"
 	"strings"
 	"testing"
 
@@ -11,10 +11,16 @@ import (
 )
 
 func newTestGuard(tmpDir string) *ToolResultGuard {
+	_ = tmpDir
 	cfg := config.DefaultToolResultGuardConfig()
-	cfg.ResultsDir = tmpDir
 	cfg.MaxResultChars = 100 // small threshold for testing
-	return NewToolResultGuard(cfg, "test-session")
+	return NewToolResultGuard(cfg, "test-session", testToolResultPersister{})
+}
+
+type testToolResultPersister struct{}
+
+func (testToolResultPersister) PersistToolResult(_ context.Context, req ToolResultPersistenceRequest) (string, error) {
+	return "runtime://objects/" + req.ToolCallID, nil
 }
 
 func TestGuard_ExemptTool_PassesThrough(t *testing.T) {
@@ -27,7 +33,7 @@ func TestGuard_ExemptTool_PassesThrough(t *testing.T) {
 		Content:    strings.Repeat("x", 10000),
 	}
 
-	processed := g.Process(result)
+	processed := g.Process(t.Context(), result)
 	require.Equal(t, result.Content, processed.Content)
 	require.Empty(t, processed.StoredPath)
 	require.Empty(t, processed.TruncatedBy)
@@ -42,14 +48,13 @@ func TestGuard_SingleResultTruncation(t *testing.T) {
 		Content:    strings.Repeat("line of output text\n", 50),
 	}
 
-	processed := g.Process(result)
+	processed := g.Process(t.Context(), result)
 	require.Contains(t, processed.Content, "<persisted-output>")
 	require.NotEmpty(t, processed.StoredPath)
 	require.Equal(t, "single", processed.TruncatedBy)
 	require.Greater(t, processed.OriginalSize, int64(0))
 
-	_, err := os.Stat(processed.StoredPath)
-	require.NoError(t, err)
+	require.Equal(t, "runtime://objects/toolu_001", processed.StoredPath)
 }
 
 func TestGuard_UnderThreshold_NoTruncation(t *testing.T) {
@@ -61,7 +66,7 @@ func TestGuard_UnderThreshold_NoTruncation(t *testing.T) {
 		Content:    "short output",
 	}
 
-	processed := g.Process(result)
+	processed := g.Process(t.Context(), result)
 	require.Equal(t, "short output", processed.Content)
 	require.Empty(t, processed.StoredPath)
 	require.Equal(t, int64(0), processed.OriginalSize)
@@ -76,7 +81,7 @@ func TestGuard_TurnBudget_SpillsLargestResult(t *testing.T) {
 		Name:       "grep",
 		Content:    "short",
 	}
-	p1 := g.Process(r1)
+	p1 := g.Process(t.Context(), r1)
 	require.Empty(t, p1.StoredPath)
 
 	r2 := message.ToolResult{
@@ -84,7 +89,7 @@ func TestGuard_TurnBudget_SpillsLargestResult(t *testing.T) {
 		Name:       "bash",
 		Content:    strings.Repeat("x", 50),
 	}
-	p2 := g.Process(r2)
+	p2 := g.Process(t.Context(), r2)
 	require.NotEmpty(t, p2.StoredPath)
 	require.Contains(t, p2.Content, "<persisted-output>")
 	require.Equal(t, "turn_budget", p2.TruncatedBy)
@@ -99,7 +104,7 @@ func TestGuard_ResetTurn(t *testing.T) {
 		Name:       "bash",
 		Content:    "a somewhat long result that exceeds the turn budget threshold",
 	}
-	g.Process(r1)
+	g.Process(t.Context(), r1)
 
 	g.ResetTurn()
 	require.Equal(t, 0, g.turnTotal)
@@ -109,7 +114,7 @@ func TestGuard_ResetTurn(t *testing.T) {
 		Name:       "bash",
 		Content:    "another result",
 	}
-	p2 := g.Process(r2)
+	p2 := g.Process(t.Context(), r2)
 	require.Empty(t, p2.TruncatedBy)
 }
 
@@ -125,7 +130,7 @@ func TestGuard_Disabled_SkipsAllProcessing(t *testing.T) {
 		Content:    strings.Repeat("very long output that would be truncated\n", 100),
 	}
 
-	processed := g.Process(result)
+	processed := g.Process(t.Context(), result)
 	require.Equal(t, result.Content, processed.Content)
 	require.Empty(t, processed.StoredPath)
 }

@@ -4,25 +4,27 @@ import { ToolItemDisclosureList } from '../tools/ToolCallCard.tsx';
 import { TraceRow } from './TraceRow.tsx';
 import { timelineToolKind, toolCallsDuration } from './processGrouping.ts';
 
-export function ToolTraceGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (taskID: string) => void; toolCalls: ToolCallViewModel[] }) {
+export function ToolTraceGroup({ onAgentTaskOpen, onObjectContentLoad, toolCalls }: { onAgentTaskOpen?: (taskID: string) => void; onObjectContentLoad?: (refID: string) => Promise<string>; toolCalls: ToolCallViewModel[] }) {
   const duration = toolCallsDuration(toolCalls);
   const status = toolTraceStatus(toolCalls);
   const failed = isFailedStatus(status);
   const running = isActiveStatus(status);
-  return <TraceRow expandable icon={failed ? <WarningOutlined /> : running ? <LoadingOutlined spin /> : <CheckOutlined />} meta={<>{duration && <span>{duration}</span>}{toolCalls.length > 1 && <span>{toolCalls.length} 项</span>}</>} testId="tool-group-disclosure" dataAttrs={{ 'data-tool-status': status }} title={toolTraceTitle(toolCalls)} tone={failed ? 'error' : 'default'}><ToolItemDisclosureList toolCalls={toolCalls} onAgentTaskOpen={onAgentTaskOpen} /></TraceRow>;
+  return <TraceRow expandable icon={failed ? <WarningOutlined /> : running ? <LoadingOutlined spin /> : <CheckOutlined />} meta={<>{duration && <span>{duration}</span>}{toolCalls.length > 1 && <span>{toolCalls.length} 项</span>}</>} testId="tool-group-disclosure" dataAttrs={{ 'data-tool-status': status }} title={toolTraceTitle(toolCalls)} tone={failed ? 'error' : 'default'}><ToolItemDisclosureList toolCalls={toolCalls} onAgentTaskOpen={onAgentTaskOpen} onObjectContentLoad={onObjectContentLoad} /></TraceRow>;
 }
 
 function toolTraceStatus(toolCalls: ToolCallViewModel[]) {
-  if (toolCalls.some((call) => isActiveStatus(call.status))) return 'running';
   if (toolCalls.some((call) => isFailedStatus(call.status))) return 'failed';
   if (toolCalls.some((call) => call.status === 'denied')) return 'denied';
+  if (toolCalls.some((call) => call.status === 'waiting_permission')) return 'waiting_permission';
+  if (toolCalls.some((call) => isActiveStatus(call.status))) return 'running';
   return 'completed';
 }
 
 function toolTraceTitle(toolCalls: ToolCallViewModel[]) {
   const kind = dominantToolKind(toolCalls);
   const count = toolCalls.length;
-  const prefix = toolTraceStatus(toolCalls) === 'running' ? '正在' : '已';
+  const status = toolTraceStatus(toolCalls);
+  const prefix = status === 'running' ? '正在' : status === 'waiting_permission' ? '等待' : '已';
   if (kind === 'shell') {
     const command = count === 1 ? compactCommand(toolCalls[0].display?.command || toolCalls[0].command) : '';
     return command ? `${prefix}运行命令 · ${command}` : `${prefix}运行 ${count} 条命令`;
@@ -48,5 +50,5 @@ function dominantToolKind(toolCalls: ToolCallViewModel[]) {
   return [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? 'generic';
 }
 
-function isActiveStatus(status?: string) { return status === 'running' || status === 'queued' || status === 'waiting_permission'; }
-function isFailedStatus(status?: string) { return status === 'failed' || status === 'denied' || status === 'cancelled' || status === 'interrupted'; }
+function isActiveStatus(status?: string) { return status === 'pending' || status === 'running' || status === 'queued' || status === 'waiting_permission' || status === 'streaming' || status === 'in_progress' || status === 'starting'; }
+function isFailedStatus(status?: string) { return status === 'failed' || status === 'error' || status === 'denied' || status === 'cancelled' || status === 'canceled' || status === 'interrupted'; }

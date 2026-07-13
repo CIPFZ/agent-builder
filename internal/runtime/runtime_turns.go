@@ -855,6 +855,38 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 	}
 	r.storeRuntimeEvent(newUsageRuntimeEvent(time.Now(), requestID, sessionID, usageAfter, usageDelta))
 	r.storeRuntimeEvent(newTurnFinishedRuntimeEvent(time.Now(), requestID, sessionID, entry.Event, duration, provider, model, usageDelta, entry.Error))
+	r.releaseFinishedTurnMemory(sessionID, requestID)
+}
+
+// releaseFinishedTurnMemory drops execution-only indexes after their durable
+// Turn, Message, ToolCall, and event projections have reached a terminal
+// state. Historical reads use SQLite; retaining these maps would make the Go
+// heap grow with every completed conversation.
+func (r *runtimeService) releaseFinishedTurnMemory(sessionID, turnID string) {
+	var toolCallIDs []string
+	if r.toolCalls != nil {
+		if calls, err := r.toolCalls.ListCalls(context.Background(), turnID); err == nil {
+			toolCallIDs = make([]string, 0, len(calls))
+			for _, call := range calls {
+				toolCallIDs = append(toolCallIDs, call.ID)
+			}
+		}
+	}
+
+	r.mu.Lock()
+	delete(r.requests, turnID)
+	if r.sessionTurns[sessionID] == turnID {
+		delete(r.sessionTurns, sessionID)
+	}
+	for messageID, cursor := range r.messageStream {
+		if cursor != nil && cursor.sessionID == sessionID && cursor.turnID == turnID {
+			delete(r.messageStream, messageID)
+		}
+	}
+	for _, toolCallID := range toolCallIDs {
+		delete(r.toolEvents, toolCallID)
+	}
+	r.mu.Unlock()
 }
 
 func (r *runtimeService) latestFinishedAssistantMessage(ctx context.Context, workspaceID, sessionID, turnID string) (apitypes.Message, error) {

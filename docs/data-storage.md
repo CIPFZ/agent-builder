@@ -87,6 +87,10 @@ ToolCall 和 Task。
 Object 写入使用临时文件、内容校验和原子重命名。数据库写入失败后必须清理新建的
 无引用文件；维护任务负责发现孤儿文件、缺失内容和 hash 不一致。
 
+ToolResultGuard 只负责生成有界的模型可见预览。完整的大型工具输出由 Runtime
+Scheduler Recorder 写入项目 Object Store，预览通过 `runtime://objects/<id>` 引用；
+Agent 层不得在用户工作目录创建 `.agent-builder/results` 或执行独立 TTL 清理。
+
 ## 生命周期
 
 外置内容必须声明保留等级：`permanent`、`project`、`session`、`recovery`、

@@ -11,7 +11,6 @@ import {
   MoreOutlined,
   PlusOutlined,
   RightOutlined,
-  SearchOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
 import { useMemo } from 'react';
@@ -19,7 +18,6 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, UIEvent as React
 import { Button, Dropdown, Empty, Input, Modal, Tooltip, message as antdMessage } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
 import type { HookExecutionViewModel, NewConversationDraftViewModel, TerminalEventViewModel, TerminalViewModel, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
-import type { ConversationSearchResult } from '../../runtime/canonicalConversationTypes.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { AgentTaskPanel } from '../agentTasks/AgentTaskPanel.tsx';
 import { AgentActivityMonitor } from '../agentTasks/AgentActivityMonitor.tsx';
@@ -91,8 +89,7 @@ interface WorkspaceProps {
   onHookExecutionLoad?: (executionID: string) => Promise<HookExecutionViewModel>;
   onConversationLoadEarlier?: (sessionID: string) => Promise<boolean>;
   onMessageContentLoad?: (sessionID: string, messageID: string) => Promise<string>;
-  onConversationSearch?: (sessionID: string, query: string) => Promise<ConversationSearchResult[]>;
-  onConversationSearchResultOpen?: (sessionID: string, turnID: string) => Promise<boolean>;
+  onObjectContentLoad?: (refID: string) => Promise<string>;
 }
 
 export function Workspace({
@@ -126,8 +123,7 @@ export function Workspace({
   onHookExecutionLoad,
   onConversationLoadEarlier,
   onMessageContentLoad,
-  onConversationSearch,
-  onConversationSearchResultOpen,
+  onObjectContentLoad,
 }: WorkspaceProps) {
   const [messageApi, messageContextHolder] = antdMessage.useMessage();
   const [renameOpen, setRenameOpen] = useState(false);
@@ -142,10 +138,6 @@ export function Workspace({
   const [rightPanelMaxValue, setRightPanelMaxValue] = useState(RIGHT_PANEL_MAX_WIDTH);
   const [selectedAgentTaskID, setSelectedAgentTaskID] = useState('');
   const [loadingEarlierConversation, setLoadingEarlierConversation] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<ConversationSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
   const rightPanelTabsRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const {
@@ -184,7 +176,7 @@ export function Workspace({
     ? displayPermissions.find((permission) => permission.sessionId === activeSession.id)
     : displayPermissions[0];
   const isSessionSwitching = Boolean((switchingSessionID && activeSession?.id === switchingSessionID && !hasConversation) || canonicalLoading);
-  const sessionTitle = activeSession?.title || viewModel.currentProject.name || '新对话';
+  const sessionTitle = activeSession?.title ?? '';
   const title =
     viewModel.mode === 'project' && hasProjectContext ? `我们应该在 ${viewModel.currentProject.name} 中构建什么？` : '我们该做什么？';
   const bubbleItems = viewModel.conversation.map((message) => ({
@@ -534,24 +526,6 @@ export function Workspace({
     setRenameTitle(activeSession.title);
     setRenameOpen(true);
   };
-  const runConversationSearch = async (query: string) => {
-    if (!activeSession?.id || !onConversationSearch || !query.trim()) { setSearchResults([]); return; }
-    setSearching(true);
-    try { setSearchResults(await onConversationSearch(activeSession.id, query.trim())); }
-    catch { void messageApi.error('搜索对话失败'); }
-    finally { setSearching(false); }
-  };
-  const openSearchResult = async (result: ConversationSearchResult) => {
-    if (!activeSession?.id || !onConversationSearchResultOpen) return;
-    if (!await onConversationSearchResultOpen(activeSession.id, result.turnId)) return;
-    setSearchOpen(false);
-    window.requestAnimationFrame(() => {
-      const node = workspaceRef.current?.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(result.turnId)}"]`);
-      node?.scrollIntoView({ block: 'center' });
-      node?.classList.add(styles.searchTargetTurn);
-      window.setTimeout(() => node?.classList.remove(styles.searchTargetTurn), 1800);
-    });
-  };
   const submitRename = async () => {
     if (!activeSession) {
       setRenameOpen(false);
@@ -588,26 +562,25 @@ export function Workspace({
     >
       {messageContextHolder}
       <header className={styles.sessionHeader}>
-        <div className={styles.sessionTitleWrap}>
-          <h2 className={styles.sessionTitle}>{sessionTitle}</h2>
-          <Dropdown
-            menu={{
-              items: [{ key: 'rename', icon: <EditOutlined />, label: '重命名' }],
-              onClick: ({ key }) => {
-                if (key === 'rename') {
-                  openRenameDialog();
-                }
-              },
-            }}
-            trigger={['click']}
-          >
-            <Button aria-label="更多对话操作" className={styles.headerIconButton} icon={<MoreOutlined />} type="text" />
-          </Dropdown>
-        </div>
+        {activeSession ? (
+          <div className={styles.sessionTitleWrap}>
+            <h2 className={styles.sessionTitle}>{sessionTitle}</h2>
+            <Dropdown
+              menu={{
+                items: [{ key: 'rename', icon: <EditOutlined />, label: '重命名' }],
+                onClick: ({ key }) => {
+                  if (key === 'rename') {
+                    openRenameDialog();
+                  }
+                },
+              }}
+              trigger={['click']}
+            >
+              <Button aria-label="更多对话操作" className={styles.headerIconButton} icon={<MoreOutlined />} type="text" />
+            </Dropdown>
+          </div>
+        ) : <div />}
         <div className={styles.headerActions} aria-label="工作区面板">
-          <Tooltip title="搜索当前对话">
-            <Button aria-label="搜索当前对话" className={styles.headerIconButton} disabled={!activeSession} icon={<SearchOutlined />} type="text" onClick={() => setSearchOpen(true)} />
-          </Tooltip>
           <AgentActivityMonitor summary={agentTaskPresentation.summary} onOpen={() => openSingletonPanel('tasks')} />
           <Tooltip title={rightPanelOpen ? '关闭右侧面板' : '打开右侧面板'}>
             <Button
@@ -620,13 +593,6 @@ export function Workspace({
           </Tooltip>
         </div>
       </header>
-      <Modal footer={null} open={searchOpen} title="搜索当前对话" onCancel={() => setSearchOpen(false)}>
-        <Input.Search autoFocus loading={searching} placeholder="输入关键词" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onSearch={(value) => void runConversationSearch(value)} />
-        <div className={styles.searchResults}>
-          {searchResults.map((result) => <button key={result.messageId} className={styles.searchResult} type="button" onClick={() => void openSearchResult(result)}><span>{result.role === 'user' ? '用户' : '助手'}</span><strong>{result.snippet}</strong></button>)}
-          {!searching && searchQuery.trim() && searchResults.length === 0 ? <div className={styles.searchEmpty}>没有匹配结果</div> : null}
-        </div>
-      </Modal>
       <Modal
         cancelText="取消"
         confirmLoading={renaming}
@@ -665,7 +631,7 @@ export function Workspace({
             <div className={styles.timelineLayout}>
               <div className={styles.timelineColumn}>
                 {loadingEarlierConversation && <div className={styles.historyLoading} role="status">正在加载更早的对话...</div>}
-                <Timeline turns={conversationTurns} hookExecutions={viewModel.canonicalConversationStore ? undefined : viewModel.hookExecutions} onAgentTaskOpen={openAgentTask} onHookExecutionLoad={onHookExecutionLoad} onMessageContentLoad={onMessageContentLoad} />
+                <Timeline turns={conversationTurns} hookExecutions={viewModel.canonicalConversationStore ? undefined : viewModel.hookExecutions} onAgentTaskOpen={openAgentTask} onHookExecutionLoad={onHookExecutionLoad} onMessageContentLoad={onMessageContentLoad} onObjectContentLoad={onObjectContentLoad} />
               </div>
             </div>
           ) : viewModel.conversation.length > 0 ? (
@@ -716,7 +682,7 @@ export function Workspace({
           >
             {activePendingPermission ? (
               <div className={styles.permissionDock} data-testid="permission-dock">
-                <PermissionGate permission={activePendingPermission} onDecide={onPermissionDecide} />
+                <PermissionGate key={activePendingPermission.id} permission={activePendingPermission} onDecide={onPermissionDecide} />
               </div>
             ) : (
               <Composer
@@ -730,7 +696,6 @@ export function Workspace({
                 onPermissionModeSelect={onPermissionModeSelect}
                 onCancel={onPromptCancel}
                 onSubmit={handlePromptSubmit}
-                onManualCompact={onManualCompact}
               />
             )}
           </ConversationDock>

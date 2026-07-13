@@ -117,6 +117,14 @@
   padding: 4px 12px;
 }
 
+.processTraceError {
+  margin-top: 2px;
+  color: var(--ant-color-error);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .processTraceHeader {
   display: inline-flex;
   width: fit-content;

@@ -12,6 +12,7 @@ interface ProcessDisclosureProps {
   status?: string;
   startedAt?: number;
   finishedAt?: number;
+  error?: string;
   exploration?: RuntimeExplorationSummary;
   hasFinalResponse: boolean;
   items: ConversationTimelineItemViewModel[];
@@ -44,7 +45,7 @@ export function ProcessDisclosure(props: ProcessDisclosureProps) {
     'data-process-open': disclosure.open,
   };
   if (groupedItems.length === 0) {
-    return <section {...sectionProps}><div className={styles.processTraceStandalone}><ProcessLabel {...props} /></div></section>;
+    return <section {...sectionProps}><div className={styles.processTraceStandalone}><ProcessLabel {...props} />{props.error && <div className={styles.processTraceError}>{props.error}</div>}</div></section>;
   }
   return (
     <section {...sectionProps}>
@@ -62,7 +63,7 @@ function isPendingStatus(status?: string) { return status === 'pending' || statu
 
 function ProcessLabel(props: ProcessDisclosureProps) {
   const status = props.exploration?.status ?? props.status;
-  return <span className={styles.processTraceLabel} data-testid="process-trace-label" data-exploration-status={status}><span>{isActiveProcessStatus(props.status) ? '处理中' : '处理完成'}</span></span>;
+  return <span className={styles.processTraceLabel} data-testid="process-trace-label" data-exploration-status={status}><span>{processLabel(props.status)}</span></span>;
 }
 
 function isRedundantActivePlaceholder(item: ConversationTimelineItemViewModel) {
@@ -73,5 +74,9 @@ function isRedundantActivePlaceholder(item: ConversationTimelineItemViewModel) {
 }
 
 function processLabel(status?: string) {
+  if (status === 'failed' || status === 'error') return '处理失败';
+  if (status === 'cancelled' || status === 'canceled') return '已取消';
+  if (status === 'interrupted') return '处理已中断';
+  if (status === 'waiting_permission' || status === 'waiting' || status === 'blocked') return '等待继续';
   return isActiveProcessStatus(status) ? '处理中' : '处理完成';
 }

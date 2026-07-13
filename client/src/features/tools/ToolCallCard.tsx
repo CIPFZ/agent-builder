@@ -185,13 +185,13 @@ function ToolCallGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (task
 // used both by ToolCallGroup's all-quiet path and by Timeline's
 // "已完成 N 个工具" summary, which supplies its own header and only needs the
 // row list as its expandable body.
-export function ToolItemDisclosureList({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (taskID: string) => void; toolCalls: ToolCallViewModel[] }) {
+export function ToolItemDisclosureList({ onAgentTaskOpen, onObjectContentLoad, toolCalls }: { onAgentTaskOpen?: (taskID: string) => void; onObjectContentLoad?: (refID: string) => Promise<string>; toolCalls: ToolCallViewModel[] }) {
   const [messageApi, messageContextHolder] = message.useMessage();
   return (
     <div className={styles.quietGroupList}>
       {messageContextHolder}
       {toolCalls.map((call) => (
-        <QuietToolRow key={call.id} messageApi={messageApi} toolCall={call} onAgentTaskOpen={onAgentTaskOpen} />
+        <QuietToolRow key={call.id} messageApi={messageApi} toolCall={call} onAgentTaskOpen={onAgentTaskOpen} onObjectContentLoad={onObjectContentLoad} />
       ))}
     </div>
   );
@@ -204,10 +204,12 @@ export function ToolItemDisclosureList({ onAgentTaskOpen, toolCalls }: { onAgent
 function QuietToolRow({
   messageApi,
   onAgentTaskOpen,
+  onObjectContentLoad,
   toolCall,
 }: {
   messageApi: ReturnType<typeof message.useMessage>[0];
   onAgentTaskOpen?: (taskID: string) => void;
+  onObjectContentLoad?: (refID: string) => Promise<string>;
   toolCall: ToolCallViewModel;
 }) {
   const [open, setOpen] = useState(false);
@@ -234,7 +236,7 @@ function QuietToolRow({
       {hasDetails ? (
         <div className={`${styles.quietRowBody} ${open ? styles.quietRowBodyOpen : ''}`}>
           <div className={styles.quietRowBodyInner}>
-            <ToolDetails detail={detail} kind={kind} output={output} toolCall={toolCall} onAgentTaskOpen={onAgentTaskOpen} onCopy={async (text) => copyText(text, messageApi)} />
+            <ToolDetails detail={detail} kind={kind} output={output} toolCall={toolCall} onAgentTaskOpen={onAgentTaskOpen} onObjectContentLoad={onObjectContentLoad} onCopy={async (text) => copyText(text, messageApi)} />
           </div>
         </div>
       ) : null}
@@ -247,6 +249,7 @@ function ToolDetails({
   kind,
   onCopy,
   onAgentTaskOpen,
+  onObjectContentLoad,
   output,
   title,
   toolCall,
@@ -255,11 +258,13 @@ function ToolDetails({
   kind: ToolKind;
   onCopy: (text: string) => Promise<void>;
   onAgentTaskOpen?: (taskID: string) => void;
+  onObjectContentLoad?: (refID: string) => Promise<string>;
   output: string;
   title?: string;
   toolCall: ToolCallViewModel;
 }) {
   const [fullContent, setFullContent] = useState<{ title: string; text: string }>();
+  const [loadingObject, setLoadingObject] = useState(false);
   const shellLike = kind === 'shell';
   const stderr = toolStderr(toolCall);
   const failureReason = toolFailureReason(toolCall);
@@ -268,6 +273,22 @@ function ToolDetails({
   const workingDir = toolCall.display?.workingDir;
   const command = toolCall.display?.command || toolCall.command;
   const agentTask = toolCall.agentTask;
+  const outputRef = toolCall.outputRefs?.[0];
+  const openFullOutput = async (fallback: string) => {
+    if (!outputRef || !onObjectContentLoad) {
+      setFullContent({ title: '完整输出', text: fallback });
+      return;
+    }
+    setLoadingObject(true);
+    try {
+      const content = await onObjectContentLoad(outputRef);
+      setFullContent({ title: '完整输出', text: content });
+    } catch (error) {
+      setFullContent({ title: '完整输出读取失败', text: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setLoadingObject(false);
+    }
+  };
 
   return (
     <div className={styles.details} data-testid="tool-detail">
@@ -299,7 +320,8 @@ function ToolDetails({
             </div>
           )}
           {shellLike && command && command !== detail && <ToolTextPreview label="完整命令" text={command} onViewFull={setFullContent} />}
-          {output ? <ToolTextPreview label="完整输出" text={output} onViewFull={setFullContent} /> : shellLike && toolCall.status === 'completed' ? <div className={styles.emptyOutput}>无输出</div> : null}
+          {output ? <ToolTextPreview label="完整输出" text={output} onViewFull={(content) => void openFullOutput(content.text)} /> : shellLike && toolCall.status === 'completed' && !outputRef ? <div className={styles.emptyOutput}>无输出</div> : null}
+          {outputRef && <Button className={styles.viewFullButton} loading={loadingObject} size="small" type="link" onClick={() => void openFullOutput(output)}>读取完整输出</Button>}
           {failureReason && failureReason !== stderr && failureReason !== toolCall.error && <ToolTextPreview error label="完整失败信息" text={failureReason} onViewFull={setFullContent} />}
           {stderr && <ToolTextPreview error label="完整错误输出" text={stderr} onViewFull={setFullContent} />}
           {toolCall.error && <ToolTextPreview error label="完整错误" text={toolCall.error} onViewFull={setFullContent} />}
@@ -312,9 +334,12 @@ function ToolDetails({
             <span>{title || '输出'}</span>
             <Button aria-label="复制工具输出" className={styles.copyButton} icon={<CopyOutlined />} size="small" type="text" onClick={() => void onCopy(output)} />
           </div>
-          <ToolTextPreview label="完整输出" text={output} onViewFull={setFullContent} />
+          <ToolTextPreview label="完整输出" text={output} onViewFull={(content) => void openFullOutput(content.text)} />
+          {outputRef && <Button className={styles.viewFullButton} loading={loadingObject} size="small" type="link" onClick={() => void openFullOutput(output)}>读取完整输出</Button>}
         </div>
       )}
+
+      {!detail && !output && outputRef && <Button className={styles.viewFullButton} loading={loadingObject} size="small" type="link" onClick={() => void openFullOutput('')}>读取完整输出</Button>}
 
       {(toolCall.risk || toolCall.policyMode || toolCall.policyReason || toolCall.policyTargetSummary || toolExitCode(toolCall) !== undefined || toolRefCount(toolCall) > 0 || targets.length > 0) && (
         <div className={styles.meta}>
@@ -542,6 +567,7 @@ function hasToolDetails(toolCall: ToolCallViewModel, detail?: string, output?: s
       toolCall.display?.failureReason ||
       toolCall.policyTargetSummary ||
       toolCall.display?.workingDir ||
+      toolOutputRefCount(toolCall) ||
       toolTargets(toolCall).length ||
       toolArtifactCount(toolCall) ||
       toolDiffCount(toolCall),

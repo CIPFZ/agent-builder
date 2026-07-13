@@ -9,7 +9,10 @@ import (
 	"testing"
 
 	"github.com/CIPFZ/agent-builder/internal/agent"
+	agenttools "github.com/CIPFZ/agent-builder/internal/agent/tools"
+	"github.com/CIPFZ/agent-builder/internal/config"
 	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/message"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
@@ -135,6 +138,53 @@ func TestRuntimeRecorderLargeStdoutCreatesRefAndPreservesModelResult(t *testing.
 	}
 	if content.Content != stdout {
 		t.Fatalf("stored content len = %d, want %d", len(content.Content), len(stdout))
+	}
+}
+
+func TestToolResultGuardUsesProjectObjectWithoutWorkingDirectoryCopy(t *testing.T) {
+	t.Parallel()
+	ctx := context.WithValue(context.Background(), agenttools.TurnIDContextKey, "turn-1")
+	service := newTestRuntimeServiceWithRefs(t)
+	recorder := &runtimeSchedulerRecorder{service: service}
+	content := strings.Repeat("large tool output\n", 1000)
+	if err := recorder.ToolCallStarted(ctx, agent.SchedulerToolCall{
+		ID: "tool-guard", SessionID: "session-1", TurnID: "turn-1", Name: "bash", Source: string(scheduler.ToolSourceShell),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result := agent.SchedulerToolCallResult{
+		ToolCallID: "tool-guard", SessionID: "session-1", TurnID: "turn-1", Name: "bash", Source: string(scheduler.ToolSourceShell), ModelVisibleContent: content,
+	}
+	if err := recorder.ToolCallOutput(ctx, result); err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.ToolCallCompleted(ctx, result); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.DefaultToolResultGuardConfig()
+	cfg.MaxResultChars = 100
+	guard := agent.NewToolResultGuard(cfg, "session-1", recorder)
+	processed := guard.Process(ctx, message.ToolResult{ToolCallID: "tool-guard", Name: "bash", Content: content})
+	if !strings.HasPrefix(processed.StoredPath, "runtime://objects/") || !strings.Contains(processed.Content, processed.StoredPath) {
+		t.Fatalf("guard did not reference Runtime object: %#v", processed)
+	}
+	refs, err := service.objects.List(ctx, RuntimeObjectListRequest{SessionID: "session-1", ToolCallID: "tool-guard"})
+	if err != nil || len(refs) == 0 {
+		t.Fatalf("object refs = %#v err=%v", refs, err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("output and completion created duplicate Objects: %#v", refs)
+	}
+	ref := refs[len(refs)-1]
+	objectPath, err := service.objects.resolveStoragePath("project-1", ref.StoragePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(objectPath); err != nil {
+		t.Fatalf("project object payload missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(service.objects.dataDir, ".agent-builder", "results")); !os.IsNotExist(err) {
+		t.Fatalf("legacy working-directory result store was created: %v", err)
 	}
 }
 

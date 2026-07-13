@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"context"
 	"log/slog"
 	"slices"
 	"sync"
 
+	"github.com/CIPFZ/agent-builder/internal/agent/tools"
 	"github.com/CIPFZ/agent-builder/internal/config"
 	"github.com/CIPFZ/agent-builder/internal/message"
 )
@@ -13,22 +15,26 @@ import (
 type ToolResultGuard struct {
 	config    config.ToolResultGuardConfig
 	sessionID string
-	persister *ResultPersister
+	persister ToolResultPersister
 	turnTotal int
 	mu        sync.Mutex
 }
 
 // NewToolResultGuard creates a new ToolResultGuard.
-func NewToolResultGuard(cfg config.ToolResultGuardConfig, sessionID string) *ToolResultGuard {
+func NewToolResultGuard(cfg config.ToolResultGuardConfig, sessionID string, persister ...ToolResultPersister) *ToolResultGuard {
+	var objectPersister ToolResultPersister
+	if len(persister) > 0 {
+		objectPersister = persister[0]
+	}
 	return &ToolResultGuard{
 		config:    cfg,
 		sessionID: sessionID,
-		persister: NewResultPersister(cfg.ResultsDir, cfg.PerSessionMaxBytes, cfg.TTLDays),
+		persister: objectPersister,
 	}
 }
 
 // Process runs the guard pipeline on a tool result.
-func (g *ToolResultGuard) Process(result message.ToolResult) message.ToolResult {
+func (g *ToolResultGuard) Process(ctx context.Context, result message.ToolResult) message.ToolResult {
 	if !g.config.Enabled {
 		return result
 	}
@@ -50,7 +56,7 @@ func (g *ToolResultGuard) Process(result message.ToolResult) message.ToolResult 
 			"size", len(result.Content),
 			"threshold", threshold,
 		)
-		return g.truncateAndPersist(result, threshold, "single")
+		return g.truncateAndPersist(ctx, result, threshold, "single")
 	}
 
 	g.turnTotal += len(result.Content)
@@ -63,7 +69,7 @@ func (g *ToolResultGuard) Process(result message.ToolResult) message.ToolResult 
 			"turn_total", g.turnTotal,
 			"turn_budget", g.config.TurnBudget,
 		)
-		return g.truncateAndPersist(result, 0, "turn_budget")
+		return g.truncateAndPersist(ctx, result, 0, "turn_budget")
 	}
 
 	return result
@@ -83,11 +89,19 @@ func (g *ToolResultGuard) resolveThreshold(toolName string) int {
 	return g.config.MaxResultChars
 }
 
-func (g *ToolResultGuard) truncateAndPersist(result message.ToolResult, threshold int, reason string) message.ToolResult {
+func (g *ToolResultGuard) truncateAndPersist(ctx context.Context, result message.ToolResult, threshold int, reason string) message.ToolResult {
 	originalSize := int64(len(result.Content))
 
-	// First write full content to disk
-	storedPath, err := g.persister.Persist(g.sessionID, result.ToolCallID, result.Content)
+	if g.persister == nil {
+		result.Content = fallbackTruncate(result.Content, g.config.MaxResultChars)
+		result.TruncatedBy = reason
+		result.OriginalSize = originalSize
+		return result
+	}
+	storedPath, err := g.persister.PersistToolResult(ctx, ToolResultPersistenceRequest{
+		SessionID: g.sessionID, TurnID: tools.GetTurnFromContext(ctx), ToolCallID: result.ToolCallID,
+		ToolName: result.Name, Content: result.Content,
+	})
 	if err != nil {
 		slog.Warn("ToolResultGuard: persist failed, using inline truncation",
 			"tool", result.Name,
@@ -100,15 +114,15 @@ func (g *ToolResultGuard) truncateAndPersist(result message.ToolResult, threshol
 		return result
 	}
 
-	slog.Info("ToolResultGuard: persisted large result to disk",
+	slog.Info("ToolResultGuard: persisted large result to Runtime object store",
 		"tool", result.Name,
 		"tool_call_id", result.ToolCallID,
 		"original_size", originalSize,
-		"stored_path", storedPath,
+		"stored_ref", storedPath,
 		"reason", reason,
 	)
 
-	// Then build the preview with the actual path.
+	// Then build the preview with the authoritative Runtime object URI.
 	// threshold=0 means "always truncate" (used by turn_budget).
 	preview, _ := Truncate(result.Content, threshold, storedPath)
 	result.Content = preview
@@ -124,14 +138,5 @@ func fallbackTruncate(content string, maxChars int) string {
 		return content
 	}
 	preview := content[:maxChars]
-	return preview + "\n\n[Truncated: tool response was too large and could not be persisted to disk.]"
-}
-
-// CleanupOldFiles triggers background TTL cleanup of old result files.
-func (g *ToolResultGuard) CleanupOldFiles() {
-	slog.Info("ToolResultGuard: starting background cleanup",
-		"results_dir", g.config.ResultsDir,
-		"ttl_days", g.config.TTLDays,
-	)
-	go g.persister.CleanupOldFiles()
+	return preview + "\n\n[Truncated: tool response was too large and could not be persisted to the Runtime object store.]"
 }

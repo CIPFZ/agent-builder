@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -837,25 +838,42 @@ func (r *runtimeSchedulerRecorder) createToolOutputRefs(ctx context.Context, res
 			turnID = firstNonEmpty(turnID, existing.TurnID)
 		}
 	}
+	store, _ := r.service.ensureRuntimeObjectStore(ctx)
+	existing, _ := store.List(ctx, RuntimeObjectListRequest{SessionID: sessionID, ToolCallID: result.ToolCallID})
 	add := func(kind, mediaType, contentType, payload, summary string) {
 		if strings.TrimSpace(payload) == "" {
 			return
 		}
-		ref, err := r.service.createRuntimeObject(ctx, runtimeObjectCreateRequest{
-			SessionID:         sessionID,
-			TurnID:            turnID,
-			ToolCallID:        result.ToolCallID,
-			SandboxDecisionID: result.SandboxDecisionID,
-			SandboxMode:       result.SandboxMode,
-			SandboxStatus:     result.SandboxStatus,
-			Kind:              kind,
-			MediaType:         mediaType,
-			ContentType:       contentType,
-			Payload:           []byte(payload),
-			Summary:           summary,
-		})
-		if err != nil {
-			return
+		var ref RuntimeObject
+		for _, candidate := range existing {
+			if candidate.Kind != kind || candidate.ContentType != contentType || candidate.SizeBytes != int64(len(payload)) || !candidate.CanReadContent {
+				continue
+			}
+			content, readErr := store.ReadContent(ctx, candidate.ID)
+			if readErr == nil && content.Content == payload {
+				ref = candidate
+				break
+			}
+		}
+		if ref.ID == "" {
+			var err error
+			ref, err = r.service.createRuntimeObject(ctx, runtimeObjectCreateRequest{
+				SessionID:         sessionID,
+				TurnID:            turnID,
+				ToolCallID:        result.ToolCallID,
+				SandboxDecisionID: result.SandboxDecisionID,
+				SandboxMode:       result.SandboxMode,
+				SandboxStatus:     result.SandboxStatus,
+				Kind:              kind,
+				MediaType:         mediaType,
+				ContentType:       contentType,
+				Payload:           []byte(payload),
+				Summary:           summary,
+			})
+			if err != nil {
+				return
+			}
+			existing = append(existing, ref)
 		}
 		switch kind {
 		case runtimeObjectKindArtifact:
@@ -888,6 +906,47 @@ func (r *runtimeSchedulerRecorder) createToolOutputRefs(ctx context.Context, res
 		add(outputKind, "text/plain", "error", result.Error, "tool error output")
 	}
 	return refs
+}
+
+// PersistToolResult returns the canonical object created by the scheduler
+// recorder, or creates it when a tool bypassed the normal output callback.
+// The Agent guard uses the URI in its bounded model-visible preview and never
+// writes a second copy under the user's working directory.
+func (r *runtimeSchedulerRecorder) PersistToolResult(ctx context.Context, req agent.ToolResultPersistenceRequest) (string, error) {
+	if r == nil || r.service == nil {
+		return "", errors.New("runtime tool result object store is unavailable")
+	}
+	store, err := r.service.ensureRuntimeObjectStore(ctx)
+	if err != nil {
+		return "", err
+	}
+	refs, err := store.List(ctx, RuntimeObjectListRequest{SessionID: req.SessionID, ToolCallID: req.ToolCallID})
+	if err != nil {
+		return "", err
+	}
+	for i := len(refs) - 1; i >= 0; i-- {
+		ref := refs[i]
+		if ref.ContentType == "model_content" && ref.SizeBytes == int64(len(req.Content)) {
+			return ref.URI, nil
+		}
+	}
+	projectID := ""
+	if store.db != nil {
+		_ = store.db.QueryRowContext(ctx, `SELECT COALESCE(project_id, '') FROM sessions WHERE id = ?`, req.SessionID).Scan(&projectID)
+	}
+	kind := runtimeObjectKindOutput
+	if strings.EqualFold(req.ToolName, "bash") || strings.EqualFold(req.ToolName, "job_output") {
+		kind = runtimeObjectKindShellJobOutput
+	}
+	ref, err := r.service.createRuntimeObject(ctx, runtimeObjectCreateRequest{
+		ProjectID: projectID, SessionID: req.SessionID, TurnID: req.TurnID, ToolCallID: req.ToolCallID,
+		Kind: kind, MediaType: "text/plain", ContentType: "model_content", Payload: []byte(req.Content),
+		Summary: "model-visible tool output",
+	})
+	if err != nil {
+		return "", err
+	}
+	return ref.URI, nil
 }
 
 func looksLikeDiff(value string) bool {

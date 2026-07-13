@@ -1674,6 +1674,7 @@ interface RuntimeBridgeModule {
   SessionContextUsage?: (sessionID: string) => Promise<RuntimeContextUsageDTO>;
   SessionConversationSnapshotV2?: (sessionID: string, req: CanonicalConversationSnapshotRequest) => Promise<CanonicalConversationSnapshot>;
   SessionConversationMessageContentV2?: (sessionID: string, messageID: string) => Promise<{ schemaVersion: 2; sessionId: string; messageId: string; content: string }>;
+  ReadObjectContent?: (refID: string) => Promise<{ content: string; redacted?: boolean }>;
   SearchSessionConversationV2?: (sessionID: string, req: { query: string; limit?: number }) => Promise<{ schemaVersion: 2; sessionId: string; results: import('./canonicalConversationTypes.ts').ConversationSearchResult[] }>;
   SessionConversationEventsV2?: (sessionID: string, req: CanonicalConversationEventsRequest) => Promise<CanonicalConversationEventsResponse>;
   StartSessionConversationStreamV2?: (req: { sessionId: string; streamId?: string; after: string }) => Promise<{ streamId: string; eventName: string }>;
@@ -3925,14 +3926,26 @@ function resetConversationRuntimeState(current: WorkbenchViewModel): WorkbenchVi
   };
 }
 
-function bindDraftToCurrentProject(current: WorkbenchViewModel): WorkbenchViewModel {
+function bindDraftToCurrentProject(current: WorkbenchViewModel, activateDraft = false): WorkbenchViewModel {
   const projectId = current.currentProject.id;
   return {
     ...current,
+    mode: activateDraft ? 'new-chat' : current.mode,
     conversationTarget: projectId
       ? { kind: 'draft', scope: 'project', projectId }
       : { kind: 'draft', scope: 'standalone' },
     sessions: current.sessions.map((session) => ({ ...session, active: false })),
+    conversation: activateDraft ? [] : current.conversation,
+    canonicalConversationStore: activateDraft ? undefined : current.canonicalConversationStore,
+    optimisticConversationByClientRequestId: activateDraft ? undefined : current.optimisticConversationByClientRequestId,
+    turnDiagnostics: activateDraft ? undefined : current.turnDiagnostics,
+    runProjection: activateDraft ? undefined : current.runProjection,
+    reactCallchain: activateDraft ? undefined : current.reactCallchain,
+    contextDiagnostics: activateDraft ? undefined : current.contextDiagnostics,
+    pendingPermissions: activateDraft ? [] : current.pendingPermissions,
+    composer: activateDraft
+      ? { ...current.composer, busy: false, activeTurnId: undefined, contextUsage: undefined }
+      : current.composer,
   };
 }
 
@@ -3956,7 +3969,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     const bridge = await loadRuntimeBridge();
     if (bridge?.OpenProject) {
       await bridge.OpenProject(request);
-      return bindDraftToCurrentProject(await hydrateWorkbench(nextBase, bridge));
+      return bindDraftToCurrentProject(await hydrateWorkbench(nextBase, bridge), true);
     }
     throw new Error('open project Wails binding is unavailable');
   },
@@ -3965,7 +3978,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     const bridge = await loadRuntimeBridge();
     if (bridge?.CreateProject) {
       await bridge.CreateProject(request);
-      return bindDraftToCurrentProject(await hydrateWorkbench(nextBase, bridge));
+      return bindDraftToCurrentProject(await hydrateWorkbench(nextBase, bridge), true);
     }
     throw new Error('create project Wails binding is unavailable');
   },
@@ -4033,6 +4046,12 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     if (!bridge?.SessionConversationMessageContentV2) throw new Error('canonical message content API is unavailable');
     const response = await bridge.SessionConversationMessageContentV2(sessionID, messageID);
     if (response.sessionId !== sessionID || response.messageId !== messageID) throw new Error('canonical message content response mismatch');
+    return response.content;
+  },
+  async fetchObjectContent(refID) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.ReadObjectContent) throw new Error('Runtime object content API is unavailable');
+    const response = await bridge.ReadObjectContent(refID);
     return response.content;
   },
   async searchConversation(sessionID, query) {
@@ -4163,8 +4182,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
 
     return withBridge(
       async (bridge) => {
-        try {
-          const response = await runtimeRequestWithTimeout(
+        const response = await runtimeRequestWithTimeout(
             () =>
               bridge.SubmitUserInput
                 ? bridge.SubmitUserInput(toRuntimeUserInputRequest(input, activeSessionID, draftTarget))
@@ -4177,44 +4195,28 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
             runtimeMutationTimeoutMS,
             '运行时响应超时，请稍后刷新会话查看结果。',
           );
-          const responseSessionID = response.status.sessionId || activeSessionID;
-          if (!responseSessionID) {
-            throw new Error('runtime did not return a sessionId for the submitted turn');
-          }
-          const busyAfterSubmit = Boolean(response.turnId);
-          const normalizedConversation = mapNormalizedInputConversation(response, prompt);
-          const normalizedOnly = !response.turnId && response.normalizedInput;
-          // A draft has no session stream until SubmitUserInput returns the
-          // authoritative id. Read the initial snapshot before rendering the
-          // adopted session so events emitted during that handshake window
-          // cannot leave the local loading placeholder stranded.
-          return {
-            ...current,
-            mode: 'new-chat',
-            conversationTarget: { kind: 'session', sessionId: responseSessionID },
-            sessions: sessionsAfterDraftSubmit(current, responseSessionID, prompt, draftTarget, response.turnId),
-            conversation:
-              normalizedOnly
-                ? mergeNormalizedConversation(current.conversation, normalizedConversation)
-                : current.conversation,
-            composer: {
-              ...current.composer,
-              busy: busyAfterSubmit,
-              activeTurnId: busyAfterSubmit ? response.turnId : undefined,
-            },
-          };
-        } catch (error) {
-          const message = runtimeErrorMessage(error);
-          return {
-            ...current,
-            mode: 'new-chat',
-            conversationTarget: target,
-            conversation: current.conversation.map((item) => item.clientRequestId === input.options?.clientRequestId
-              ? { ...item, status: 'error' as const, error: message }
-              : item),
-            composer: { ...current.composer, busy: false, activeTurnId: undefined },
-          };
+        const responseSessionID = response.status.sessionId || activeSessionID;
+        if (!responseSessionID) {
+          throw new Error('runtime did not return a sessionId for the submitted turn');
         }
+        const busyAfterSubmit = Boolean(response.turnId);
+        const normalizedConversation = mapNormalizedInputConversation(response, prompt);
+        const normalizedOnly = !response.turnId && response.normalizedInput;
+        return {
+          ...current,
+          mode: 'new-chat',
+          conversationTarget: { kind: 'session', sessionId: responseSessionID },
+          sessions: sessionsAfterDraftSubmit(current, responseSessionID, prompt, draftTarget, response.turnId),
+          conversation:
+            normalizedOnly
+              ? mergeNormalizedConversation(current.conversation, normalizedConversation)
+              : current.conversation,
+          composer: {
+            ...current.composer,
+            busy: busyAfterSubmit,
+            activeTurnId: busyAfterSubmit ? response.turnId : undefined,
+          },
+        };
       },
       () => staticWorkbenchAdapter.sendPrompt(current, prompt),
     );
@@ -4795,8 +4797,4 @@ function mapProjectMemoryIndex(response: RuntimeMemoryIndexResponseDTO): Project
     startedAt: response.startedAt,
     endedAt: response.endedAt,
   };
-}
-
-function runtimeErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : '运行时请求失败';
 }

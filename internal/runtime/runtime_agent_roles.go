@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -206,14 +207,27 @@ func (r *runtimeService) ensureAgentRolesLoaded(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	db, err := db.Connect(ctx, ws.Cfg.Config().Options.DataDirectory)
+	dataDir := ws.Cfg.Config().Options.DataDirectory
+	conn, err := db.Connect(ctx, dataDir)
 	if err != nil {
 		return err
 	}
-	store := newRuntimeAgentRoleStore(db)
+	defer db.Release(dataDir) //nolint:errcheck
+	store := newRuntimeAgentRoleStore(conn)
 	roles := r.defaultAgentRoles()
 	for _, role := range roles {
-		stored, err := store.Upsert(ctx, role)
+		desired := normalizeRuntimeAgentRole(role)
+		existing, getErr := store.Get(ctx, desired.ID)
+		if getErr == nil && runtimeAgentRolesSemanticallyEqual(existing, desired) {
+			continue
+		}
+		if getErr != nil && !errors.Is(getErr, errRuntimeAgentRoleNotFound) {
+			return getErr
+		}
+		if getErr == nil {
+			desired.CreatedAt = existing.CreatedAt
+		}
+		stored, err := store.Upsert(ctx, desired)
 		if err != nil {
 			return err
 		}
@@ -231,6 +245,23 @@ func (r *runtimeService) ensureAgentRolesLoaded(ctx context.Context) error {
 		})
 	}
 	return nil
+}
+
+func runtimeAgentRolesSemanticallyEqual(left, right RuntimeAgentRoleDefinition) bool {
+	return left.ID == right.ID &&
+		left.Name == right.Name &&
+		left.Title == right.Title &&
+		left.Description == right.Description &&
+		left.PromptSummary == right.PromptSummary &&
+		slices.Equal(left.AllowedTools, right.AllowedTools) &&
+		slices.Equal(left.CapabilityScope, right.CapabilityScope) &&
+		left.Model == right.Model &&
+		left.Provider == right.Provider &&
+		left.CWD == right.CWD &&
+		left.Worktree == right.Worktree &&
+		left.Risk == right.Risk &&
+		maps.Equal(left.PolicyMetadata, right.PolicyMetadata) &&
+		left.Source == right.Source
 }
 
 func (r *runtimeService) defaultAgentRoles() []RuntimeAgentRoleDefinition {
@@ -281,14 +312,17 @@ func defaultTaskAgentRole(agentCfg *config.Agent, cwd string) RuntimeAgentRoleDe
 }
 
 func (r *runtimeService) AgentRoles(ctx context.Context) (RuntimeAgentRolesResponse, error) {
-	if err := r.ensureAgentRolesLoaded(ctx); err != nil {
-		return RuntimeAgentRolesResponse{}, err
-	}
-	db, err := r.workspaceDB(ctx)
+	cfg, _, err := r.workspaceConfig(ctx)
 	if err != nil {
 		return RuntimeAgentRolesResponse{}, err
 	}
-	roles, err := newRuntimeAgentRoleStore(db).List(ctx)
+	dataDir := cfg.Config().Options.DataDirectory
+	conn, err := db.Connect(ctx, dataDir)
+	if err != nil {
+		return RuntimeAgentRolesResponse{}, err
+	}
+	defer db.Release(dataDir) //nolint:errcheck
+	roles, err := newRuntimeAgentRoleStore(conn).List(ctx)
 	if err != nil {
 		return RuntimeAgentRolesResponse{}, err
 	}
@@ -296,14 +330,17 @@ func (r *runtimeService) AgentRoles(ctx context.Context) (RuntimeAgentRolesRespo
 }
 
 func (r *runtimeService) AgentRole(ctx context.Context, id string) (RuntimeAgentRoleResponse, error) {
-	if err := r.ensureAgentRolesLoaded(ctx); err != nil {
-		return RuntimeAgentRoleResponse{}, err
-	}
-	db, err := r.workspaceDB(ctx)
+	cfg, _, err := r.workspaceConfig(ctx)
 	if err != nil {
 		return RuntimeAgentRoleResponse{}, err
 	}
-	role, err := newRuntimeAgentRoleStore(db).Get(ctx, strings.TrimSpace(id))
+	dataDir := cfg.Config().Options.DataDirectory
+	conn, err := db.Connect(ctx, dataDir)
+	if err != nil {
+		return RuntimeAgentRoleResponse{}, err
+	}
+	defer db.Release(dataDir) //nolint:errcheck
+	role, err := newRuntimeAgentRoleStore(conn).Get(ctx, strings.TrimSpace(id))
 	if err != nil {
 		return RuntimeAgentRoleResponse{}, err
 	}

@@ -69,7 +69,14 @@ function projectTool(call: CanonicalToolCall, store: CanonicalConversationStore,
 }
 
 function projectToolGroup(key: string, calls: CanonicalToolCall[], store: CanonicalConversationStore, structured: CanonicalStructuredActivity): ConversationTimelineItemViewModel {
-  return { id: key, kind: 'tool_group', sessionId: calls[0]?.sessionId, turnId: calls[0]?.turnId, status: calls.some((call) => isFailure(call.status)) ? 'failed' : calls.some((call) => call.status === 'running' || call.status === 'queued') ? 'running' : 'completed', toolCalls: calls.map((call) => projectToolCall(call, store, structured)), createdAt: calls[0]?.createdAt, updatedAt: Math.max(...calls.map((call) => call.updatedAt)) };
+  const status = calls.some((call) => isFailure(call.status))
+    ? 'failed'
+    : calls.some((call) => call.status === 'waiting_permission')
+      ? 'waiting_permission'
+      : calls.some((call) => isActiveToolStatus(call.status))
+        ? 'running'
+        : 'completed';
+  return { id: key, kind: 'tool_group', sessionId: calls[0]?.sessionId, turnId: calls[0]?.turnId, status, toolCalls: calls.map((call) => projectToolCall(call, store, structured)), createdAt: calls[0]?.createdAt, updatedAt: Math.max(...calls.map((call) => call.updatedAt)) };
 }
 
 function projectToolCall(call: CanonicalToolCall, store: CanonicalConversationStore, structured: CanonicalStructuredActivity): ToolCallViewModel {
@@ -80,3 +87,4 @@ function projectToolCall(call: CanonicalToolCall, store: CanonicalConversationSt
 }
 
 function isFailure(status?: string) { return status === 'failed' || status === 'denied' || status === 'cancelled' || status === 'interrupted'; }
+function isActiveToolStatus(status?: string) { return status === 'pending' || status === 'queued' || status === 'running' || status === 'streaming' || status === 'in_progress' || status === 'starting'; }

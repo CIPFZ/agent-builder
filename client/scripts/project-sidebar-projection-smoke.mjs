@@ -30,6 +30,18 @@ const checks = [
     name: 'new chat is a local draft and does not mutate runtime session state',
     ok: !adapter.includes('startConversationDraft') && !adapter.includes("bridge.NewChat('')") && !adapter.includes('await bridge.CreateSession'),
   },
+  {
+    name: 'opening or creating a project activates its empty new-chat draft',
+    ok: adapter.includes("mode: activateDraft ? 'new-chat' : current.mode")
+      && adapter.includes('bindDraftToCurrentProject(await hydrateWorkbench(nextBase, bridge), true)')
+      && adapter.includes('canonicalConversationStore: activateDraft ? undefined'),
+  },
+  {
+    name: 'changing the current project preserves the previous project expansion',
+    ok: sidebar.includes('preserveCurrentProjectExpansion()')
+      && sidebar.includes('saveProjectExpandedPreference(currentProjectID, true)')
+      && sidebar.includes('await onProjectOpen({ path: path.trim() })'),
+  },
 ];
 
 const failed = checks.filter((check) => !check.ok);

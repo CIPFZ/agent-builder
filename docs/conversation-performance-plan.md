@@ -168,6 +168,36 @@ Initial targets:
 
 ## Performance commands and recorded baseline
 
+### Follow-up event-storm remediation (2026-07-13)
+
+A four-Session packaged run contained only 6 Turns, 50 Messages, and roughly
+11 MB of durable data, but persisted 3,215 Runtime events. Of those events,
+2,160 were `task.role.loaded`, emitted at a median interval of about 265 ms.
+The root cause was a read/write feedback loop: full Workbench hydration read
+`AgentRoles`, the read unconditionally upserted the default role and emitted
+`task.role.loaded`, and the general Runtime stream scheduled another full
+hydration for that event.
+
+The remediation establishes these additional invariants:
+
+- Agent-role reads are side-effect free. Default-role initialization writes
+  and emits only when semantic role content changes.
+- Unknown Runtime events do not trigger a full Workbench hydration. Event
+  types must opt into the frontend refresh policy.
+- Terminal Turns release execution-only request, Session/Turn, message-stream,
+  and tool-event indexes after durable terminal projections are published.
+- Context-usage debounce timers remove themselves after firing and are
+  cancelled and removed when the Runtime restarts.
+- Repeated Agent-role reads/initialization are covered by an event-sequence
+  regression test; completed execution-index and timer cleanup have focused
+  lifecycle tests.
+
+The next packaged acceptance run must additionally assert an idle Runtime
+event rate of zero. Supporting an arbitrary number of submitted Sessions
+under a hard 1 GB process-tree budget also requires bounded execution
+admission: queued Turns may be unlimited and durable, but only a configured
+small number of prompt/provider/tool working sets may execute concurrently.
+
 Frontend deterministic gate:
 
 ```text
@@ -204,11 +234,13 @@ Windows desktop process-tree capture:
 ```text
 scripts/conversation-memory-profile.ps1
 scripts/conversation-memory-profile.ps1 -MaxPrivateMB 900 -OutputPath tmp/conversation-memory.json
+scripts/conversation-memory-profile.ps1 -DurationSeconds 600 -IntervalSeconds 2 -MaxPrivateMB 900 -OutputPath tmp/conversation-memory-10m.json
 ```
 
 The script follows the AgentBuilder child-process tree, separates Go,
 WebView2 renderer/GPU/utility processes, records private and working-set MB,
-and optionally fails above a supplied total-private-memory threshold. Run the
+records a time series and peak values when `DurationSeconds` is set, and
+optionally fails above a supplied peak private-memory threshold. Run the
 threshold form against a freshly restarted packaged build after opening the
 standard long-Session fixture; a dev process that predates these changes is
 not a valid acceptance measurement.

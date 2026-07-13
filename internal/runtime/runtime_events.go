@@ -551,9 +551,34 @@ func (r *runtimeService) scheduleContextUsageUpdate(sessionID, turnID string) {
 	if existing, ok := state.timers[sessionID]; ok {
 		existing.Stop()
 	}
-	state.timers[sessionID] = time.AfterFunc(runtimeContextUsageUpdateDebounce, func() {
+	var timer *time.Timer
+	timer = time.AfterFunc(runtimeContextUsageUpdateDebounce, func() {
 		r.publishContextUsageUpdated(context.Background(), sessionID, turnID, "", 0, nil)
+		state.mu.Lock()
+		if state.timers[sessionID] == timer {
+			delete(state.timers, sessionID)
+		}
+		empty := len(state.timers) == 0
+		state.mu.Unlock()
+		if empty {
+			contextUsageDebounceRegistry.CompareAndDelete(r, state)
+		}
 	})
+	state.timers[sessionID] = timer
+}
+
+func (r *runtimeService) clearContextUsageDebounceTimers() {
+	stateAny, ok := contextUsageDebounceRegistry.LoadAndDelete(r)
+	if !ok {
+		return
+	}
+	state := stateAny.(*contextUsageDebounceState)
+	state.mu.Lock()
+	for sessionID, timer := range state.timers {
+		timer.Stop()
+		delete(state.timers, sessionID)
+	}
+	state.mu.Unlock()
 }
 
 func newSnapshotRequiredEvent(after, firstSequence, lastSequence int64) RuntimeEvent {

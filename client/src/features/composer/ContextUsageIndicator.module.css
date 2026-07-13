@@ -1,9 +1,8 @@
 .trigger {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   height: 28px;
-  padding: 0 6px;
+  padding: 0 4px;
   border: 0;
   background: transparent;
   color: var(--ant-color-text-secondary);
@@ -14,16 +13,6 @@
 .trigger:focus-visible {
   color: var(--ant-color-text);
   outline: none;
-}
-
-.ring {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at center, var(--ant-color-bg-container) 48%, transparent 50%),
-    conic-gradient(currentColor var(--context-usage-percent), rgb(0 0 0 / 10%) 0);
 }
 
 .percent {
@@ -121,9 +110,6 @@
 }
 
 .footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   padding-top: 12px;
+  text-align: right;
 }

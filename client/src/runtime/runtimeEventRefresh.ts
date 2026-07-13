@@ -58,18 +58,47 @@ const coalescedRefreshEvents = new Set([
   'compact.failed',
 ]);
 
+const backgroundRefreshEvents = new Set([
+  'session.created',
+  'session.updated',
+  'session.deleted',
+  'task.started',
+  'task.completed',
+  'task.failed',
+  'task.cancelled',
+  'task.interrupted',
+  'task.role.loaded',
+  'task.result.updated',
+]);
+
+const backgroundRefreshPrefixes = [
+  'project.',
+  'model.',
+  'provider.',
+  'skill.discovery.',
+  'plugin.',
+  'mcp.server.',
+];
+
 export const runtimeEventImmediateRefreshDelayMS = 0;
 export const runtimeEventCoalescedRefreshDelayMS = 350;
 
 export function runtimeEventRefreshDelay(event: RuntimeEventViewModel) {
   const type = event.type || '';
+  if (!type) return undefined;
   if (immediateRefreshEvents.has(type) || type.includes('diagnostic') || type.includes('artifact')) {
     return runtimeEventImmediateRefreshDelayMS;
   }
   if (coalescedRefreshEvents.has(type) || type.includes('delta') || type.includes('token') || type.includes('progress')) {
     return runtimeEventCoalescedRefreshDelayMS;
   }
-  return 180;
+  if (backgroundRefreshEvents.has(type) || backgroundRefreshPrefixes.some((prefix) => type.startsWith(prefix))) {
+    return 180;
+  }
+  // Runtime events are durable audit/invalidation facts, not a command to
+  // rebuild the entire Workbench. Unknown events stay observable in the
+  // stream but must opt in above before they can allocate a full hydration.
+  return undefined;
 }
 
 // runtimeEventCoveredByOutputStream reports whether the event is one that

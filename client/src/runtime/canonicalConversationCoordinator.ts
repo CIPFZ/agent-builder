@@ -113,7 +113,7 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
       if (cached) {
         remember(sessionId, cached);
         deps.onStore(cached);
-        void connect(sessionId, gen, cached);
+        void connect(sessionId, gen, cached).catch(() => { if (current(sessionId, gen)) void recover(sessionId, gen); });
       } else {
         void recover(sessionId, gen);
       }

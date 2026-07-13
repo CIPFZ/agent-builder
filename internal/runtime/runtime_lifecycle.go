@@ -109,6 +109,7 @@ func (r *runtimeService) restart() {
 	r.startMu.Lock()
 	defer r.startMu.Unlock()
 
+	r.clearContextUsageDebounceTimers()
 	r.closeRuntimeTerminals("closed", "runtime restarted")
 
 	r.mu.Lock()
@@ -151,6 +152,11 @@ func (r *runtimeService) restart() {
 	r.terminalIDsBySession = make(map[string]map[string]struct{})
 	r.recovery = runtimeRecoveryRecord{}
 	r.events = nil
+	r.messageStream = make(map[string]*messageStreamCursor)
+	r.conversationV2Deferred = make(map[string]bool)
+	r.conversationV2Pending = make(map[string]map[int64]RuntimeEvent)
+	r.compactTurnStates = make(map[string]runtimeTurnCompactState)
+	r.compactFailures = make(map[string]int)
 }
 
 func (r *runtimeService) ensureStarted(ctx context.Context) error {

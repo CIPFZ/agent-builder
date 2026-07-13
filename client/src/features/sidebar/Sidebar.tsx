@@ -113,6 +113,15 @@ export function Sidebar({
       onModeChange('plugins');
     }
   };
+  const preserveCurrentProjectExpansion = () => {
+    const currentProjectID = viewModel.projects.find((project) => project.current)?.id;
+    if (!currentProjectID) return;
+    setExpandedProjectIDs((current) => {
+      if (current[currentProjectID] !== undefined) return current;
+      saveProjectExpandedPreference(currentProjectID, true);
+      return { ...current, [currentProjectID]: true };
+    });
+  };
   const submitProjectDialog = async () => {
     const name = projectName.trim();
     if (!projectDialogMode || !name) {
@@ -131,6 +140,7 @@ export function Sidebar({
         }
         await onProjectRename({ projectId: projectDialogTarget.id, name });
       } else {
+        preserveCurrentProjectExpansion();
         await onProjectCreate({ name });
       }
       setProjectDialogMode(undefined);
@@ -152,6 +162,7 @@ export function Sidebar({
       if (!path.trim()) {
         return;
       }
+      preserveCurrentProjectExpansion();
       await onProjectOpen({ path: path.trim() });
     } catch (error) {
       Modal.error({

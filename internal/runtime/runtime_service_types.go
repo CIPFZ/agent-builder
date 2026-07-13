@@ -264,6 +264,7 @@ type runtimeTurnCompactState struct {
 // coalesced.
 type messageStreamCursor struct {
 	sessionID         string
+	turnID            string
 	lastTextLen       int
 	lastReasoningLen  int
 	lastUpdateEmitted int64

@@ -47,7 +47,7 @@ function AgentTeamMember({ task, onAgentTaskOpen }: { task: AgentTaskViewModel; 
 }
 
 function permissionStatusLabel(status?: string) {
-  if (status === 'pending') return '等待权限确认';
+  if (status === 'pending' || status === 'requested' || status === 'waiting' || status === 'waiting_permission') return '等待权限确认';
   if (status === 'allowed' || status === 'allowed_once') return '已允许';
   if (status === 'allowed_session') return '本会话已允许';
   if (status === 'denied') return '已拒绝';
@@ -57,8 +57,9 @@ function permissionStatusLabel(status?: string) {
 }
 
 function agentTaskStatusColor(status?: string) {
-  if (status === 'queued' || status === 'running') return 'processing';
-  if (status === 'completed') return 'success';
-  if (status === 'failed' || status === 'interrupted') return 'error';
+  if (status === 'queued' || status === 'running' || status === 'streaming' || status === 'in_progress' || status === 'starting') return 'processing';
+  if (status === 'waiting' || status === 'blocked' || status === 'waiting_permission' || status === 'pending') return 'warning';
+  if (status === 'completed' || status === 'complete' || status === 'success' || status === 'succeeded' || status === 'done') return 'success';
+  if (status === 'failed' || status === 'error' || status === 'interrupted' || status === 'cancelled' || status === 'canceled') return 'error';
   return 'default';
 }

@@ -23,8 +23,8 @@ var errorKeywords = []string{
 // Truncate applies head+tail truncation to content. If content is within
 // maxChars, returns (content, false). Otherwise returns a <persisted-output>
 // XML block with head+tail preview and (result, true).
-// storedPath is the expected disk path for the full content.
-func Truncate(content string, maxChars int, storedPath string) (string, bool) {
+// storedRef is the authoritative Runtime Object URI for the full content.
+func Truncate(content string, maxChars int, storedRef string) (string, bool) {
 	totalChars := len(content)
 	if totalChars <= maxChars {
 		return content, false
@@ -50,7 +50,7 @@ func Truncate(content string, maxChars int, storedPath string) (string, bool) {
 	previewBody := headContent + tailContent
 	hasMore := (headSize+tailSize < totalChars)
 
-	return buildPersistedOutput(previewBody, totalChars, storedPath, len(headContent), len(tailContent), hasMore), true
+	return buildPersistedOutput(previewBody, totalChars, storedRef, len(headContent), len(tailContent), hasMore), true
 }
 
 // safeUTF8Cut adjusts a byte position backward to a valid UTF-8 boundary.
@@ -80,7 +80,7 @@ func hasTailPriority(tail string) bool {
 }
 
 // buildPersistedOutput constructs the <persisted-output> XML block.
-func buildPersistedOutput(previewBody string, totalChars int, storedPath string, headSize, tailSize int, hasMore bool) string {
+func buildPersistedOutput(previewBody string, totalChars int, storedRef string, headSize, tailSize int, hasMore bool) string {
 	sizeKB := float64(totalChars) / 1024
 	var sizeStr string
 	if sizeKB >= 1024 {
@@ -92,8 +92,8 @@ func buildPersistedOutput(previewBody string, totalChars int, storedPath string,
 	var b strings.Builder
 	b.WriteString(persistedOutputTag + "\n")
 	fmt.Fprintf(&b, "This tool result was too large (%d characters, %s).\n", totalChars, sizeStr)
-	fmt.Fprintf(&b, "Full output saved to: %s\n", storedPath)
-	b.WriteString("Use the view tool with offset and limit to access specific sections of this output.\n\n")
+	fmt.Fprintf(&b, "Full output retained as Runtime object: %s\n", storedRef)
+	b.WriteString("The full content remains available through the tool output reference.\n\n")
 	fmt.Fprintf(&b, "Preview (head %d + tail %d chars):\n", headSize, tailSize)
 	b.WriteString(previewBody)
 	if hasMore {

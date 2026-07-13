@@ -25,7 +25,6 @@ interface ComposerProps {
   onPermissionModeSelect: (mode: string) => Promise<void>;
   onCancel: () => Promise<void>;
   onSubmit: (prompt: string) => Promise<void>;
-  onManualCompact?: () => Promise<void>;
 }
 
 const menu = {
@@ -48,7 +47,6 @@ export function Composer({
   onPermissionModeSelect,
   onCancel,
   onSubmit,
-  onManualCompact,
 }: ComposerProps) {
   const [messageApi, messageContextHolder] = message.useMessage();
   const [draft, setDraft] = useState('');
@@ -155,7 +153,7 @@ export function Composer({
       </div>
 
       <div className={styles.rightControls}>
-        <ContextUsageIndicator compacting={isBusy} usage={contextUsage} onManualCompact={onManualCompact} />
+        <ContextUsageIndicator usage={contextUsage} />
         <Dropdown menu={modelMenu} trigger={['click']}>
           <Button className={styles.modelButton} type="text">
             <span className={styles.truncatedLabel}>{composer.modelLabel}</span>

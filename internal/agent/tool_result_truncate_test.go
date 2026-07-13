@@ -23,11 +23,11 @@ func TestTruncate_OverThreshold_ReturnsPersistedOutput(t *testing.T) {
 	content := sb.String()
 	maxChars := 100
 
-	result, persisted := Truncate(content, maxChars, ".agent-builder/results/test_id.txt")
+	result, persisted := Truncate(content, maxChars, "runtime://objects/test_id")
 	require.True(t, persisted)
 	require.Contains(t, result, "<persisted-output>")
 	require.Contains(t, result, "</persisted-output>")
-	require.Contains(t, result, ".agent-builder/results/test_id.txt")
+	require.Contains(t, result, "runtime://objects/test_id")
 	require.Less(t, len(result), len(content))
 }
 
@@ -41,7 +41,7 @@ func TestTruncate_ErrorInTail_IncreasesTailSize(t *testing.T) {
 	content := sb.String()
 	maxChars := 1000
 
-	result, persisted := Truncate(content, maxChars, ".agent-builder/results/test.txt")
+	result, persisted := Truncate(content, maxChars, "runtime://objects/test")
 	require.True(t, persisted)
 	require.Contains(t, result, "Error: something went wrong")
 	require.Contains(t, result, "fatal: process terminated")
@@ -56,7 +56,7 @@ func TestTruncate_JSONInTail_IncreasesTailSize(t *testing.T) {
 	content := sb.String()
 	maxChars := 1000
 
-	result, persisted := Truncate(content, maxChars, ".agent-builder/results/test.txt")
+	result, persisted := Truncate(content, maxChars, "runtime://objects/test")
 	require.True(t, persisted)
 	require.Contains(t, result, `{"key": "value"`)
 }
@@ -70,13 +70,13 @@ func TestTruncate_UTF8Boundary_TruncatesSafely(t *testing.T) {
 	content := sb.String()
 	maxChars := len(content) - 3
 
-	result, persisted := Truncate(content, maxChars, ".agent-builder/results/test.txt")
+	result, persisted := Truncate(content, maxChars, "runtime://objects/test")
 	require.True(t, persisted)
 	require.True(t, utf8.ValidString(result))
 }
 
 func TestTruncate_EmptyContent(t *testing.T) {
-	result, persisted := Truncate("", 100, ".agent-builder/results/test.txt")
+	result, persisted := Truncate("", 100, "runtime://objects/test")
 	require.False(t, persisted)
 	require.Equal(t, "", result)
 }

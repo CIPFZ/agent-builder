@@ -11,6 +11,7 @@ import { ToolTraceGroup } from './ToolProcessItems.tsx';
 import { ProcessNarration } from './ProcessNarration.tsx';
 import type { RenderTimelineItem } from './processGrouping.ts';
 import { ProcessDisclosure } from './ProcessDisclosure.tsx';
+import { isActiveProcessStatus, isFailedProcessStatus } from './processDisclosurePolicy.ts';
 import styles from './Timeline.module.css';
 
 interface TimelineProps {
@@ -19,6 +20,7 @@ interface TimelineProps {
   onAgentTaskOpen?: (taskID: string) => void;
   onHookExecutionLoad?: (executionID: string) => Promise<HookExecutionViewModel>;
   onMessageContentLoad?: (sessionID: string, messageID: string) => Promise<string>;
+  onObjectContentLoad?: (refID: string) => Promise<string>;
 }
 
 interface TimelineTurnBlock {
@@ -33,9 +35,10 @@ interface TimelineTurnBlock {
   status?: string;
   startedAt?: number;
   finishedAt?: number;
+  error?: string;
 }
 
-export function Timeline({ turns, hookExecutions, onAgentTaskOpen, onHookExecutionLoad, onMessageContentLoad }: TimelineProps) {
+export function Timeline({ turns, hookExecutions, onAgentTaskOpen, onHookExecutionLoad, onMessageContentLoad, onObjectContentLoad }: TimelineProps) {
   const [messageApi, messageContextHolder] = message.useMessage();
   const [selectedHookExecution, setSelectedHookExecution] = useState<HookExecutionViewModel | undefined>();
   const blocks: TimelineTurnBlock[] = turns.map((turn) => ({
@@ -56,6 +59,7 @@ export function Timeline({ turns, hookExecutions, onAgentTaskOpen, onHookExecuti
     status: turn.status,
     startedAt: turn.startedAt,
     finishedAt: turn.finishedAt,
+    error: turn.error,
   }));
 
   return (
@@ -70,6 +74,7 @@ export function Timeline({ turns, hookExecutions, onAgentTaskOpen, onHookExecuti
           onAgentTaskOpen={onAgentTaskOpen}
           onHookOpen={setSelectedHookExecution}
           onMessageContentLoad={onMessageContentLoad}
+          onObjectContentLoad={onObjectContentLoad}
         />
       ))}
       <HookExecutionDetailDrawer
@@ -90,6 +95,7 @@ const VirtualizedTurnBlock = memo(function VirtualizedTurnBlock({
   onAgentTaskOpen,
   onHookOpen,
   onMessageContentLoad,
+  onObjectContentLoad,
 }: {
   block: TimelineTurnBlock;
   hookExecutions?: HookExecutionSummaryViewModel;
@@ -97,6 +103,7 @@ const VirtualizedTurnBlock = memo(function VirtualizedTurnBlock({
   onAgentTaskOpen?: (taskID: string) => void;
   onHookOpen?: (execution: HookExecutionViewModel) => void;
   onMessageContentLoad?: (sessionID: string, messageID: string) => Promise<string>;
+  onObjectContentLoad?: (refID: string) => Promise<string>;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [nearViewport, setNearViewport] = useState(true);
@@ -133,7 +140,7 @@ const VirtualizedTurnBlock = memo(function VirtualizedTurnBlock({
       data-turn-mounted={mounted}
       style={!mounted && measuredHeight !== undefined ? { height: measuredHeight } : undefined}
     >
-      {mounted && <TurnBlock block={block} hookExecutions={hookExecutions} messageApi={messageApi} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} onMessageContentLoad={onMessageContentLoad} />}
+      {mounted && <TurnBlock block={block} hookExecutions={hookExecutions} messageApi={messageApi} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} onMessageContentLoad={onMessageContentLoad} onObjectContentLoad={onObjectContentLoad} />}
     </div>
   );
 }, (previous, next) => (
@@ -144,6 +151,7 @@ const VirtualizedTurnBlock = memo(function VirtualizedTurnBlock({
   previous.onAgentTaskOpen === next.onAgentTaskOpen &&
   previous.onHookOpen === next.onHookOpen
   && previous.onMessageContentLoad === next.onMessageContentLoad
+  && previous.onObjectContentLoad === next.onObjectContentLoad
 ));
 
 function TurnBlock({
@@ -153,6 +161,7 @@ function TurnBlock({
   onAgentTaskOpen,
   onHookOpen,
   onMessageContentLoad,
+  onObjectContentLoad,
 }: {
   block: TimelineTurnBlock;
   hookExecutions?: HookExecutionSummaryViewModel;
@@ -160,6 +169,7 @@ function TurnBlock({
   onAgentTaskOpen?: (taskID: string) => void;
   onHookOpen?: (execution: HookExecutionViewModel) => void;
   onMessageContentLoad?: (sessionID: string, messageID: string) => Promise<string>;
+  onObjectContentLoad?: (refID: string) => Promise<string>;
 }) {
   const promptHooks = block.processItems.some((item) => item.kind === 'hook_run') ? [] : highSignalHooks(hookExecutions, block.turnId).filter((execution) => !execution.toolCallId);
   return (
@@ -168,21 +178,22 @@ function TurnBlock({
       {promptHooks.map((execution) => (
         <HookTimelineRow key={execution.id} execution={execution} onOpen={onHookOpen} />
       ))}
-      {block.processItems.length > 0 && (
+      {shouldRenderProcess(block) && (
         <ProcessDisclosure
           turnId={block.turnId}
           status={block.status}
           startedAt={block.startedAt}
           finishedAt={block.finishedAt}
+          error={block.error}
           exploration={block.explorationSummary?.exploration}
           hasFinalResponse={Boolean(block.finalMessage)}
           items={block.processItems}
-          renderItem={(item) => <TimelineProcessItem hookExecutions={hookExecutions} item={item} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} />}
+          renderItem={(item) => <TimelineProcessItem hookExecutions={hookExecutions} item={item} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} onObjectContentLoad={onObjectContentLoad} />}
         />
       )}
       {block.finalMessage && <TimelineMessage item={block.finalMessage} messageApi={messageApi} onContentLoad={onMessageContentLoad} />}
       {block.looseItems.map((item) => (
-        <TimelineProcessItem key={item.id} hookExecutions={hookExecutions} item={item} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} />
+        <TimelineProcessItem key={item.id} hookExecutions={hookExecutions} item={item} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} onObjectContentLoad={onObjectContentLoad} />
       ))}
     </section>
   );
@@ -193,16 +204,18 @@ function TimelineProcessItem({
   hookExecutions,
   onAgentTaskOpen,
   onHookOpen,
+  onObjectContentLoad,
 }: {
   item: RenderTimelineItem;
   hookExecutions?: HookExecutionSummaryViewModel;
   onAgentTaskOpen?: (taskID: string) => void;
   onHookOpen?: (execution: HookExecutionViewModel) => void;
+  onObjectContentLoad?: (refID: string) => Promise<string>;
 }) {
   if (item.kind === 'tool_call_group') {
     return (
       <>
-        <ToolTraceGroup toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />
+        <ToolTraceGroup toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} onObjectContentLoad={onObjectContentLoad} />
         {item.toolCalls.flatMap((toolCall) => highSignalHooks(hookExecutions, item.turnId, toolCall.id)).map((execution) => (
           <HookTimelineRow key={execution.id} execution={execution} onOpen={onHookOpen} />
         ))}
@@ -210,12 +223,12 @@ function TimelineProcessItem({
     );
   }
   if (item.kind === 'tool_group' && item.toolCalls) {
-    return <ToolTraceGroup toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />;
+    return <ToolTraceGroup toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} onObjectContentLoad={onObjectContentLoad} />;
   }
   if ((item.kind === 'tool_call' || item.kind === 'tool_group') && item.toolCall) {
     return (
       <>
-        <ToolTraceGroup toolCalls={[item.toolCall]} onAgentTaskOpen={onAgentTaskOpen} />
+        <ToolTraceGroup toolCalls={[item.toolCall]} onAgentTaskOpen={onAgentTaskOpen} onObjectContentLoad={onObjectContentLoad} />
         {highSignalHooks(hookExecutions, item.turnId, item.toolCall.id).map((execution) => (
           <HookTimelineRow key={execution.id} execution={execution} onOpen={onHookOpen} />
         ))}
@@ -294,7 +307,11 @@ function isContextGovernanceItem(item: ConversationTimelineItemViewModel) {
 }
 
 function isActiveTurnStatus(status?: string) {
-  return status === 'queued' || status === 'running' || status === 'waiting_permission';
+  return isActiveProcessStatus(status);
+}
+
+function shouldRenderProcess(block: TimelineTurnBlock) {
+  return block.processItems.length > 0 || isActiveProcessStatus(block.status) || isFailedProcessStatus(block.status) || (block.status === 'completed' && !block.finalMessage);
 }
 
 

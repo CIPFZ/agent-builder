@@ -125,6 +125,7 @@ type coordinator struct {
 	promptAssemblyRecorder PromptAssemblyRecorder
 	modelInputBuilder      ModelInputBuilder
 	reactiveCompactor      ReactiveCompactor
+	toolResultPersister    ToolResultPersister
 	discoveryRecorder      ToolDiscoveryRecorder
 	capabilityRecorder     CapabilityScopeRecorder
 	agentTaskRecorder      AgentTaskRecorder
@@ -141,6 +142,21 @@ type SchedulerRecorder interface {
 	ToolCallCompleted(context.Context, SchedulerToolCallResult) error
 	ToolCallFailed(context.Context, SchedulerToolCallResult) error
 	ToolCallCancelled(context.Context, SchedulerToolCallResult) error
+}
+
+type ToolResultPersistenceRequest struct {
+	SessionID  string
+	TurnID     string
+	ToolCallID string
+	ToolName   string
+	Content    string
+}
+
+// ToolResultPersister keeps large model-visible tool results in the
+// authoritative Runtime object store. Agent code must not choose a filesystem
+// location for product data.
+type ToolResultPersister interface {
+	PersistToolResult(context.Context, ToolResultPersistenceRequest) (string, error)
 }
 
 type RuntimeHookRecorder interface {
@@ -559,6 +575,9 @@ func NewCoordinator(
 		if taskRecorder, ok := schedulerRecorder[0].(AgentTaskRecorder); ok {
 			c.agentTaskRecorder = taskRecorder
 		}
+		if persister, ok := schedulerRecorder[0].(ToolResultPersister); ok {
+			c.toolResultPersister = persister
+		}
 	}
 
 	agentCfg, ok := cfg.Config().Agents[config.AgentCoder]
@@ -875,6 +894,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		ModelInputBuilder:    c.modelInputBuilder,
 		AssemblyRecorder:     c.promptAssemblyRecorder,
 		ReactiveCompactor:    c.reactiveCompactor,
+		ToolResultPersister:  c.toolResultPersister,
 	})
 
 	c.readyWg.Go(func() error {

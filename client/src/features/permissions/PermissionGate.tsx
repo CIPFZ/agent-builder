@@ -1,6 +1,6 @@
 import { CheckOutlined, CloseCircleOutlined, EnterOutlined, LoadingOutlined } from '@ant-design/icons';
 import { Alert, Button, Checkbox, Input, Radio, Space, Tag } from 'antd';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { PermissionRequestViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './PermissionGate.module.css';
 
@@ -19,13 +19,15 @@ export function PermissionGate({ permission, onDecide }: PermissionGateProps) {
   const [deciding, setDeciding] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const decisionInFlight = useRef(false);
   const detail = useMemo(() => permissionDetail(permission), [permission]);
   const decisionGuidance = tellAgent ? guidance.trim() : undefined;
 
   const decide = async (action: PermissionDecision = selected) => {
-    if (deciding || !pending) {
+    if (decisionInFlight.current || deciding || !pending) {
       return;
     }
+    decisionInFlight.current = true;
     setError(undefined);
     setDeciding(true);
     try {
@@ -33,6 +35,7 @@ export function PermissionGate({ permission, onDecide }: PermissionGateProps) {
     } catch (err) {
       setError(permissionDecisionErrorMessage(err));
     } finally {
+      decisionInFlight.current = false;
       setDeciding(false);
     }
   };

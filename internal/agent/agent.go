@@ -73,6 +73,7 @@ var summaryPrompt []byte
 var (
 	thinkTagRegex       = regexp.MustCompile(`(?s)<think>.*?</think>`)
 	orphanThinkTagRegex = regexp.MustCompile(`</?think>`)
+	workingDirLineRegex = regexp.MustCompile(`(?m)^Working directory:.*$`)
 )
 
 type SessionAgentCall struct {
@@ -133,11 +134,11 @@ type sessionAgent struct {
 	messageQueue   *csync.Map[string, []SessionAgentCall]
 	activeRequests *csync.Map[string, context.CancelFunc]
 
-	guard             *ToolResultGuard
-	guardConfig       config.ToolResultGuardConfig
-	modelInputBuilder ModelInputBuilder
-	assemblyRecorder  PromptAssemblyRecorder
-	reactiveCompactor ReactiveCompactor
+	guardConfig         config.ToolResultGuardConfig
+	modelInputBuilder   ModelInputBuilder
+	assemblyRecorder    PromptAssemblyRecorder
+	reactiveCompactor   ReactiveCompactor
+	toolResultPersister ToolResultPersister
 }
 
 type SessionAgentOptions struct {
@@ -157,6 +158,7 @@ type SessionAgentOptions struct {
 	ModelInputBuilder    ModelInputBuilder
 	AssemblyRecorder     PromptAssemblyRecorder
 	ReactiveCompactor    ReactiveCompactor
+	ToolResultPersister  ToolResultPersister
 }
 
 func NewSessionAgent(
@@ -181,6 +183,7 @@ func NewSessionAgent(
 		modelInputBuilder:    opts.ModelInputBuilder,
 		assemblyRecorder:     opts.AssemblyRecorder,
 		reactiveCompactor:    opts.ReactiveCompactor,
+		toolResultPersister:  opts.ToolResultPersister,
 	}
 }
 
@@ -210,11 +213,11 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	systemSections := a.systemSections.Copy()
 	promptPrefix := a.systemPromptPrefix.Get()
 	if effectiveCWD := tools.GetEffectiveCWDFromContext(ctx); effectiveCWD != "" {
-		// The desktop runtime can host Sessions owned by different projects in
-		// one long-lived coordinator. Keep the persisted user prompt untouched,
-		// while making the per-session cwd authoritative for both model
-		// reasoning and the tools that read the same context value.
-		systemPrompt += "\n\n<session-working-directory>\nThe authoritative working directory for this session is " + effectiveCWD + ". Treat it as the project root.\n</session-working-directory>"
+		// One long-lived desktop coordinator can host Sessions owned by different
+		// projects. Replace the template's workspace cwd instead of appending a
+		// second, contradictory instruction that leaves the model free to choose
+		// the Agent Builder checkout from the original prompt.
+		systemPrompt = withPromptWorkingDirectory(systemPrompt, effectiveCWD)
 	}
 	var instructions strings.Builder
 	var mcpInstructions []mcpInstructionSnapshot
@@ -260,8 +263,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	if !guardCfg.Enabled && guardCfg.MaxResultChars == 0 {
 		guardCfg = config.DefaultToolResultGuardConfig()
 	}
-	a.guard = NewToolResultGuard(guardCfg, currentSession.ID)
-	a.guard.CleanupOldFiles()
+	guard := NewToolResultGuard(guardCfg, currentSession.ID, a.toolResultPersister)
 
 	msgs, err := a.getSessionMessages(ctx, currentSession)
 	if err != nil {
@@ -338,7 +340,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			TopK:             call.TopK,
 			FrequencyPenalty: call.FrequencyPenalty,
 			PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
-				a.guard.ResetTurn()
+				guard.ResetTurn()
 				prepared.Messages = options.Messages
 				for i := range prepared.Messages {
 					prepared.Messages[i].ProviderOptions = nil
@@ -499,7 +501,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			},
 			OnToolResult: func(result fantasy.ToolResultContent) error {
 				toolResult := a.convertToToolResult(result)
-				processed := a.guard.Process(toolResult)
+				processed := guard.Process(ctx, toolResult)
 				// Use parent ctx instead of genCtx to ensure the message is created
 				// even if the request is canceled mid-stream
 				_, createMsgErr := a.messages.Create(ctx, currentAssistant.SessionID, message.CreateMessageParams{
@@ -729,6 +731,18 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	firstQueuedMessage := queuedMessages[0]
 	a.messageQueue.Set(call.SessionID, queuedMessages[1:])
 	return a.Run(ctx, firstQueuedMessage)
+}
+
+func withPromptWorkingDirectory(systemPrompt, workingDir string) string {
+	workingDir = strings.TrimSpace(workingDir)
+	if workingDir == "" {
+		return systemPrompt
+	}
+	replacement := "Working directory: " + workingDir
+	if workingDirLineRegex.MatchString(systemPrompt) {
+		return workingDirLineRegex.ReplaceAllStringFunc(systemPrompt, func(string) string { return replacement })
+	}
+	return systemPrompt + "\n\n" + replacement
 }
 
 func unwrapToolDiscoveryRecorder(agentTools []fantasy.AgentTool) (ToolDiscoveryRecorder, bool) {

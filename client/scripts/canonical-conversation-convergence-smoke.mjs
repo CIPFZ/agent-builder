@@ -57,6 +57,19 @@ for (const sessionId of ['L1', 'L2', 'L3']) { lruCoordinator.activate(sessionId)
 assert.equal(lruCoordinator.cached('L1'), undefined, 'canonical Session cache evicts the least recently used window');
 assert.ok(lruCoordinator.cached('L2') && lruCoordinator.cached('L3'), 'canonical Session cache retains only two recent windows');
 
+let cachedAFetches = 0; let cachedASubscriptions = 0;
+const cachedReconnectCoordinator = createCanonicalConversationCoordinator({
+  fetchSnapshot: async (sessionId) => { if (sessionId === 'CA') cachedAFetches += 1; return snapshot(sessionId, '1'); },
+  subscribe: async (sessionId) => { if (sessionId === 'CA' && ++cachedASubscriptions === 2) throw new Error('reconnect failed'); return () => undefined; },
+  onStore: () => undefined,
+  retryDelayMs: () => 0,
+});
+cachedReconnectCoordinator.activate('CA'); await wait(); await wait();
+cachedReconnectCoordinator.activate('CB'); await wait(); await wait();
+cachedReconnectCoordinator.activate('CA'); await wait(); await wait(); await wait();
+assert.equal(cachedAFetches, 2, 'cached Session reconnect failure performs snapshot recovery');
+cachedReconnectCoordinator.stop();
+
 const groupedSnapshot = snapshot('G', '10');
 groupedSnapshot.messages = [{ id: 'middle', sessionId: 'G', turnId: 'turn-1', activitySequence: '3', revision: '1', createdAt: 1, updatedAt: 1, role: 'assistant', phase: 'intermediate', status: 'completed', content: 'between' }];
 groupedSnapshot.toolCalls.push({ ...groupedSnapshot.toolCalls[0], id: 'tool-2', activitySequence: '4' });
@@ -85,12 +98,27 @@ close();
 const shellSource = await readFile(new URL('../src/app/shell/WorkbenchShell.tsx', import.meta.url), 'utf8');
 const adapterSource = await readFile(new URL('../src/runtime/wailsWorkbenchAdapter.ts', import.meta.url), 'utf8');
 const dockSource = await readFile(new URL('../src/features/conversationDock/ConversationDock.tsx', import.meta.url), 'utf8');
+const timelineSource = await readFile(new URL('../src/features/timeline/Timeline.tsx', import.meta.url), 'utf8');
+const permissionSource = await readFile(new URL('../src/features/permissions/PermissionGate.tsx', import.meta.url), 'utf8');
+const workspaceSource = await readFile(new URL('../src/features/workspace/Workspace.tsx', import.meta.url), 'utf8');
+const coordinatorSource = await readFile(new URL('../src/runtime/canonicalConversationCoordinator.ts', import.meta.url), 'utf8');
+const toolCardSource = await readFile(new URL('../src/features/tools/ToolCallCard.tsx', import.meta.url), 'utf8');
 const dockStyles = await readFile(new URL('../src/features/conversationDock/ConversationDock.module.css', import.meta.url), 'utf8');
 const traceStyles = await readFile(new URL('../src/features/timeline/TraceRow.module.css', import.meta.url), 'utf8');
 const toolStyles = await readFile(new URL('../src/features/tools/ToolCallCard.module.css', import.meta.url), 'utf8');
 assert.equal(shellSource.includes('withFresherOutputStore'), false, 'lagging snapshot heuristic is removed');
 assert.ok(shellSource.includes('createCanonicalConversationCoordinator'), 'canonical coordinator is the conversation writer');
+assert.match(shellSource, /const commitConversationAction[\s\S]*?preserveCanonicalConversation\(nextViewModel, current\)/, 'conversation action hydration cannot overwrite a newer canonical stream store');
+assert.match(shellSource, /const decidePermission[\s\S]*?commitConversationAction\(nextViewModel\)/, 'permission decisions use the canonical-safe action commit');
 assert.equal(adapterSource.includes('bridge.SessionOutput?.(activeSessionID, { snapshot: true'), false, 'workbench refresh cannot fetch legacy conversation snapshot');
+assert.doesNotMatch(adapterSource, /async submitUserInput[\s\S]*?catch \(error\)[\s\S]*?conversationTarget: target/, 'submit errors propagate to the Shell optimistic error boundary');
+assert.match(timelineSource, /shouldRenderProcess\(block\)/, 'canonical Turn lifecycle rendering is not gated on the first process entity');
+assert.match(timelineSource, /isFailedProcessStatus\(block\.status\)/, 'a failed canonical Turn remains visible even when it has no process entities');
+assert.match(workspaceSource, /<PermissionGate key=\{activePendingPermission\.id\}/, 'each permission request gets isolated local form state');
+assert.match(permissionSource, /decisionInFlight\.current/, 'permission decisions have a synchronous duplicate-submit guard');
+assert.match(coordinatorSource, /connect\(sessionId, gen, cached\)\.catch/, 'cached Session stream reconnect failures enter snapshot recovery');
+assert.match(adapterSource, /ReadObjectContent\(refID\)/, 'Runtime Object content is read through the Wails binding');
+assert.match(toolCardSource, /onObjectContentLoad\(outputRef\)/, 'tool details load full output from its canonical Object ref');
 assert.doesNotMatch(dockSource, /action\.key === 'jump-to-bottom'/, 'dock layout does not special-case a business action key');
 assert.match(dockSource, /<ConversationActions actions=\{activeActions\}/, 'all visible dock actions share the centered action rail');
 assert.doesNotMatch(dockStyles, /\.floatingActions\s*\{/, 'jump action is not rendered in a separate absolute layer');

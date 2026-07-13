@@ -77,11 +77,12 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         // rendering. Do not keep the loading placeholder coupled to the
         // slower diagnostics/status hydration performed by selectSession.
         setSwitchingSessionID((current) => current === store.sessionId ? '' : current);
-        setViewModel((current) => (
-          current.conversationTarget.kind === 'session' && current.conversationTarget.sessionId === store.sessionId
-            ? { ...current, canonicalConversationStore: store, optimisticConversationByClientRequestId: pruneEchoedOptimisticSubmits(current.optimisticConversationByClientRequestId, store) }
-            : current
-        ));
+        setViewModel((current) => {
+          if (current.conversationTarget.kind !== 'session' || current.conversationTarget.sessionId !== store.sessionId) return current;
+          const next = { ...current, canonicalConversationStore: store, optimisticConversationByClientRequestId: pruneEchoedOptimisticSubmits(current.optimisticConversationByClientRequestId, store) };
+          viewModelRef.current = next;
+          return next;
+        });
       },
     });
   }, [adapter.fetchCanonicalConversationSnapshot, adapter.subscribeCanonicalConversation]);
@@ -195,7 +196,11 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       if (streamHandlesEvent && runtimeEventCoveredByOutputStream(event)) {
         return;
       }
-      scheduleRuntimeRefresh(runtimeEventRefreshDelay(event));
+      const delay = runtimeEventRefreshDelay(event);
+      if (delay === undefined) {
+        return;
+      }
+      scheduleRuntimeRefresh(delay);
     })).then((cleanup) => {
       if (cancelled) {
         cleanup();
@@ -234,6 +239,13 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const contextUsageRefreshSeqRef = useRef(0);
   const lastCompactCountRef = useRef<{ sessionId: string; count: number } | undefined>(undefined);
   useEffect(() => {
+    // Invalidate any delayed usage request whenever ownership moves to a
+    // different Session or to a new-conversation draft. Re-entering the same
+    // Session later must not make an older response current again.
+    contextUsageRefreshSeqRef.current += 1;
+    if (!activeSessionID) lastCompactCountRef.current = undefined;
+  }, [activeSessionID]);
+  useEffect(() => {
     const usage = viewModel.composer.contextUsage;
     if (!usage || !adapter.fetchContextUsage) {
       return;
@@ -248,11 +260,15 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       if (!fresh || contextUsageRefreshSeqRef.current !== seq) {
         return;
       }
-      setViewModel((current) => (
-        current.composer.contextUsage?.sessionId === fresh.sessionId
-          ? { ...current, composer: { ...current.composer, contextUsage: fresh } }
-          : current
-      ));
+      setViewModel((current) => {
+        const ownsResponse = current.conversationTarget.kind === 'session'
+          && current.conversationTarget.sessionId === fresh.sessionId
+          && current.composer.contextUsage?.sessionId === fresh.sessionId;
+        if (!ownsResponse) return current;
+        const next = { ...current, composer: { ...current.composer, contextUsage: fresh } };
+        viewModelRef.current = next;
+        return next;
+      });
     }).catch(() => undefined);
   }, [adapter, viewModel.composer.contextUsage]);
 
@@ -340,14 +356,9 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     [adapter],
   );
 
-  const searchConversation = useCallback(
-    (sessionID: string, query: string) => adapter.searchConversation?.(sessionID, query) ?? Promise.resolve([]),
+  const loadObjectContent = useCallback(
+    (refID: string) => adapter.fetchObjectContent?.(refID) ?? Promise.reject(new Error('Runtime object content API is unavailable')),
     [adapter],
-  );
-
-  const openConversationSearchResult = useCallback(
-    (sessionID: string, turnID: string) => canonicalCoordinator?.loadAround(sessionID, turnID) ?? Promise.resolve(false),
-    [canonicalCoordinator],
   );
 
   const startConversationDraft = (target?: NewConversationDraftViewModel) => {
@@ -367,7 +378,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       reactCallchain: undefined,
       contextDiagnostics: undefined,
       pendingPermissions: [],
-      composer: { ...currentViewModel.composer, busy: false, activeTurnId: undefined },
+      composer: { ...currentViewModel.composer, busy: false, activeTurnId: undefined, contextUsage: undefined },
     };
     modeRef.current = 'new-chat';
     viewModelRef.current = draftViewModel;
@@ -393,7 +404,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       reactCallchain: undefined,
       contextDiagnostics: undefined,
       pendingPermissions: [],
-      composer: { ...current.composer, busy: false, activeTurnId: undefined },
+      composer: { ...current.composer, busy: false, activeTurnId: undefined, contextUsage: undefined },
     };
     modeRef.current = 'new-chat';
     viewModelRef.current = next;
@@ -487,6 +498,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const selectSession = (sessionID: string) => {
     const mutationSeq = ++sessionMutationSeqRef.current;
     const currentViewModel = viewModelRef.current;
+    const currentMode = modeRef.current;
     const optimisticViewModel: WorkbenchViewModel = {
       ...currentViewModel,
       mode: 'new-chat',
@@ -500,7 +512,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       reactCallchain: undefined,
       contextDiagnostics: undefined,
       pendingPermissions: [],
-      composer: { ...currentViewModel.composer, busy: false, activeTurnId: undefined },
+      composer: { ...currentViewModel.composer, busy: false, activeTurnId: undefined, contextUsage: undefined },
     };
     modeRef.current = 'new-chat';
     viewModelRef.current = optimisticViewModel;
@@ -518,10 +530,14 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         // hydration was in flight. Preserve it instead of replacing the
         // rendered conversation with the hydration request's stale base.
         const canonicalStore = canonicalCoordinator?.cached(sessionID);
+        const selectedContextUsage = nextViewModel.composer.contextUsage?.sessionId === sessionID
+          ? nextViewModel.composer.contextUsage
+          : undefined;
         viewModelRef.current = {
           ...nextViewModel,
           conversationTarget: { kind: 'session', sessionId: sessionID },
           canonicalConversationStore: canonicalStore,
+          composer: { ...nextViewModel.composer, contextUsage: selectedContextUsage },
         };
         if (canonicalStore) setSwitchingSessionID('');
         setMode(nextViewModel.mode);
@@ -533,10 +549,10 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         }
         console.warn('[workbench] select session failed', error);
         setSwitchingSessionID('');
-        modeRef.current = mode;
-        viewModelRef.current = viewModel;
-        setMode(mode);
-        setViewModel(viewModel);
+        modeRef.current = currentMode;
+        viewModelRef.current = currentViewModel;
+        setMode(currentMode);
+        setViewModel(currentViewModel);
       });
   };
 
@@ -648,15 +664,28 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       }
       sessionMutationSeqRef.current += 1;
       const adoptedSessionId = nextViewModel.conversationTarget.kind === 'session' ? nextViewModel.conversationTarget.sessionId : undefined;
-      nextViewModel.optimisticConversationByClientRequestId = {
-        ...(nextViewModel.optimisticConversationByClientRequestId ?? {}),
+      const latestViewModel = viewModelRef.current;
+      const settledViewModel = adoptedSessionId && latestViewModel.canonicalConversationStore?.sessionId === adoptedSessionId
+        ? preserveCanonicalConversation(nextViewModel, latestViewModel)
+        : nextViewModel;
+      const settledSubmits = {
+        ...(settledViewModel.optimisticConversationByClientRequestId ?? {}),
         [clientRequestId]: { ...optimisticSubmit, sessionId: adoptedSessionId },
       };
-      modeRef.current = nextViewModel.mode;
-      viewModelRef.current = nextViewModel;
+      // The canonical user-message echo can beat the action response. In that
+      // ordering the stream already removed this optimistic submit; do not
+      // resurrect it when the slower send response settles.
+      const finalViewModel: WorkbenchViewModel = {
+        ...settledViewModel,
+        optimisticConversationByClientRequestId: settledViewModel.canonicalConversationStore
+          ? pruneEchoedOptimisticSubmits(settledSubmits, settledViewModel.canonicalConversationStore)
+          : settledSubmits,
+      };
+      modeRef.current = finalViewModel.mode;
+      viewModelRef.current = finalViewModel;
       setSwitchingSessionID('');
-      setMode(nextViewModel.mode);
-      setViewModel(nextViewModel);
+      setMode(finalViewModel.mode);
+      setViewModel(finalViewModel);
     } catch (error) {
       if (sessionMutationSeqRef.current !== conversationEpoch) {
         return;
@@ -679,70 +708,70 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     });
   };
 
-  const cancelTurn = async () => {
-    const nextViewModel = await adapter.cancelTurn({ ...viewModel, mode }, viewModel.composer.activeTurnId);
+  const commitConversationAction = (nextViewModel: WorkbenchViewModel) => {
+    modeRef.current = nextViewModel.mode;
     setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    setViewModel((current) => {
+      const merged = preserveCanonicalConversation(nextViewModel, current);
+      viewModelRef.current = merged;
+      return merged;
+    });
+  };
+
+  const cancelTurn = async () => {
+    const current = viewModelRef.current;
+    const nextViewModel = await adapter.cancelTurn({ ...current, mode: modeRef.current }, current.composer.activeTurnId);
+    commitConversationAction(nextViewModel);
   };
 
   const resumeInterruptedTurn = async (turnID: string) => {
     const nextViewModel = await adapter.resumeInterruptedTurn({ ...viewModelRef.current, mode: modeRef.current }, turnID, { mode: 'continue' });
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    commitConversationAction(nextViewModel);
   };
 
   const markInterruptedDone = async (turnID: string) => {
-    const nextViewModel = await adapter.markInterruptedDone({ ...viewModel, mode }, turnID);
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    const nextViewModel = await adapter.markInterruptedDone({ ...viewModelRef.current, mode: modeRef.current }, turnID);
+    commitConversationAction(nextViewModel);
   };
 
   const discardInterruptedTurn = async (turnID: string) => {
     const nextViewModel = await adapter.discardInterruptedTurn({ ...viewModelRef.current, mode: modeRef.current }, turnID);
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    commitConversationAction(nextViewModel);
   };
 
   const retryRecoverableError = async (errorID: string) => {
     const nextViewModel = await adapter.retryRecoverableError({ ...viewModelRef.current, mode: modeRef.current }, errorID);
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    commitConversationAction(nextViewModel);
   };
 
   const manualCompact = async (instructions?: string) => {
     const nextViewModel = await adapter.manualCompact({ ...viewModelRef.current, mode: modeRef.current }, instructions);
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    commitConversationAction(nextViewModel);
   };
 
   const manualSnip = async () => {
     const nextViewModel = await adapter.manualSnip({ ...viewModelRef.current, mode: modeRef.current });
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    commitConversationAction(nextViewModel);
   };
 
   const resumeRunCheckpoint = async (runID: string, checkpointID: string) => {
     const nextViewModel = await adapter.resumeRunCheckpoint({ ...viewModelRef.current, mode: modeRef.current }, runID, checkpointID);
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    commitConversationAction(nextViewModel);
   };
 
   const executeRunTask = async (runID: string, taskID: string) => {
     const nextViewModel = await adapter.executeRunTask({ ...viewModelRef.current, mode: modeRef.current }, runID, taskID);
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    commitConversationAction(nextViewModel);
   };
 
   const sendAgentTaskFollowUp = async (taskID: string, message: string) => {
     const nextViewModel = await adapter.sendAgentTaskFollowUp({ ...viewModelRef.current, mode: modeRef.current }, taskID, message);
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    commitConversationAction(nextViewModel);
   };
 
   const cancelAgentTask = async (taskID: string) => {
     const nextViewModel = await adapter.cancelAgentTask({ ...viewModelRef.current, mode: modeRef.current }, taskID);
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    commitConversationAction(nextViewModel);
   };
 
   const listSessionTerminals = useCallback((sessionID: string) => adapter.listSessionTerminals(sessionID), [adapter]);
@@ -761,29 +790,32 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const deleteTerminal = useCallback((terminalID: string) => adapter.deleteTerminal(terminalID), [adapter]);
 
   const selectModel = async (configuredProviderID: string, model: string) => {
-    const nextViewModel = await adapter.selectModel({ ...viewModel, mode }, configuredProviderID, model);
-    setViewModel(nextViewModel);
+    const nextViewModel = await adapter.selectModel({ ...viewModelRef.current, mode: modeRef.current }, configuredProviderID, model);
+    commitConversationAction(nextViewModel);
   };
 
   const selectPermissionMode = async (permissionMode: string) => {
-    const currentViewModel = { ...viewModel, mode };
+    const currentViewModel = { ...viewModelRef.current, mode: modeRef.current };
     const optimisticViewModel = applyPermissionMode(currentViewModel, permissionMode);
+    viewModelRef.current = optimisticViewModel;
     setViewModel(optimisticViewModel);
     const nextViewModel = await adapter.selectPermissionMode(optimisticViewModel, permissionMode);
-    setViewModel(nextViewModel);
+    commitConversationAction(nextViewModel);
   };
 
   const selectTerminalProfile = async (profileID: string) => {
-    const nextViewModel = await adapter.selectTerminalProfile({ ...viewModel, mode }, profileID);
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    const nextViewModel = await adapter.selectTerminalProfile({ ...viewModelRef.current, mode: modeRef.current }, profileID);
+    commitConversationAction(nextViewModel);
     return nextViewModel.settings;
   };
 
   const decidePermission = async (permissionID: string, action: 'allow' | 'allow_session' | 'deny', guidance?: string) => {
-    const nextViewModel = await adapter.decidePermission({ ...viewModel, mode }, permissionID, action, guidance);
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    const nextViewModel = await adapter.decidePermission({ ...viewModelRef.current, mode: modeRef.current }, permissionID, action, guidance);
+    // The canonical permission_decided batch can arrive while the Wails action
+    // is still hydrating its non-conversation response. Preserve that newer
+    // store so the action response cannot resurrect the consumed request as
+    // pending and expose it to a second decision.
+    commitConversationAction(nextViewModel);
   };
 
   const saveConfiguredProvider = async (provider: Parameters<WorkbenchAdapter['saveConfiguredProvider']>[1]) => {
@@ -1090,8 +1122,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onHookExecutionLoad={loadHookExecution}
           onConversationLoadEarlier={loadEarlierConversation}
           onMessageContentLoad={loadCanonicalMessageContent}
-          onConversationSearch={searchConversation}
-          onConversationSearchResultOpen={openConversationSearchResult}
+          onObjectContentLoad={loadObjectContent}
         />
       )}
     </main>

@@ -214,14 +214,6 @@
   text-align: center;
 }
 
-.searchResults { display: flex; flex-direction: column; gap: 6px; max-height: 420px; margin-top: 14px; overflow-y: auto; }
-.searchResult { display: flex; flex-direction: column; gap: 4px; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; cursor: pointer; text-align: left; }
-.searchResult:hover, .searchResult:focus-visible { background: var(--ant-color-fill-tertiary); outline: none; }
-.searchResult span, .searchEmpty { color: var(--ant-color-text-tertiary); font-size: 12px; }
-.searchResult strong { color: var(--ant-color-text); font-size: 13px; font-weight: 400; line-height: 1.5; }
-.searchEmpty { padding: 24px 8px; text-align: center; }
-.searchTargetTurn { border-radius: 10px; animation: searchTargetPulse 1.8s ease; }
-@keyframes searchTargetPulse { 0%, 55% { background: var(--ant-color-warning-bg); } 100% { background: transparent; } }
 
 .timelineColumn > :global([data-testid='conversation-timeline']) {
   width: 100%;

@@ -549,11 +549,6 @@ type ToolResultGuardConfig struct {
 	Enabled            bool           `json:"enabled" yaml:"enabled"`
 	MaxResultChars     int            `json:"max_result_chars" yaml:"max_result_chars"`
 	TurnBudget         int            `json:"turn_budget" yaml:"turn_budget"`
-	ResultsDir         string         `json:"results_dir" yaml:"results_dir"`
-	PerSessionMaxBytes int64          `json:"per_session_max_bytes" yaml:"per_session_max_bytes"`
-	GlobalMaxBytes     int64          `json:"global_max_bytes" yaml:"global_max_bytes"`
-	TTLDays            int            `json:"ttl_days" yaml:"ttl_days"`
-	CompactInterval    string         `json:"compact_interval" yaml:"compact_interval"`
 	KeepLastAssistants int            `json:"keep_last_assistants" yaml:"keep_last_assistants"`
 	ExemptTools        []string       `json:"exempt_tools" yaml:"exempt_tools"`
 	PerTool            map[string]int `json:"per_tool" yaml:"per_tool"`
@@ -566,11 +561,6 @@ func DefaultToolResultGuardConfig() ToolResultGuardConfig {
 		Enabled:            true,
 		MaxResultChars:     16000,
 		TurnBudget:         200000,
-		ResultsDir:         ".agent-builder/results",
-		PerSessionMaxBytes: 524288000,  // 500 MB
-		GlobalMaxBytes:     2147483648, // 2 GB
-		TTLDays:            30,
-		CompactInterval:    "60m",
 		KeepLastAssistants: 3,
 		ExemptTools:        []string{"view"},
 		PerTool:            map[string]int{},

@@ -1,23 +1,16 @@
-import { Button, Popover, Tag, Tooltip } from 'antd';
-import { CompressOutlined } from '@ant-design/icons';
-import type { CSSProperties } from 'react';
+import { Popover, Tag } from 'antd';
 import type { ContextUsageViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './ContextUsageIndicator.module.css';
 
 interface ContextUsageIndicatorProps {
   usage?: ContextUsageViewModel;
-  compacting?: boolean;
-  onManualCompact?: () => Promise<void>;
 }
 
-export function ContextUsageIndicator({ usage, compacting, onManualCompact }: ContextUsageIndicatorProps) {
+export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
   if (!usage || usage.contextWindow <= 0) {
     return null;
   }
   const levelClass = usage.level === 'error' ? styles.error : usage.level === 'warning' ? styles.warning : styles.ok;
-  const ringStyle = {
-    '--context-usage-percent': `${usage.percentUsed}%`,
-  } as CSSProperties;
   const reserved = usage.breakdown.find((category) => category.key === 'reserved');
   const categories = rankedBreakdown(usage.breakdown);
   return (
@@ -30,10 +23,10 @@ export function ContextUsageIndicator({ usage, compacting, onManualCompact }: Co
             <div>
               <div className={styles.model}>{usage.model || '模型'}</div>
               <div className={styles.total}>
-                已用 {formatTokens(usage.usedTokens)} / {formatTokens(usage.contextWindow)} ({usage.percentUsed}%)
+                上下文估算 {formatTokens(usage.usedTokens)} / {formatTokens(usage.contextWindow)}
               </div>
             </div>
-            {usage.estimated && <Tag>估算</Tag>}
+            <Tag>{usage.estimated ? '全部估算' : '含模型用量'}</Tag>
           </div>
           <div className={styles.leftText}>距自动压缩还剩 {usage.percentLeft}%</div>
           <div className={styles.breakdown}>
@@ -48,19 +41,11 @@ export function ContextUsageIndicator({ usage, compacting, onManualCompact }: Co
             ))}
           </div>
           {reserved && <div className={styles.reserved}>预留用于输出与压缩缓冲：{formatTokens(reserved.tokens)}</div>}
-          <div className={styles.footer}>
-            <span>{usage.updatedAt ? new Date(usage.updatedAt).toLocaleTimeString() : ''}</span>
-            <Tooltip title={onManualCompact ? '' : '当前对话没有可压缩的 turn'}>
-              <Button size="small" disabled={!onManualCompact || compacting} icon={<CompressOutlined />} loading={compacting} onClick={() => void onManualCompact?.()}>
-                手动压缩
-              </Button>
-            </Tooltip>
-          </div>
+          <div className={styles.footer}>{usage.updatedAt ? `更新于 ${new Date(usage.updatedAt).toLocaleTimeString()}` : ''}</div>
         </div>
       }
     >
-      <button className={`${styles.trigger} ${levelClass} ${usage.estimated ? styles.estimated : ''}`} type="button" aria-label="上下文用量">
-        <span className={styles.ring} style={ringStyle} />
+      <button className={`${styles.trigger} ${levelClass} ${usage.estimated ? styles.estimated : ''}`} type="button" aria-label={`上下文估算已用 ${usage.percentUsed}%`}>
         <span className={styles.percent}>{usage.percentUsed}%</span>
       </button>
     </Popover>

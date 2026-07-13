@@ -17,8 +17,11 @@ func (r *runtimeService) deriveOutputTextDeltasLocked(msg apitypes.Message, turn
 	}
 	cursor, ok := r.messageStream[msg.ID]
 	if !ok {
-		cursor = &messageStreamCursor{sessionID: msg.SessionID}
+		cursor = &messageStreamCursor{sessionID: msg.SessionID, turnID: turnID}
 		r.messageStream[msg.ID] = cursor
+	}
+	if cursor.turnID == "" {
+		cursor.turnID = turnID
 	}
 	var events []RuntimeEvent
 	text := msg.Content().Text
@@ -56,8 +59,11 @@ func (r *runtimeService) recordMessageEventWithCoalesceLocked(event RuntimeEvent
 	}
 	cursor, ok := r.messageStream[event.MessageID]
 	if !ok {
-		cursor = &messageStreamCursor{sessionID: event.SessionID}
+		cursor = &messageStreamCursor{sessionID: event.SessionID, turnID: event.TurnID}
 		r.messageStream[event.MessageID] = cursor
+	}
+	if cursor.turnID == "" {
+		cursor.turnID = event.TurnID
 	}
 	nowMs := now.UnixMilli()
 	if cursor.lastUpdateEmitted != 0 && nowMs-cursor.lastUpdateEmitted < runtimeMessageUpdateCoalesceWindow.Milliseconds() {

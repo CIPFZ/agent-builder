@@ -33,7 +33,7 @@ func TestAPITypeToMessageToolResult(t *testing.T) {
 				DeliveredToModel: true,
 				DeliveredAtStep:  2,
 				DeliveryReason:   "included_in_model_input",
-				StoredPath:       ".agent-builder/results/session/call-1.txt",
+				StoredPath:       "runtime://objects/tool-result-1",
 				OriginalSize:     64000,
 				TruncatedBy:      "single",
 			},
@@ -54,7 +54,7 @@ func TestAPITypeToMessageToolResult(t *testing.T) {
 	require.True(t, tr.DeliveredToModel)
 	require.Equal(t, 2, tr.DeliveredAtStep)
 	require.Equal(t, "included_in_model_input", tr.DeliveryReason)
-	require.Equal(t, ".agent-builder/results/session/call-1.txt", tr.StoredPath)
+	require.Equal(t, "runtime://objects/tool-result-1", tr.StoredPath)
 	require.Equal(t, int64(64000), tr.OriginalSize)
 	require.Equal(t, "single", tr.TruncatedBy)
 }

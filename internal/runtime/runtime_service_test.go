@@ -161,6 +161,111 @@ func TestRuntimeStartupReadAPIsDoNotRequireSelectedModel(t *testing.T) {
 	}
 }
 
+func TestAgentRoleReadsAndRepeatedInitializationDoNotPublishEvents(t *testing.T) {
+	root := runtimeDevTestRoot(t, "agent-role-read-is-pure")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+
+	service := newRuntimeService()
+	if _, err := service.Status(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	initial, err := service.AgentRoles(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(initial.Roles) == 0 {
+		t.Fatal("expected the startup role initialization to persist a default role")
+	}
+	service.mu.Lock()
+	sequenceBefore := service.nextEventSequence
+	service.mu.Unlock()
+
+	for range 100 {
+		if _, err := service.AgentRoles(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.AgentRole(context.Background(), initial.Roles[0].ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.ensureAgentRolesLoaded(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	service.mu.Lock()
+	sequenceAfter := service.nextEventSequence
+	service.mu.Unlock()
+	if sequenceAfter != sequenceBefore {
+		t.Fatalf("agent role reads advanced runtime sequence from %d to %d", sequenceBefore, sequenceAfter)
+	}
+	final, err := service.AgentRoles(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Roles[0].UpdatedAt != initial.Roles[0].UpdatedAt {
+		t.Fatalf("agent role read changed updatedAt from %d to %d", initial.Roles[0].UpdatedAt, final.Roles[0].UpdatedAt)
+	}
+}
+
+func TestReleaseFinishedTurnMemoryDropsExecutionOnlyIndexes(t *testing.T) {
+	service := newRuntimeService()
+	service.requests["turn-1"] = runtimeRequestState{SessionID: "session-1", Status: turnStatusCompleted, Finished: true}
+	service.sessionTurns["session-1"] = "turn-1"
+	service.messageStream["message-1"] = &messageStreamCursor{sessionID: "session-1", turnID: "turn-1", completed: true}
+	service.messageStream["message-next"] = &messageStreamCursor{sessionID: "session-1", turnID: "turn-2"}
+	service.messageStream["message-other"] = &messageStreamCursor{sessionID: "session-2", turnID: "turn-other"}
+	service.toolEvents["tool-1"] = runtimeToolEventState{Started: true, Completed: true, Output: true}
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{ID: "tool-1", SessionID: "session-1", TurnID: "turn-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	service.releaseFinishedTurnMemory("session-1", "turn-1")
+
+	if _, ok := service.requests["turn-1"]; ok {
+		t.Fatal("finished request remained in memory")
+	}
+	if _, ok := service.sessionTurns["session-1"]; ok {
+		t.Fatal("finished session-to-turn index remained in memory")
+	}
+	if _, ok := service.messageStream["message-1"]; ok {
+		t.Fatal("finished session message cursor remained in memory")
+	}
+	if _, ok := service.toolEvents["tool-1"]; ok {
+		t.Fatal("finished tool event cursor remained in memory")
+	}
+	if _, ok := service.messageStream["message-next"]; !ok {
+		t.Fatal("cleanup removed another turn's live message cursor")
+	}
+	if _, ok := service.messageStream["message-other"]; !ok {
+		t.Fatal("cleanup removed another session's live message cursor")
+	}
+}
+
+func TestContextUsageDebounceTimerRemovesRegistryEntry(t *testing.T) {
+	service := newRuntimeService()
+	service.scheduleContextUsageUpdate("session-1", "turn-1")
+	if _, ok := contextUsageDebounceRegistry.Load(service); !ok {
+		t.Fatal("expected scheduled debounce state")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := contextUsageDebounceRegistry.Load(service); !ok {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("completed debounce timer remained in registry")
+}
+
+func TestRestartClearsContextUsageDebounceTimers(t *testing.T) {
+	service := newRuntimeService()
+	service.scheduleContextUsageUpdate("session-1", "turn-1")
+	service.restart()
+	if _, ok := contextUsageDebounceRegistry.Load(service); ok {
+		t.Fatal("restart retained debounce state")
+	}
+}
+
 func TestRuntimeStatusOpenProjectIsExplicitProject(t *testing.T) {
 	root := runtimeDevTestRoot(t, "explicit-project")
 	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
