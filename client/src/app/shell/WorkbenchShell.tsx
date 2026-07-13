@@ -489,26 +489,29 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     const mutationSeq = ++sessionMutationSeqRef.current;
     const currentViewModel = viewModelRef.current;
     const currentMode = modeRef.current;
-    const wasActive = currentViewModel.sessions.some((session) => session.id === sessionID && session.active);
+    // conversationTarget is the UI selection authority. The sidebar's active
+    // flag is a projection and can briefly lag during selection/hydration.
+    const wasSelected =
+      (currentViewModel.conversationTarget.kind === 'session' && currentViewModel.conversationTarget.sessionId === sessionID) ||
+      currentViewModel.sessions.some((session) => session.id === sessionID && session.active);
+    const draftAfterDelete = defaultDraftTarget(currentViewModel);
     const optimisticViewModel: WorkbenchViewModel = {
       ...currentViewModel,
-      mode: wasActive ? 'new-chat' : currentMode,
-      conversationTarget: wasActive
-        ? (() => {
-            const draft = defaultDraftTarget(currentViewModel);
-            return { kind: 'draft' as const, scope: draft.scope, projectId: draft.projectId };
-          })()
+      mode: wasSelected ? 'new-chat' : currentMode,
+      conversationTarget: wasSelected
+        ? { kind: 'draft' as const, scope: draftAfterDelete.scope, projectId: draftAfterDelete.projectId }
         : currentViewModel.conversationTarget,
       sessions: currentViewModel.sessions.filter((session) => session.id !== sessionID),
-      conversation: wasActive ? [] : currentViewModel.conversation,
-      canonicalConversationStore: wasActive ? undefined : currentViewModel.canonicalConversationStore,
-      optimisticConversationByClientRequestId: wasActive ? undefined : currentViewModel.optimisticConversationByClientRequestId,
-      turnDiagnostics: wasActive ? undefined : currentViewModel.turnDiagnostics,
-      runProjection: wasActive ? undefined : currentViewModel.runProjection,
-      reactCallchain: wasActive ? undefined : currentViewModel.reactCallchain,
-      contextDiagnostics: wasActive ? undefined : currentViewModel.contextDiagnostics,
-      pendingPermissions: wasActive ? [] : currentViewModel.pendingPermissions,
-      composer: wasActive ? { ...currentViewModel.composer, busy: false, activeTurnId: undefined } : currentViewModel.composer,
+      conversation: wasSelected ? [] : currentViewModel.conversation,
+      canonicalConversationStore: wasSelected ? undefined : currentViewModel.canonicalConversationStore,
+      optimisticConversationByClientRequestId: wasSelected ? undefined : currentViewModel.optimisticConversationByClientRequestId,
+      turnDiagnostics: wasSelected ? undefined : currentViewModel.turnDiagnostics,
+      runProjection: wasSelected ? undefined : currentViewModel.runProjection,
+      agentTasks: wasSelected ? [] : currentViewModel.agentTasks,
+      reactCallchain: wasSelected ? undefined : currentViewModel.reactCallchain,
+      contextDiagnostics: wasSelected ? undefined : currentViewModel.contextDiagnostics,
+      pendingPermissions: wasSelected ? [] : currentViewModel.pendingPermissions,
+      composer: wasSelected ? { ...currentViewModel.composer, busy: false, activeTurnId: undefined, contextUsage: undefined } : currentViewModel.composer,
     };
     setSwitchingSessionID('');
     modeRef.current = optimisticViewModel.mode;
@@ -521,10 +524,20 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         if (sessionMutationSeqRef.current !== mutationSeq) {
           return;
         }
-        modeRef.current = nextViewModel.mode;
-        viewModelRef.current = nextViewModel;
-        setMode(nextViewModel.mode);
-        setViewModel(nextViewModel);
+        const settledViewModel = wasSelected
+          ? {
+              ...nextViewModel,
+              mode: 'new-chat' as const,
+              conversationTarget: { kind: 'draft' as const, scope: draftAfterDelete.scope, projectId: draftAfterDelete.projectId },
+              conversation: [],
+              canonicalConversationStore: undefined,
+              optimisticConversationByClientRequestId: undefined,
+            }
+          : nextViewModel;
+        modeRef.current = settledViewModel.mode;
+        viewModelRef.current = settledViewModel;
+        setMode(settledViewModel.mode);
+        setViewModel(settledViewModel);
       })
       .catch((error) => {
         if (sessionMutationSeqRef.current !== mutationSeq) {
