@@ -513,9 +513,10 @@ type RuntimeRecoveryLink struct {
 	CreatedAt        string `json:"created_at"`
 }
 
-type RuntimeRef struct {
+type RuntimeObject struct {
 	ID                string         `json:"id"`
 	Uri               string         `json:"uri"`
+	ProjectID         string         `json:"project_id"`
 	SessionID         string         `json:"session_id"`
 	TurnID            sql.NullString `json:"turn_id"`
 	ToolCallID        sql.NullString `json:"tool_call_id"`

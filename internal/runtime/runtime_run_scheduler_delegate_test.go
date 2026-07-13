@@ -210,7 +210,7 @@ func TestRuntimeRunSchedulerDelegateTaskTurnRejectsInvalidCandidatesWithoutSideE
 		Status:          agentTaskStatusCompleted,
 		Progress:        100,
 		ResultSummary:   "already done",
-		ArtifactRefs:    []string{"runtime://refs/task-output"},
+		ArtifactRefs:    []string{"runtime://objects/task-output"},
 		StartedAt:       1200,
 		FinishedAt:      1300,
 	})
@@ -359,7 +359,7 @@ func TestRuntimeRunSchedulerDelegateTaskTurnActivityParityAndRecorderEvidence(t 
 	service.runs = newRuntimeRunStore(conn)
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
-	service.refs = newRuntimeRefStore(conn, workspace.DataDir)
+	service.objects = newRuntimeObjectStore(conn, workspace.DataDir)
 
 	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "task parity")
 	if err != nil {
@@ -412,12 +412,12 @@ func TestRuntimeRunSchedulerDelegateTaskTurnActivityParityAndRecorderEvidence(t 
 	if err != nil {
 		t.Fatalf("delegate should accept owned active task: %v plan=%#v", err, plan)
 	}
-	refsBefore, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	refsBefore, err := service.Objects(context.Background(), RuntimeObjectListRequest{TaskID: task.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refsBefore.Refs) != 0 {
-		t.Fatalf("delegate created refs before recorder evidence: %#v", refsBefore.Refs)
+	if len(refsBefore.Objects) != 0 {
+		t.Fatalf("delegate created refs before recorder evidence: %#v", refsBefore.Objects)
 	}
 
 	recorder := runtimeSchedulerRecorder{service: service}
@@ -444,12 +444,12 @@ func TestRuntimeRunSchedulerDelegateTaskTurnActivityParityAndRecorderEvidence(t 
 	if err := recorder.AgentTaskCompleted(context.Background(), record); err != nil {
 		t.Fatal(err)
 	}
-	refsAfter, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID, Kind: runtimeRefKindTaskArtifact})
+	refsAfter, err := service.Objects(context.Background(), RuntimeObjectListRequest{TaskID: task.ID, Kind: runtimeObjectKindTaskArtifact})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refsAfter.Refs) != 1 || refsAfter.Refs[0].TaskID != task.ID || refsAfter.Refs[0].TurnID != turn.ID {
-		t.Fatalf("task refs after recorder completion = %#v", refsAfter.Refs)
+	if len(refsAfter.Objects) != 1 || refsAfter.Objects[0].TaskID != task.ID || refsAfter.Objects[0].TurnID != turn.ID {
+		t.Fatalf("task refs after recorder completion = %#v", refsAfter.Objects)
 	}
 	completedPlan, err := service.runtimeRunSchedulerPlan(context.Background(), RuntimeRunSchedulerPlanRequest{RunID: run.ID, TaskID: task.ID})
 	if err != nil {

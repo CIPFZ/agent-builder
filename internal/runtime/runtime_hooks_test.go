@@ -92,7 +92,7 @@ func TestRuntimeReplayExportIncludesHookLifecycleSummary(t *testing.T) {
 	service.eventStore = newRuntimeEventStore(conn)
 	service.hookExecutions = newRuntimeHookExecutionStore(conn)
 	service.turns = newRuntimeTurnStore(conn)
-	service.refs = newRuntimeRefStore(conn, dataDir)
+	service.objects = newRuntimeObjectStore(conn, dataDir)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStore())
 	if _, err := service.turns.Upsert(ctx, RuntimeTurn{ID: "turn-1", SessionID: "session-1", Status: turnStatusCompleted}); err != nil {
 		t.Fatal(err)

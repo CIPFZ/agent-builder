@@ -213,7 +213,7 @@ func TestRuntimeSandboxScopeAndRefMetadataPropagation(t *testing.T) {
 	service := newRuntimeService()
 	service.turns = newRuntimeTurnStore(conn)
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
-	service.refs = newRuntimeRefStore(conn, dataDir)
+	service.objects = newRuntimeObjectStore(conn, dataDir)
 	service.eventStore = newRuntimeEventStore(conn)
 	service.worktrees = newRuntimeWorktreeStore(conn)
 	service.policy = runtimePolicyFromMode(permission.PolicyModeAutoRead, 0)
@@ -229,7 +229,8 @@ func TestRuntimeSandboxScopeAndRefMetadataPropagation(t *testing.T) {
 	if !denied || !strings.Contains(decision.Error, "escapes AgentTask") {
 		t.Fatalf("scope escape should be denied: %#v denied=%v", decision, denied)
 	}
-	ref, err := service.createRuntimeRef(ctx, runtimeRefCreateRequest{
+	ref, err := service.createRuntimeObject(ctx, runtimeObjectCreateRequest{
+		ProjectID:         "project-1",
 		SessionID:         "session-1",
 		TurnID:            "turn-1",
 		ToolCallID:        "tool-1",
@@ -237,7 +238,7 @@ func TestRuntimeSandboxScopeAndRefMetadataPropagation(t *testing.T) {
 		SandboxDecisionID: decision.ID,
 		SandboxMode:       decision.Mode,
 		SandboxStatus:     decision.Status,
-		Kind:              runtimeRefKindShellJobOutput,
+		Kind:              runtimeObjectKindShellJobOutput,
 		MediaType:         "text/plain",
 		ContentType:       "stdout",
 		Payload:           []byte("hello"),
@@ -249,12 +250,12 @@ func TestRuntimeSandboxScopeAndRefMetadataPropagation(t *testing.T) {
 	if ref.SandboxDecisionID != decision.ID || ref.SandboxMode != decision.Mode || ref.SandboxStatus != decision.Status {
 		t.Fatalf("ref sandbox metadata = %#v", ref)
 	}
-	toolRefs, err := service.Refs(ctx, RuntimeRefListRequest{ToolCallID: "tool-1"})
+	toolRefs, err := service.Objects(ctx, RuntimeObjectListRequest{ToolCallID: "tool-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(toolRefs.Refs) != 1 || toolRefs.Refs[0].SandboxDecisionID != decision.ID {
-		t.Fatalf("tool refs = %#v", toolRefs.Refs)
+	if len(toolRefs.Objects) != 1 || toolRefs.Objects[0].SandboxDecisionID != decision.ID {
+		t.Fatalf("tool refs = %#v", toolRefs.Objects)
 	}
 	decisionPayload := runtimeSandboxDecisionPayload(decision)
 	replay := buildRuntimeReplaySummary(

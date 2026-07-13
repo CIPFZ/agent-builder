@@ -77,9 +77,9 @@ type RuntimeService interface {
 	TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error)
 	SandboxDecisions(context.Context, RuntimeSandboxDecisionListRequest) (RuntimeSandboxDecisionsResponse, error)
 	SandboxDecision(context.Context, string) (RuntimeSandboxDecisionResponse, error)
-	Refs(context.Context, RuntimeRefListRequest) (RuntimeRefsResponse, error)
-	Ref(context.Context, string) (RuntimeRefResponse, error)
-	ReadRefContent(context.Context, string) (RuntimeRefContentResponse, error)
+	Objects(context.Context, RuntimeObjectListRequest) (RuntimeObjectsResponse, error)
+	Object(context.Context, string) (RuntimeObjectResponse, error)
+	ReadObjectContent(context.Context, string) (RuntimeObjectContentResponse, error)
 	TurnCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error)
 	SessionCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error)
 	PromptAssembliesByTurn(context.Context, string) (RuntimePromptAssembliesResponse, error)
@@ -190,7 +190,7 @@ type runtimeService struct {
 	sessionTurns           map[string]string
 	toolEvents             map[string]runtimeToolEventState
 	toolCalls              runtimeToolCallStore
-	refs                   runtimeRefStore
+	objects                runtimeObjectStore
 	contextManager         contextmgr.Manager
 	contextStore           contextmgr.SQLStore
 	promptAssemblies       runtimePromptAssemblyStore

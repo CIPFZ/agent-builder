@@ -142,7 +142,7 @@ func buildRuntimeTurnDiagnostics(turn RuntimeTurn, messages []RuntimeMessage, to
 		Verified:             len(diag.VerifiedArtifacts),
 		Missing:              len(diag.MissingArtifacts),
 		LocalDeliverables:    len(diag.ProducedArtifacts),
-		RuntimeRefs:          diag.ArtifactConfidenceSummary.RuntimeOutputRefs,
+		RuntimeObjects:       diag.ArtifactConfidenceSummary.RuntimeOutputRefs,
 		ProducedMetadataRefs: diag.ArtifactConfidenceSummary.ProducedToolMetadata,
 		StructuredRefs:       diag.ArtifactConfidenceSummary.StructuredMCPCustomRefs,
 	}

@@ -62,7 +62,7 @@ logs/
   agent-builder.log
 ```
 
-不得再创建共享的 `data/memory` 或 `data/runtime_refs`。原 Runtime Ref
+不得再创建共享的 `data/memory` 或旧的 `data/runtime_refs`。原 Runtime Ref
 概念直接重命名为 Object；不保留旧名称、旧表或旧路径的兼容层。
 
 ## 配置归属

@@ -471,8 +471,8 @@ func (r *runtimeService) AgentTaskOutput(ctx context.Context, taskID string) (Ru
 			out.ArtifactRefs = appendUniqueStrings(out.ArtifactRefs, msg.ArtifactRefs...)
 		}
 	}
-	if refs, err := r.Refs(ctx, RuntimeRefListRequest{TaskID: resp.Task.ID}); err == nil {
-		for _, ref := range refs.Refs {
+	if refs, err := r.Objects(ctx, RuntimeObjectListRequest{TaskID: resp.Task.ID}); err == nil {
+		for _, ref := range refs.Objects {
 			out.OutputRefs = appendUniqueStrings(out.OutputRefs, ref.URI)
 		}
 	}
@@ -551,16 +551,16 @@ func (r *runtimeService) ensureTaskArtifactRefs(ctx context.Context, task Runtim
 		if value == "" {
 			continue
 		}
-		if strings.HasPrefix(value, "runtime://refs/") {
+		if strings.HasPrefix(value, "runtime://objects/") {
 			out = appendUniqueStrings(out, value)
 			continue
 		}
-		ref, err := r.createRuntimeRef(ctx, runtimeRefCreateRequest{
+		ref, err := r.createRuntimeObject(ctx, runtimeObjectCreateRequest{
 			SessionID:   task.ParentSessionID,
 			TurnID:      task.ParentTurnID,
 			ToolCallID:  task.ParentToolCallID,
 			TaskID:      task.ID,
-			Kind:        runtimeRefKindTaskArtifact,
+			Kind:        runtimeObjectKindTaskArtifact,
 			MediaType:   "text/plain",
 			ContentType: "task_artifact_ref",
 			Payload:     []byte(value),

@@ -69,12 +69,12 @@ func TestPhase321LoopbackProviderChildAgentExecutionSmoke(t *testing.T) {
 		if len(refreshed.Task.ArtifactRefs) != 0 {
 			t.Fatalf("failed provider execution created artifact refs: %#v", refreshed.Task.ArtifactRefs)
 		}
-		refs, refsErr := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+		refs, refsErr := service.Objects(context.Background(), RuntimeObjectListRequest{TaskID: task.ID})
 		if refsErr != nil {
 			t.Fatal(refsErr)
 		}
-		if len(refs.Refs) != 0 {
-			t.Fatalf("failed provider execution created refs: %#v", refs.Refs)
+		if len(refs.Objects) != 0 {
+			t.Fatalf("failed provider execution created refs: %#v", refs.Objects)
 		}
 	})
 }

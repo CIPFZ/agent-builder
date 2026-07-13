@@ -480,12 +480,12 @@ func TestRuntimeRunStatusWriterIntegratedRestartReadSmoke(t *testing.T) {
 	if taskPersisted.Status != runtimeRunStatusActive || taskPersisted.FinishedAt != 0 {
 		t.Fatalf("task active status did not survive restart/read: %#v", taskPersisted)
 	}
-	refs, err := restarted.Refs(ctx, RuntimeRefListRequest{TaskID: task.ID})
+	refs, err := restarted.Objects(ctx, RuntimeObjectListRequest{TaskID: task.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refs.Refs) != 0 {
-		t.Fatalf("task start smoke created artifact refs: %#v", refs.Refs)
+	if len(refs.Objects) != 0 {
+		t.Fatalf("task start smoke created artifact refs: %#v", refs.Objects)
 	}
 	terminalDetail, err := restarted.Run(ctx, terminalRun.ID)
 	if err != nil {

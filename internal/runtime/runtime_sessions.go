@@ -192,7 +192,7 @@ func (r *runtimeService) DeleteSession(ctx context.Context, sessionID string) (R
 		if _, err := conn.ExecContext(ctx, `UPDATE sessions SET deleted_at = ?, status = 'deleted' WHERE id = ? AND deleted_at IS NULL`, now, sessionID); err != nil {
 			return RuntimeSessionsResponse{}, fmt.Errorf("failed to soft delete Agent Builder session: %w", err)
 		}
-	} else if err := purgeRuntimeSession(ctx, conn, sessionID, r.refs.root); err != nil {
+	} else if err := purgeRuntimeSession(ctx, conn, sessionID, r.objects.dataDir); err != nil {
 		return RuntimeSessionsResponse{}, fmt.Errorf("failed to purge Agent Builder session: %w", err)
 	}
 	if sessionID == activeID {

@@ -28,7 +28,7 @@ func (f *fakeAgentTaskToolRuntime) StopAgentTaskForTool(context.Context, AgentTa
 	return AgentTaskToolStopResponse{Success: true, Message: "stopped", Task: AgentTaskToolTask{ID: "task-1", Status: "cancelled"}}, nil
 }
 func (f *fakeAgentTaskToolRuntime) GetAgentTaskOutputForTool(context.Context, AgentTaskToolOutputRequest) (AgentTaskToolOutputResponse, error) {
-	return AgentTaskToolOutputResponse{TaskID: "task-1", Status: "completed", Summary: "done", OutputRefs: []string{"runtime://refs/ref-1"}}, nil
+	return AgentTaskToolOutputResponse{TaskID: "task-1", Status: "completed", Summary: "done", OutputRefs: []string{"runtime://objects/ref-1"}}, nil
 }
 func (f *fakeAgentTaskToolRuntime) AgentTaskStarted(context.Context, AgentTaskRecord) error {
 	return nil

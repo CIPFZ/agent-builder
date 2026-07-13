@@ -1094,7 +1094,7 @@ func TestRuntimeBridgeForwardsAgentTaskReadsAndOutput(t *testing.T) {
 			TaskID:     "task-1",
 			Status:     "completed",
 			Summary:    "done",
-			OutputRefs: []string{"runtime://refs/ref-1"},
+			OutputRefs: []string{"runtime://objects/ref-1"},
 		},
 	}
 	bridge := &RuntimeBridge{service: service}
@@ -1111,7 +1111,7 @@ func TestRuntimeBridgeForwardsAgentTaskReadsAndOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if service.agentTaskOutputID != "task-1" || output.OutputRefs[0] != "runtime://refs/ref-1" {
+	if service.agentTaskOutputID != "task-1" || output.OutputRefs[0] != "runtime://objects/ref-1" {
 		t.Fatalf("output=%#v task=%q", output, service.agentTaskOutputID)
 	}
 }
@@ -1528,16 +1528,16 @@ func (s *recordingRuntimeService) SandboxDecision(context.Context, string) (runt
 	return runtime.RuntimeSandboxDecisionResponse{}, nil
 }
 
-func (s *recordingRuntimeService) Refs(context.Context, RuntimeRefListRequest) (RuntimeRefsResponse, error) {
-	return RuntimeRefsResponse{}, nil
+func (s *recordingRuntimeService) Objects(context.Context, RuntimeObjectListRequest) (RuntimeObjectsResponse, error) {
+	return RuntimeObjectsResponse{}, nil
 }
 
-func (s *recordingRuntimeService) Ref(context.Context, string) (RuntimeRefResponse, error) {
-	return RuntimeRefResponse{}, nil
+func (s *recordingRuntimeService) Object(context.Context, string) (RuntimeObjectResponse, error) {
+	return RuntimeObjectResponse{}, nil
 }
 
-func (s *recordingRuntimeService) ReadRefContent(context.Context, string) (RuntimeRefContentResponse, error) {
-	return RuntimeRefContentResponse{}, nil
+func (s *recordingRuntimeService) ReadObjectContent(context.Context, string) (RuntimeObjectContentResponse, error) {
+	return RuntimeObjectContentResponse{}, nil
 }
 
 func (s *recordingRuntimeService) SessionConversationMessageContentV2(context.Context, string, string) (RuntimeCanonicalMessageContentResponseV2, error) {

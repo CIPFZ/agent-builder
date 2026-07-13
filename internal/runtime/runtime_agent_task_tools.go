@@ -126,9 +126,9 @@ func (r *runtimeService) GetAgentTaskOutputForTool(ctx context.Context, req agen
 			out.Artifacts = appendUniqueStrings(out.Artifacts, msg.ArtifactRefs...)
 		}
 	}
-	refs, err := r.Refs(ctx, RuntimeRefListRequest{TaskID: req.TaskID})
+	refs, err := r.Objects(ctx, RuntimeObjectListRequest{TaskID: req.TaskID})
 	if err == nil {
-		for _, ref := range refs.Refs {
+		for _, ref := range refs.Objects {
 			out.OutputRefs = appendUniqueStrings(out.OutputRefs, ref.URI)
 		}
 	}

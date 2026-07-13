@@ -4564,6 +4564,7 @@ func TestRuntimeAgentTaskToolOutputUsesRefs(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = service.createRuntimeObject(context.Background(), runtimeObjectCreateRequest{
+		ProjectID:   "project-1",
 		SessionID:   "session-parent",
 		TurnID:      "turn-1",
 		ToolCallID:  "tool-1",
@@ -5133,7 +5134,7 @@ func (s *recordingRuntimeService) SandboxDecisions(context.Context, RuntimeSandb
 }
 
 func (s *recordingRuntimeService) Objects(context.Context, RuntimeObjectListRequest) (RuntimeObjectsResponse, error) {
-	return s.objects, nil
+	return s.refs, nil
 }
 
 func (s *recordingRuntimeService) Object(context.Context, string) (RuntimeObjectResponse, error) {

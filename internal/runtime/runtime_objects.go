@@ -14,32 +14,33 @@ import (
 )
 
 const (
-	runtimeRefKindOutput                = "output"
-	runtimeRefKindArtifact              = "artifact"
-	runtimeRefKindDiff                  = "diff"
-	runtimeRefKindCompactOriginalOutput = "compact_original_output"
-	runtimeRefKindShellJobOutput        = "shell_job_output"
-	runtimeRefKindTaskArtifact          = "task_artifact"
+	runtimeObjectKindOutput                = "output"
+	runtimeObjectKindArtifact              = "artifact"
+	runtimeObjectKindDiff                  = "diff"
+	runtimeObjectKindCompactOriginalOutput = "compact_original_output"
+	runtimeObjectKindShellJobOutput        = "shell_job_output"
+	runtimeObjectKindTaskArtifact          = "task_artifact"
 
-	runtimeRefStorageInline = "inline"
-	runtimeRefStorageFile   = "file"
+	runtimeObjectStorageInline = "inline"
+	runtimeObjectStorageFile   = "file"
 
-	runtimeRefRedactionSafe     = "safe"
-	runtimeRefRedactionRedacted = "redacted"
-	runtimeRefRedactionUnsafe   = "unsafe"
+	runtimeObjectRedactionSafe     = "safe"
+	runtimeObjectRedactionRedacted = "redacted"
+	runtimeObjectRedactionUnsafe   = "unsafe"
 
-	runtimeRefInlineLimit = 8 * 1024
+	runtimeObjectInlineLimit = 8 * 1024
 )
 
-var errRuntimeRefNotFound = errors.New("runtime ref not found")
+var errRuntimeObjectNotFound = errors.New("runtime object not found")
 
-type runtimeRefStore struct {
-	db   *sql.DB
-	root string
+type runtimeObjectStore struct {
+	db      *sql.DB
+	dataDir string
 }
 
-type runtimeRefCreateRequest struct {
+type runtimeObjectCreateRequest struct {
 	ID                string
+	ProjectID         string
 	SessionID         string
 	TurnID            string
 	ToolCallID        string
@@ -57,37 +58,41 @@ type runtimeRefCreateRequest struct {
 	CreatedAt         time.Time
 }
 
-func newRuntimeRefStore(db *sql.DB, dataDir string) runtimeRefStore {
-	root := filepath.Join(dataDir, "runtime_refs")
-	return runtimeRefStore{db: db, root: filepath.Clean(root)}
+func newRuntimeObjectStore(db *sql.DB, dataDir string) runtimeObjectStore {
+	return runtimeObjectStore{db: db, dataDir: filepath.Clean(dataDir)}
 }
 
-func (s runtimeRefStore) Create(ctx context.Context, req runtimeRefCreateRequest) (RuntimeRef, error) {
+func (s runtimeObjectStore) Create(ctx context.Context, req runtimeObjectCreateRequest) (RuntimeObject, error) {
 	if s.db == nil {
-		return RuntimeRef{}, errors.New("runtime ref database is not available")
+		return RuntimeObject{}, errors.New("runtime object database is not available")
 	}
+	req.ProjectID = strings.TrimSpace(req.ProjectID)
 	req.SessionID = strings.TrimSpace(req.SessionID)
 	req.Kind = strings.TrimSpace(req.Kind)
+	if req.ProjectID == "" {
+		return RuntimeObject{}, errors.New("runtime object project id is required")
+	}
 	if req.SessionID == "" {
-		return RuntimeRef{}, errors.New("runtime ref session id is required")
+		return RuntimeObject{}, errors.New("runtime object session id is required")
 	}
 	if req.Kind == "" {
-		return RuntimeRef{}, errors.New("runtime ref kind is required")
+		return RuntimeObject{}, errors.New("runtime object kind is required")
 	}
 	if req.ID == "" {
-		req.ID = newRuntimeRefID()
+		req.ID = newRuntimeObjectID()
 	}
 	if req.CreatedAt.IsZero() {
 		req.CreatedAt = time.Now().UTC()
 	}
 	redactedPayload := redactRuntimeString("", string(req.Payload))
-	redactionStatus := runtimeRefRedactionSafe
+	redactionStatus := runtimeObjectRedactionSafe
 	if redactedPayload != string(req.Payload) {
-		redactionStatus = runtimeRefRedactionUnsafe
+		redactionStatus = runtimeObjectRedactionUnsafe
 	}
-	ref := RuntimeRef{
+	ref := RuntimeObject{
 		ID:                req.ID,
-		URI:               "runtime://refs/" + req.ID,
+		URI:               "runtime://objects/" + req.ID,
+		ProjectID:         req.ProjectID,
 		SessionID:         req.SessionID,
 		TurnID:            strings.TrimSpace(req.TurnID),
 		ToolCallID:        strings.TrimSpace(req.ToolCallID),
@@ -102,44 +107,45 @@ func (s runtimeRefStore) Create(ctx context.Context, req runtimeRefCreateRequest
 		EstimatedTokens:   estimateRuntimeTokens(string(req.Payload)),
 		Preview:           preview(redactedPayload, runtimePartPreviewLimit),
 		Summary:           preview(redactRuntimeString("summary", firstNonEmpty(req.Summary, redactedPayload)), auditPreviewLimit),
-		StorageKind:       runtimeRefStorageInline,
+		StorageKind:       runtimeObjectStorageInline,
 		RedactionStatus:   redactionStatus,
 		CreatedAt:         req.CreatedAt.UnixMilli(),
-		CanReadContent:    redactionStatus == runtimeRefRedactionSafe,
+		CanReadContent:    redactionStatus == runtimeObjectRedactionSafe,
 	}
 	if req.StoragePath != "" {
-		ref.StorageKind = firstNonEmpty(req.StorageKind, runtimeRefStorageFile)
+		ref.StorageKind = firstNonEmpty(req.StorageKind, runtimeObjectStorageFile)
 		ref.StoragePath = filepath.ToSlash(req.StoragePath)
-		if _, err := s.resolveStoragePath(ref.StoragePath); err != nil {
-			return RuntimeRef{}, err
+		if _, err := s.resolveStoragePath(ref.ProjectID, ref.StoragePath); err != nil {
+			return RuntimeObject{}, err
 		}
-	} else if len(req.Payload) > runtimeRefInlineLimit {
-		ref.StorageKind = runtimeRefStorageFile
-		rel, abs, err := s.storagePathForID(ref.ID)
+	} else if len(req.Payload) > runtimeObjectInlineLimit {
+		ref.StorageKind = runtimeObjectStorageFile
+		rel, abs, err := s.storagePathForID(ref.ProjectID, ref.ID)
 		if err != nil {
-			return RuntimeRef{}, err
+			return RuntimeObject{}, err
 		}
 		// TODO(runtime): add reference-aware garbage collection once session
 		// retention policies exist. Refs are intentionally durable today.
 		if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
-			return RuntimeRef{}, fmt.Errorf("failed to create runtime ref storage: %w", err)
+			return RuntimeObject{}, fmt.Errorf("failed to create runtime object storage: %w", err)
 		}
 		if err := os.WriteFile(abs, req.Payload, 0o600); err != nil {
-			return RuntimeRef{}, fmt.Errorf("failed to write runtime ref payload: %w", err)
+			return RuntimeObject{}, fmt.Errorf("failed to write runtime object payload: %w", err)
 		}
 		ref.StoragePath = rel
 	} else {
 		ref.InlinePayload = string(req.Payload)
 	}
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO runtime_refs (
-    id, uri, session_id, turn_id, tool_call_id, task_id, sandbox_decision_id,
+INSERT INTO objects (
+    id, uri, project_id, session_id, turn_id, tool_call_id, task_id, sandbox_decision_id,
     sandbox_mode, sandbox_status, kind, media_type,
     content_type, size_bytes, estimated_tokens, preview, summary,
     storage_kind, storage_path, inline_payload, redaction_status, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     uri = excluded.uri,
+	project_id = excluded.project_id,
     session_id = excluded.session_id,
     turn_id = excluded.turn_id,
     tool_call_id = excluded.tool_call_id,
@@ -161,6 +167,7 @@ ON CONFLICT(id) DO UPDATE SET
     created_at = excluded.created_at`,
 		ref.ID,
 		ref.URI,
+		ref.ProjectID,
 		ref.SessionID,
 		nullableString(ref.TurnID),
 		nullableString(ref.ToolCallID),
@@ -182,45 +189,49 @@ ON CONFLICT(id) DO UPDATE SET
 		ref.CreatedAt,
 	)
 	if err != nil {
-		return RuntimeRef{}, fmt.Errorf("failed to store runtime ref: %w", err)
+		return RuntimeObject{}, fmt.Errorf("failed to store runtime object: %w", err)
 	}
 	return s.Get(ctx, ref.ID)
 }
 
-func (s runtimeRefStore) Get(ctx context.Context, idOrURI string) (RuntimeRef, error) {
+func (s runtimeObjectStore) Get(ctx context.Context, idOrURI string) (RuntimeObject, error) {
 	if s.db == nil {
-		return RuntimeRef{}, errors.New("runtime ref database is not available")
+		return RuntimeObject{}, errors.New("runtime object database is not available")
 	}
-	idOrURI = normalizeRuntimeRefID(idOrURI)
+	idOrURI = normalizeRuntimeObjectID(idOrURI)
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, uri, session_id, turn_id, tool_call_id, task_id, sandbox_decision_id,
+SELECT id, uri, project_id, session_id, turn_id, tool_call_id, task_id, sandbox_decision_id,
     sandbox_mode, sandbox_status, kind, media_type,
     content_type, size_bytes, estimated_tokens, preview, summary,
     storage_kind, storage_path, inline_payload, redaction_status, created_at
-FROM runtime_refs
+FROM objects
 WHERE id = ? OR uri = ?`, idOrURI, idOrURI)
-	ref, err := scanRuntimeRef(row)
+	ref, err := scanRuntimeObject(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return RuntimeRef{}, errRuntimeRefNotFound
+		return RuntimeObject{}, errRuntimeObjectNotFound
 	}
 	if err != nil {
-		return RuntimeRef{}, err
+		return RuntimeObject{}, err
 	}
-	return runtimeRefMetadataOnly(ref), nil
+	return runtimeObjectMetadataOnly(ref), nil
 }
 
-func (s runtimeRefStore) List(ctx context.Context, req RuntimeRefListRequest) ([]RuntimeRef, error) {
+func (s runtimeObjectStore) List(ctx context.Context, req RuntimeObjectListRequest) ([]RuntimeObject, error) {
 	if s.db == nil {
-		return nil, errors.New("runtime ref database is not available")
+		return nil, errors.New("runtime object database is not available")
 	}
 	query := `
-SELECT id, uri, session_id, turn_id, tool_call_id, task_id, sandbox_decision_id,
+SELECT id, uri, project_id, session_id, turn_id, tool_call_id, task_id, sandbox_decision_id,
     sandbox_mode, sandbox_status, kind, media_type,
     content_type, size_bytes, estimated_tokens, preview, summary,
     storage_kind, storage_path, inline_payload, redaction_status, created_at
-FROM runtime_refs`
+FROM objects`
 	var clauses []string
 	var args []any
+	if req.ProjectID != "" {
+		clauses = append(clauses, "project_id = ?")
+		args = append(args, req.ProjectID)
+	}
 	if req.SessionID != "" {
 		clauses = append(clauses, "session_id = ?")
 		args = append(args, req.SessionID)
@@ -247,94 +258,102 @@ FROM runtime_refs`
 	query += " ORDER BY created_at ASC"
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list runtime refs: %w", err)
+		return nil, fmt.Errorf("failed to list runtime objects: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck
-	var refs []RuntimeRef
+	var refs []RuntimeObject
 	for rows.Next() {
-		ref, err := scanRuntimeRef(rows)
+		ref, err := scanRuntimeObject(rows)
 		if err != nil {
 			return nil, err
 		}
-		refs = append(refs, runtimeRefMetadataOnly(ref))
+		refs = append(refs, runtimeObjectMetadataOnly(ref))
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate runtime refs: %w", err)
+		return nil, fmt.Errorf("failed to iterate runtime objects: %w", err)
 	}
 	return refs, nil
 }
 
-func (s runtimeRefStore) ReadContent(ctx context.Context, idOrURI string) (RuntimeRefContentResponse, error) {
+func (s runtimeObjectStore) ReadContent(ctx context.Context, idOrURI string) (RuntimeObjectContentResponse, error) {
 	ref, err := s.Get(ctx, idOrURI)
 	if err != nil {
-		return RuntimeRefContentResponse{}, err
+		return RuntimeObjectContentResponse{}, err
 	}
 	fullRef, err := s.getWithPayload(ctx, idOrURI)
 	if err != nil {
-		return RuntimeRefContentResponse{}, err
+		return RuntimeObjectContentResponse{}, err
 	}
 	content := fullRef.InlinePayload
-	if ref.StorageKind == runtimeRefStorageFile {
-		path, err := s.resolveStoragePath(ref.StoragePath)
+	if ref.StorageKind == runtimeObjectStorageFile {
+		path, err := s.resolveStoragePath(ref.ProjectID, ref.StoragePath)
 		if err != nil {
-			return RuntimeRefContentResponse{}, err
+			return RuntimeObjectContentResponse{}, err
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return RuntimeRefContentResponse{}, fmt.Errorf("failed to read runtime ref payload: %w", err)
+			return RuntimeObjectContentResponse{}, fmt.Errorf("failed to read runtime object payload: %w", err)
 		}
 		content = string(data)
 	}
 	redacted := false
-	if ref.RedactionStatus != runtimeRefRedactionSafe {
+	if ref.RedactionStatus != runtimeObjectRedactionSafe {
 		content = redactRuntimeString("", content)
 		redacted = true
 		ref.CanReadContent = false
 	} else {
 		ref.CanReadContent = true
 	}
-	return RuntimeRefContentResponse{Ref: ref, Content: content, Redacted: redacted}, nil
+	return RuntimeObjectContentResponse{Object: ref, Content: content, Redacted: redacted}, nil
 }
 
-func (s runtimeRefStore) getWithPayload(ctx context.Context, idOrURI string) (RuntimeRef, error) {
-	idOrURI = normalizeRuntimeRefID(idOrURI)
+func (s runtimeObjectStore) getWithPayload(ctx context.Context, idOrURI string) (RuntimeObject, error) {
+	idOrURI = normalizeRuntimeObjectID(idOrURI)
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, uri, session_id, turn_id, tool_call_id, task_id, sandbox_decision_id,
+SELECT id, uri, project_id, session_id, turn_id, tool_call_id, task_id, sandbox_decision_id,
     sandbox_mode, sandbox_status, kind, media_type,
     content_type, size_bytes, estimated_tokens, preview, summary,
     storage_kind, storage_path, inline_payload, redaction_status, created_at
-FROM runtime_refs
+FROM objects
 WHERE id = ? OR uri = ?`, idOrURI, idOrURI)
-	ref, err := scanRuntimeRef(row)
+	ref, err := scanRuntimeObject(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return RuntimeRef{}, errRuntimeRefNotFound
+		return RuntimeObject{}, errRuntimeObjectNotFound
 	}
 	return ref, err
 }
 
-func (s runtimeRefStore) storagePathForID(id string) (string, string, error) {
+func (s runtimeObjectStore) storagePathForID(projectID, id string) (string, string, error) {
 	safeID := strings.NewReplacer("/", "_", "\\", "_", ":", "_").Replace(id)
 	if safeID == "" || safeID == "." || safeID == ".." {
-		return "", "", errors.New("invalid runtime ref id")
+		return "", "", errors.New("invalid runtime object id")
 	}
 	rel := filepath.ToSlash(filepath.Join(safeID[:minInt(2, len(safeID))], safeID+".blob"))
-	abs, err := s.resolveStoragePath(rel)
+	abs, err := s.resolveStoragePath(projectID, rel)
 	return rel, abs, err
 }
 
-func (s runtimeRefStore) resolveStoragePath(rel string) (string, error) {
+func (s runtimeObjectStore) resolveStoragePath(projectID, rel string) (string, error) {
 	rel = strings.TrimSpace(rel)
 	if rel == "" {
-		return "", errors.New("runtime ref storage path is required")
+		return "", errors.New("runtime object storage path is required")
 	}
 	if filepath.IsAbs(rel) || strings.Contains(rel, ":") {
-		return "", errors.New("runtime ref storage path must be relative")
+		return "", errors.New("runtime object storage path must be relative")
 	}
 	cleanRel := filepath.Clean(filepath.FromSlash(rel))
 	if cleanRel == "." || strings.HasPrefix(cleanRel, ".."+string(filepath.Separator)) || cleanRel == ".." {
-		return "", errors.New("runtime ref storage path traversal rejected")
+		return "", errors.New("runtime object storage path traversal rejected")
 	}
-	rootAbs, err := filepath.Abs(s.root)
+	dataLayout, err := newApplicationDataLayout(s.dataDir)
+	if err != nil {
+		return "", err
+	}
+	projectLayout, err := dataLayout.Project(projectID)
+	if err != nil {
+		return "", err
+	}
+	rootAbs, err := filepath.Abs(projectLayout.ObjectsDir)
 	if err != nil {
 		return "", err
 	}
@@ -343,21 +362,22 @@ func (s runtimeRefStore) resolveStoragePath(rel string) (string, error) {
 		return "", err
 	}
 	if pathAbs != rootAbs && !strings.HasPrefix(pathAbs, rootAbs+string(filepath.Separator)) {
-		return "", errors.New("runtime ref storage path escapes runtime data directory")
+		return "", errors.New("runtime object storage path escapes runtime data directory")
 	}
 	return pathAbs, nil
 }
 
-type runtimeRefScanner interface {
+type runtimeObjectScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanRuntimeRef(scanner runtimeRefScanner) (RuntimeRef, error) {
-	var ref RuntimeRef
+func scanRuntimeObject(scanner runtimeObjectScanner) (RuntimeObject, error) {
+	var ref RuntimeObject
 	var turnID, toolCallID, taskID, sandboxDecisionID, sandboxMode, sandboxStatus, mediaType, contentType, previewText, summary, storagePath, inlinePayload sql.NullString
 	if err := scanner.Scan(
 		&ref.ID,
 		&ref.URI,
+		&ref.ProjectID,
 		&ref.SessionID,
 		&turnID,
 		&toolCallID,
@@ -378,7 +398,7 @@ func scanRuntimeRef(scanner runtimeRefScanner) (RuntimeRef, error) {
 		&ref.RedactionStatus,
 		&ref.CreatedAt,
 	); err != nil {
-		return RuntimeRef{}, err
+		return RuntimeObject{}, err
 	}
 	ref.TurnID = turnID.String
 	ref.ToolCallID = toolCallID.String
@@ -392,39 +412,39 @@ func scanRuntimeRef(scanner runtimeRefScanner) (RuntimeRef, error) {
 	ref.Summary = summary.String
 	ref.StoragePath = storagePath.String
 	ref.InlinePayload = inlinePayload.String
-	ref.CanReadContent = ref.RedactionStatus == runtimeRefRedactionSafe
+	ref.CanReadContent = ref.RedactionStatus == runtimeObjectRedactionSafe
 	return ref, nil
 }
 
-func newRuntimeRefID() string {
-	return "ref_" + newRequestID()
+func newRuntimeObjectID() string {
+	return "object_" + newRequestID()
 }
 
-func normalizeRuntimeRefID(value string) string {
+func normalizeRuntimeObjectID(value string) string {
 	value = strings.TrimSpace(value)
-	return strings.TrimPrefix(value, "runtime://refs/")
+	return strings.TrimPrefix(value, "runtime://objects/")
 }
 
-func (r *runtimeService) ensureRuntimeRefStore(ctx context.Context) (runtimeRefStore, error) {
-	if r.refs.db != nil {
-		return r.refs, nil
+func (r *runtimeService) ensureRuntimeObjectStore(ctx context.Context) (runtimeObjectStore, error) {
+	if r.objects.db != nil {
+		return r.objects, nil
 	}
 	if r.turns.db != nil {
 		dataDir := os.TempDir()
-		r.refs = newRuntimeRefStore(r.turns.db, dataDir)
-		return r.refs, nil
+		r.objects = newRuntimeObjectStore(r.turns.db, dataDir)
+		return r.objects, nil
 	}
 	// Never bootstrap the workspace just to open a ref store — see
 	// workspaceDBIfStarted for why. Ref creation is a side effect of
 	// tool result recording, so silently no-op when no workspace has
-	// been attached: callers (createRuntimeRef → createToolOutputRefs)
+	// been attached: callers (createRuntimeObject → createToolOutputRefs)
 	// already ignore Create errors and skip persistence.
 	db, err := r.workspaceDBIfStarted(ctx)
 	if err != nil {
-		return runtimeRefStore{}, err
+		return runtimeObjectStore{}, err
 	}
 	if db == nil {
-		return runtimeRefStore{}, errors.New("runtime ref database is not available")
+		return runtimeObjectStore{}, errors.New("runtime object database is not available")
 	}
 	dataDir := ""
 	r.mu.Lock()
@@ -435,27 +455,31 @@ func (r *runtimeService) ensureRuntimeRefStore(ctx context.Context) (runtimeRefS
 	if dataDir == "" {
 		dataDir = os.TempDir()
 	}
-	r.refs = newRuntimeRefStore(db, dataDir)
-	return r.refs, nil
+	r.objects = newRuntimeObjectStore(db, dataDir)
+	return r.objects, nil
 }
 
-func (r *runtimeService) createRuntimeRef(ctx context.Context, req runtimeRefCreateRequest) (RuntimeRef, error) {
-	store, err := r.ensureRuntimeRefStore(ctx)
+func (r *runtimeService) createRuntimeObject(ctx context.Context, req runtimeObjectCreateRequest) (RuntimeObject, error) {
+	r.mu.Lock()
+	projectID := r.activeProjectID
+	r.mu.Unlock()
+	req.ProjectID = firstNonEmpty(req.ProjectID, projectID)
+	store, err := r.ensureRuntimeObjectStore(ctx)
 	if err != nil {
-		return RuntimeRef{}, err
+		return RuntimeObject{}, err
 	}
 	ref, err := store.Create(ctx, req)
 	if err != nil {
-		return RuntimeRef{}, err
+		return RuntimeObject{}, err
 	}
-	r.publishRuntimeRefCreated(ref)
+	r.publishRuntimeObjectCreated(ref)
 	return ref, nil
 }
 
-func (r *runtimeService) publishRuntimeRefCreated(ref RuntimeRef) {
-	payload := runtimeRefEventPayload(ref)
+func (r *runtimeService) publishRuntimeObjectCreated(ref RuntimeObject) {
+	payload := runtimeObjectEventPayload(ref)
 	eventType := runtimeapi.EventOutputRefCreated
-	if ref.Kind == runtimeRefKindArtifact || ref.Kind == runtimeRefKindTaskArtifact {
+	if ref.Kind == runtimeObjectKindArtifact || ref.Kind == runtimeObjectKindTaskArtifact {
 		eventType = runtimeapi.EventArtifactRefCreated
 	}
 	r.storeRuntimeEvent(runtimeapi.Event{
@@ -467,7 +491,7 @@ func (r *runtimeService) publishRuntimeRefCreated(ref RuntimeRef) {
 		ToolCallID: ref.ToolCallID,
 		Payload:    payload,
 	})
-	if ref.ToolCallID != "" && (ref.Kind == runtimeRefKindOutput || ref.Kind == runtimeRefKindShellJobOutput || ref.Kind == runtimeRefKindDiff || ref.Kind == runtimeRefKindCompactOriginalOutput) {
+	if ref.ToolCallID != "" && (ref.Kind == runtimeObjectKindOutput || ref.Kind == runtimeObjectKindShellJobOutput || ref.Kind == runtimeObjectKindDiff || ref.Kind == runtimeObjectKindCompactOriginalOutput) {
 		r.storeRuntimeEvent(runtimeapi.Event{
 			ID:         newRuntimeEventID(),
 			Type:       runtimeapi.EventToolOutputRefCreated,
@@ -480,10 +504,11 @@ func (r *runtimeService) publishRuntimeRefCreated(ref RuntimeRef) {
 	}
 }
 
-func runtimeRefEventPayload(ref RuntimeRef) map[string]any {
+func runtimeObjectEventPayload(ref RuntimeObject) map[string]any {
 	return map[string]any{
 		"id":                  ref.ID,
 		"uri":                 ref.URI,
+		"project_id":          ref.ProjectID,
 		"session_id":          ref.SessionID,
 		"turn_id":             ref.TurnID,
 		"tool_call_id":        ref.ToolCallID,
@@ -504,39 +529,39 @@ func runtimeRefEventPayload(ref RuntimeRef) map[string]any {
 	}
 }
 
-func runtimeRefMetadataOnly(ref RuntimeRef) RuntimeRef {
+func runtimeObjectMetadataOnly(ref RuntimeObject) RuntimeObject {
 	ref.InlinePayload = ""
 	return ref
 }
 
-func (r *runtimeService) Refs(ctx context.Context, req RuntimeRefListRequest) (RuntimeRefsResponse, error) {
-	store, err := r.ensureRuntimeRefStore(ctx)
+func (r *runtimeService) Objects(ctx context.Context, req RuntimeObjectListRequest) (RuntimeObjectsResponse, error) {
+	store, err := r.ensureRuntimeObjectStore(ctx)
 	if err != nil {
-		return RuntimeRefsResponse{}, err
+		return RuntimeObjectsResponse{}, err
 	}
-	refs, err := store.List(ctx, req)
+	objects, err := store.List(ctx, req)
 	if err != nil {
-		return RuntimeRefsResponse{}, err
+		return RuntimeObjectsResponse{}, err
 	}
-	return RuntimeRefsResponse{Refs: refs}, nil
+	return RuntimeObjectsResponse{Objects: objects}, nil
 }
 
-func (r *runtimeService) Ref(ctx context.Context, id string) (RuntimeRefResponse, error) {
-	store, err := r.ensureRuntimeRefStore(ctx)
+func (r *runtimeService) Object(ctx context.Context, id string) (RuntimeObjectResponse, error) {
+	store, err := r.ensureRuntimeObjectStore(ctx)
 	if err != nil {
-		return RuntimeRefResponse{}, err
+		return RuntimeObjectResponse{}, err
 	}
 	ref, err := store.Get(ctx, id)
 	if err != nil {
-		return RuntimeRefResponse{}, err
+		return RuntimeObjectResponse{}, err
 	}
-	return RuntimeRefResponse{Ref: ref}, nil
+	return RuntimeObjectResponse{Object: ref}, nil
 }
 
-func (r *runtimeService) ReadRefContent(ctx context.Context, id string) (RuntimeRefContentResponse, error) {
-	store, err := r.ensureRuntimeRefStore(ctx)
+func (r *runtimeService) ReadObjectContent(ctx context.Context, id string) (RuntimeObjectContentResponse, error) {
+	store, err := r.ensureRuntimeObjectStore(ctx)
 	if err != nil {
-		return RuntimeRefContentResponse{}, err
+		return RuntimeObjectContentResponse{}, err
 	}
 	return store.ReadContent(ctx, id)
 }

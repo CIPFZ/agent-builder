@@ -97,11 +97,11 @@ type RuntimeHookExecution = runtime.RuntimeHookExecution
 type RuntimeHookExecutionsRequest = runtime.RuntimeHookExecutionsRequest
 type RuntimeHookExecutionsResponse = runtime.RuntimeHookExecutionsResponse
 type RuntimeHookExecutionResponse = runtime.RuntimeHookExecutionResponse
-type RuntimeRef = runtime.RuntimeRef
-type RuntimeRefListRequest = runtime.RuntimeRefListRequest
-type RuntimeRefResponse = runtime.RuntimeRefResponse
-type RuntimeRefsResponse = runtime.RuntimeRefsResponse
-type RuntimeRefContentResponse = runtime.RuntimeRefContentResponse
+type RuntimeObject = runtime.RuntimeObject
+type RuntimeObjectListRequest = runtime.RuntimeObjectListRequest
+type RuntimeObjectResponse = runtime.RuntimeObjectResponse
+type RuntimeObjectsResponse = runtime.RuntimeObjectsResponse
+type RuntimeObjectContentResponse = runtime.RuntimeObjectContentResponse
 type RuntimeCanonicalMessageContentResponseV2 = runtime.RuntimeCanonicalMessageContentResponseV2
 type RuntimeConversationSearchRequestV2 = runtime.RuntimeConversationSearchRequestV2
 type RuntimeConversationSearchResponseV2 = runtime.RuntimeConversationSearchResponseV2
@@ -816,21 +816,21 @@ func (r *RuntimeBridge) HookExecution(ctx context.Context, executionID string) (
 
 }
 
-func (r *RuntimeBridge) Refs(ctx context.Context, req RuntimeRefListRequest) (RuntimeRefsResponse, error) {
+func (r *RuntimeBridge) Objects(ctx context.Context, req RuntimeObjectListRequest) (RuntimeObjectsResponse, error) {
 
-	return r.service.Refs(ctx, req)
-
-}
-
-func (r *RuntimeBridge) Ref(ctx context.Context, refID string) (RuntimeRefResponse, error) {
-
-	return r.service.Ref(ctx, refID)
+	return r.service.Objects(ctx, req)
 
 }
 
-func (r *RuntimeBridge) ReadRefContent(ctx context.Context, refID string) (RuntimeRefContentResponse, error) {
+func (r *RuntimeBridge) Object(ctx context.Context, refID string) (RuntimeObjectResponse, error) {
 
-	return r.service.ReadRefContent(ctx, refID)
+	return r.service.Object(ctx, refID)
+
+}
+
+func (r *RuntimeBridge) ReadObjectContent(ctx context.Context, refID string) (RuntimeObjectContentResponse, error) {
+
+	return r.service.ReadObjectContent(ctx, refID)
 
 }
 

@@ -713,7 +713,7 @@ interface RuntimeTurnDiagnosticsDTO {
     verified?: number;
     missing?: number;
     localDeliverables?: number;
-    runtimeRefs?: number;
+    runtimeObjects?: number;
     producedMetadataRefs?: number;
     structuredRefs?: number;
   };

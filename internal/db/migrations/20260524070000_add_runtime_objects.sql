@@ -1,7 +1,8 @@
 -- +goose Up
-CREATE TABLE IF NOT EXISTS runtime_refs (
+CREATE TABLE IF NOT EXISTS objects (
     id TEXT PRIMARY KEY,
     uri TEXT NOT NULL UNIQUE,
+    project_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
     turn_id TEXT,
     tool_call_id TEXT,
@@ -20,32 +21,36 @@ CREATE TABLE IF NOT EXISTS runtime_refs (
     created_at INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_runtime_refs_session_created_at
-    ON runtime_refs (session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_objects_session_created_at
+    ON objects (session_id, created_at);
 
-CREATE INDEX IF NOT EXISTS idx_runtime_refs_turn_created_at
-    ON runtime_refs (turn_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_objects_project_created_at
+    ON objects (project_id, created_at);
 
-CREATE INDEX IF NOT EXISTS idx_runtime_refs_tool_call_created_at
-    ON runtime_refs (tool_call_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_objects_turn_created_at
+    ON objects (turn_id, created_at);
 
-CREATE INDEX IF NOT EXISTS idx_runtime_refs_task_created_at
-    ON runtime_refs (task_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_objects_tool_call_created_at
+    ON objects (tool_call_id, created_at);
 
-CREATE INDEX IF NOT EXISTS idx_runtime_refs_kind_created_at
-    ON runtime_refs (kind, created_at);
+CREATE INDEX IF NOT EXISTS idx_objects_task_created_at
+    ON objects (task_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_objects_kind_created_at
+    ON objects (kind, created_at);
 
 ALTER TABLE runtime_tool_calls ADD COLUMN output_refs_json TEXT;
 ALTER TABLE runtime_tool_calls ADD COLUMN artifact_refs_json TEXT;
 ALTER TABLE runtime_tool_calls ADD COLUMN diff_refs_json TEXT;
 
 -- +goose Down
-DROP INDEX IF EXISTS idx_runtime_refs_kind_created_at;
-DROP INDEX IF EXISTS idx_runtime_refs_task_created_at;
-DROP INDEX IF EXISTS idx_runtime_refs_tool_call_created_at;
-DROP INDEX IF EXISTS idx_runtime_refs_turn_created_at;
-DROP INDEX IF EXISTS idx_runtime_refs_session_created_at;
-DROP TABLE IF EXISTS runtime_refs;
+DROP INDEX IF EXISTS idx_objects_kind_created_at;
+DROP INDEX IF EXISTS idx_objects_task_created_at;
+DROP INDEX IF EXISTS idx_objects_tool_call_created_at;
+DROP INDEX IF EXISTS idx_objects_turn_created_at;
+DROP INDEX IF EXISTS idx_objects_session_created_at;
+DROP INDEX IF EXISTS idx_objects_project_created_at;
+DROP TABLE IF EXISTS objects;
 
 CREATE TABLE runtime_tool_calls_old AS SELECT
     id, turn_id, session_id, message_id, name, source, capability_id, status,

@@ -1053,7 +1053,7 @@ type RuntimeArtifactCounts struct {
 	Verified             int `json:"verified,omitempty"`
 	Missing              int `json:"missing,omitempty"`
 	LocalDeliverables    int `json:"localDeliverables,omitempty"`
-	RuntimeRefs          int `json:"runtimeRefs,omitempty"`
+	RuntimeObjects       int `json:"runtimeObjects,omitempty"`
 	ProducedMetadataRefs int `json:"producedMetadataRefs,omitempty"`
 	StructuredRefs       int `json:"structuredRefs,omitempty"`
 }
@@ -1211,9 +1211,10 @@ type RuntimeToolCallDisplay struct {
 	DiffSummary     string   `json:"diffSummary,omitempty"`
 }
 
-type RuntimeRef struct {
+type RuntimeObject struct {
 	ID                string `json:"id"`
 	URI               string `json:"uri"`
+	ProjectID         string `json:"projectId"`
 	SessionID         string `json:"sessionId"`
 	TurnID            string `json:"turnId,omitempty"`
 	ToolCallID        string `json:"toolCallId,omitempty"`
@@ -1236,7 +1237,8 @@ type RuntimeRef struct {
 	CanReadContent    bool   `json:"canReadContent"`
 }
 
-type RuntimeRefListRequest struct {
+type RuntimeObjectListRequest struct {
+	ProjectID  string `json:"projectId,omitempty"`
 	SessionID  string `json:"sessionId,omitempty"`
 	TurnID     string `json:"turnId,omitempty"`
 	ToolCallID string `json:"toolCallId,omitempty"`
@@ -1244,19 +1246,19 @@ type RuntimeRefListRequest struct {
 	Kind       string `json:"kind,omitempty"`
 }
 
-type RuntimeRefResponse struct {
-	Ref RuntimeRef `json:"ref"`
+type RuntimeObjectResponse struct {
+	Object RuntimeObject `json:"object"`
 }
 
-type RuntimeRefsResponse struct {
-	Refs []RuntimeRef `json:"refs"`
+type RuntimeObjectsResponse struct {
+	Objects []RuntimeObject `json:"objects"`
 }
 
-type RuntimeRefContentResponse struct {
-	Ref       RuntimeRef `json:"ref"`
-	Content   string     `json:"content,omitempty"`
-	Redacted  bool       `json:"redacted,omitempty"`
-	Truncated bool       `json:"truncated,omitempty"`
+type RuntimeObjectContentResponse struct {
+	Object    RuntimeObject `json:"object"`
+	Content   string        `json:"content,omitempty"`
+	Redacted  bool          `json:"redacted,omitempty"`
+	Truncated bool          `json:"truncated,omitempty"`
 }
 
 type RuntimeToolCallResponse struct {
@@ -1778,7 +1780,6 @@ type RuntimeToolResultView struct {
 	CreatedAt        int64    `json:"createdAt,omitempty"`
 }
 
-
 type RuntimeEventStreamStartRequest struct {
 	StreamID string `json:"streamId,omitempty"`
 	After    int64  `json:"after,omitempty"`
@@ -2077,10 +2078,10 @@ type RuntimeReplayExportSummary struct {
 	AgentTaskMessages  []RuntimeAgentTaskMessage     `json:"agentTaskMessages,omitempty"`
 	AgentTaskResults   []RuntimeAgentTaskResult      `json:"agentTaskResults,omitempty"`
 	AgentTaskArtifacts []string                      `json:"agentTaskArtifacts,omitempty"`
-	OutputRefs         []RuntimeRef                  `json:"outputRefs,omitempty"`
-	ArtifactRefs       []RuntimeRef                  `json:"artifactRefs,omitempty"`
-	CompactOutputRefs  []RuntimeRef                  `json:"compactOutputRefs,omitempty"`
-	TaskArtifactRefs   []RuntimeRef                  `json:"taskArtifactRefs,omitempty"`
+	OutputRefs         []RuntimeObject               `json:"outputRefs,omitempty"`
+	ArtifactRefs       []RuntimeObject               `json:"artifactRefs,omitempty"`
+	CompactOutputRefs  []RuntimeObject               `json:"compactOutputRefs,omitempty"`
+	TaskArtifactRefs   []RuntimeObject               `json:"taskArtifactRefs,omitempty"`
 	PolicyDecisions    []RuntimeReplayPolicyDecision `json:"policyDecisions,omitempty"`
 	SandboxDecisions   []RuntimeSandboxDecision      `json:"sandboxDecisions,omitempty"`
 	Hooks              []RuntimeHookExecution        `json:"hooks,omitempty"`

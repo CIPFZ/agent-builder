@@ -72,7 +72,7 @@ export function TurnDiagnosticsPanel({
         <div className={styles.tags}>
           <SignalTag label="verified local" value={diagnostics?.artifactConfidenceSummary?.localVerifiedFile} />
           <SignalTag label="tool metadata" value={diagnostics?.artifactConfidenceSummary?.producedToolMetadata} />
-          <SignalTag label="runtime refs" value={diagnostics?.artifactConfidenceSummary?.runtimeOutputRefs} />
+          <SignalTag label="runtime objects" value={diagnostics?.artifactConfidenceSummary?.runtimeOutputRefs} />
           <SignalTag label="structured refs" value={diagnostics?.artifactConfidenceSummary?.structuredMcpCustomRefs} />
           <SignalTag label="unknown" value={diagnostics?.artifactConfidenceSummary?.unknownNotDetected} danger />
         </div>

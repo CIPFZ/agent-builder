@@ -841,7 +841,7 @@ func (r *runtimeSchedulerRecorder) createToolOutputRefs(ctx context.Context, res
 		if strings.TrimSpace(payload) == "" {
 			return
 		}
-		ref, err := r.service.createRuntimeRef(ctx, runtimeRefCreateRequest{
+		ref, err := r.service.createRuntimeObject(ctx, runtimeObjectCreateRequest{
 			SessionID:         sessionID,
 			TurnID:            turnID,
 			ToolCallID:        result.ToolCallID,
@@ -858,17 +858,17 @@ func (r *runtimeSchedulerRecorder) createToolOutputRefs(ctx context.Context, res
 			return
 		}
 		switch kind {
-		case runtimeRefKindArtifact:
+		case runtimeObjectKindArtifact:
 			refs.ArtifactRefs = append(refs.ArtifactRefs, ref.URI)
-		case runtimeRefKindDiff:
+		case runtimeObjectKindDiff:
 			refs.DiffRefs = append(refs.DiffRefs, ref.URI)
 		default:
 			refs.OutputRefs = append(refs.OutputRefs, ref.URI)
 		}
 	}
-	outputKind := runtimeRefKindOutput
+	outputKind := runtimeObjectKindOutput
 	if result.Source == string(scheduler.ToolSourceShell) || strings.EqualFold(result.Name, "bash") || strings.EqualFold(result.Name, "job_output") {
-		outputKind = runtimeRefKindShellJobOutput
+		outputKind = runtimeObjectKindShellJobOutput
 	}
 	add(outputKind, "text/plain", "model_content", result.ModelVisibleContent, "model-visible tool output")
 	if strings.TrimSpace(result.Stdout) != "" {
@@ -878,9 +878,9 @@ func (r *runtimeSchedulerRecorder) createToolOutputRefs(ctx context.Context, res
 		add(outputKind, "text/plain", "stderr", result.Stderr, "tool stderr")
 	}
 	if strings.TrimSpace(result.StructuredOutputSummary) != "" {
-		kind := runtimeRefKindArtifact
+		kind := runtimeObjectKindArtifact
 		if looksLikeDiff(result.StructuredOutputSummary) {
-			kind = runtimeRefKindDiff
+			kind = runtimeObjectKindDiff
 		}
 		add(kind, "application/json", "structured_output", result.StructuredOutputSummary, "structured tool output")
 	}

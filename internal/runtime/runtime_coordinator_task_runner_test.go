@@ -106,12 +106,12 @@ func TestRuntimeCoordinatorTaskRunnerUnsupportedRoleFailsTerminally(t *testing.T
 	if refreshed.Status != agentTaskStatusFailed || refreshed.Progress != 100 || len(refreshed.ArtifactRefs) != 0 {
 		t.Fatalf("failed task = %#v", refreshed)
 	}
-	refs, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	refs, err := service.Objects(context.Background(), RuntimeObjectListRequest{TaskID: task.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refs.Refs) != 0 {
-		t.Fatalf("unsupported role created refs = %#v", refs.Refs)
+	if len(refs.Objects) != 0 {
+		t.Fatalf("unsupported role created refs = %#v", refs.Objects)
 	}
 }
 
@@ -232,12 +232,12 @@ func TestRuntimeCoordinatorTaskRunnerExecutorErrorFailsStartedTaskTerminally(t *
 	if refreshed.Status != agentTaskStatusFailed || refreshed.Progress != 100 || refreshed.Error != "workspace coordinator is not available" || len(refreshed.ArtifactRefs) != 0 {
 		t.Fatalf("failed task = %#v", refreshed)
 	}
-	refs, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	refs, err := service.Objects(context.Background(), RuntimeObjectListRequest{TaskID: task.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refs.Refs) != 0 {
-		t.Fatalf("executor error created refs = %#v", refs.Refs)
+	if len(refs.Objects) != 0 {
+		t.Fatalf("executor error created refs = %#v", refs.Objects)
 	}
 }
 

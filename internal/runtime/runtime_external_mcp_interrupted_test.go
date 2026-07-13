@@ -106,7 +106,7 @@ func TestRuntimeExternalMCPInterruptedStructuredRefsFixture(t *testing.T) {
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
 	service.hookExecutions = newRuntimeHookExecutionStore(conn)
 	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
-	service.refs = newRuntimeRefStore(conn, dataDir)
+	service.objects = newRuntimeObjectStore(conn, dataDir)
 	service.eventStore = newRuntimeEventStore(conn)
 	service.policy = runtimePolicyFromParts(permission.PolicyModeFullAccess, "phase61", nil, time.Now().UnixMilli())
 
@@ -176,7 +176,7 @@ func TestRuntimeExternalMCPInterruptedStructuredRefsFixture(t *testing.T) {
 	restarted.agentTasks = newRuntimeAgentTaskStore(conn)
 	restarted.hookExecutions = newRuntimeHookExecutionStore(conn)
 	restarted.mcpRequestStore = newRuntimeMCPRequestStore(conn)
-	restarted.refs = newRuntimeRefStore(conn, dataDir)
+	restarted.objects = newRuntimeObjectStore(conn, dataDir)
 	restarted.eventStore = newRuntimeEventStore(conn)
 	restarted.policy = service.policy
 
@@ -479,7 +479,7 @@ func TestRuntimeHTTPAndSSEMCPInterruptedStructuredRefsFixture(t *testing.T) {
 				t.Fatalf("completed MCP scheduler output missing from replay: %#v", replay.Summary.ToolCalls)
 			}
 			structuredFile := filepath.Base(structuredPath)
-			if !slices.ContainsFunc(replay.Summary.ArtifactRefs, func(ref RuntimeRef) bool {
+			if !slices.ContainsFunc(replay.Summary.ArtifactRefs, func(ref RuntimeObject) bool {
 				return ref.ContentType == "structured_output" && strings.Contains(ref.Preview, structuredFile)
 			}) {
 				t.Fatalf("structured MCP artifact ref missing from replay: %#v", replay.Summary.ArtifactRefs)
@@ -706,7 +706,7 @@ func newPhase66RuntimeService(conn *sql.DB, dataDir string, runtimeWorkbench *wo
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
 	service.hookExecutions = newRuntimeHookExecutionStore(conn)
 	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
-	service.refs = newRuntimeRefStore(conn, dataDir)
+	service.objects = newRuntimeObjectStore(conn, dataDir)
 	service.eventStore = newRuntimeEventStore(conn)
 	return service
 }

@@ -135,12 +135,12 @@ func TestRuntimeRunSchedulerExecuteTaskStartsQueuedTaskOnce(t *testing.T) {
 	if _, err := newRuntimeAgentTaskResultStore(service.turns.db).Get(context.Background(), task.ID); err == nil {
 		t.Fatal("task execute start created a result before completion")
 	}
-	refs, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	refs, err := service.Objects(context.Background(), RuntimeObjectListRequest{TaskID: task.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refs.Refs) != 0 {
-		t.Fatalf("task execute start created artifact refs: %#v", refs.Refs)
+	if len(refs.Objects) != 0 {
+		t.Fatalf("task execute start created artifact refs: %#v", refs.Objects)
 	}
 	events, err := service.Events(context.Background())
 	if err != nil {
@@ -271,15 +271,15 @@ func TestRuntimeRunSchedulerExecuteTaskInvokesForegroundRunnerAndUsesCompletionE
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != agentTaskStatusCompleted || len(result.ArtifactRefs) != 1 || !strings.HasPrefix(result.ArtifactRefs[0], "runtime://refs/") {
+	if result.Status != agentTaskStatusCompleted || len(result.ArtifactRefs) != 1 || !strings.HasPrefix(result.ArtifactRefs[0], "runtime://objects/") {
 		t.Fatalf("task result = %#v", result)
 	}
-	refs, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	refs, err := service.Objects(context.Background(), RuntimeObjectListRequest{TaskID: task.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refs.Refs) != 1 {
-		t.Fatalf("completion refs = %#v", refs.Refs)
+	if len(refs.Objects) != 1 {
+		t.Fatalf("completion refs = %#v", refs.Objects)
 	}
 	second, err := service.runtimeRunSchedulerExecuteTask(context.Background(), RuntimeRunSchedulerExecuteTaskRequest{RunID: run.ID, TaskID: task.ID})
 	if err == nil || !strings.Contains(err.Error(), runtimeRunSchedulerDelegateReasonTerminalTask) {
@@ -350,12 +350,12 @@ func TestRuntimeRunSchedulerExecuteTaskRunnerCancellationDoesNotCreateArtifactEv
 	if result.Status != agentTaskStatusCancelled || len(result.ArtifactRefs) != 0 {
 		t.Fatalf("cancelled result created artifacts = %#v", result)
 	}
-	refs, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	refs, err := service.Objects(context.Background(), RuntimeObjectListRequest{TaskID: task.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refs.Refs) != 0 {
-		t.Fatalf("cancelled runner created refs = %#v", refs.Refs)
+	if len(refs.Objects) != 0 {
+		t.Fatalf("cancelled runner created refs = %#v", refs.Objects)
 	}
 	if runner.calls != 1 {
 		t.Fatalf("runner calls = %d", runner.calls)
@@ -424,12 +424,12 @@ func TestRuntimeRunSchedulerExecuteTaskUsesBackendCoordinatorRunnerCompletion(t 
 	if startMessages != 1 || resultMessages != 1 {
 		t.Fatalf("task messages start=%d result=%d messages=%#v", startMessages, resultMessages, messages)
 	}
-	refs, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	refs, err := service.Objects(context.Background(), RuntimeObjectListRequest{TaskID: task.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refs.Refs) != 1 {
-		t.Fatalf("completion refs = %#v", refs.Refs)
+	if len(refs.Objects) != 1 {
+		t.Fatalf("completion refs = %#v", refs.Objects)
 	}
 	events, err := service.Events(context.Background())
 	if err != nil {
@@ -494,12 +494,12 @@ func TestRuntimeRunSchedulerExecuteTaskUsesBackendCoordinatorRunnerCancellation(
 	if result.Status != agentTaskStatusCancelled || len(result.ArtifactRefs) != 0 || !strings.Contains(result.CancellationDetail, "cancelled") {
 		t.Fatalf("cancelled result = %#v", result)
 	}
-	refs, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	refs, err := service.Objects(context.Background(), RuntimeObjectListRequest{TaskID: task.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refs.Refs) != 0 {
-		t.Fatalf("cancelled runtime runner created refs = %#v", refs.Refs)
+	if len(refs.Objects) != 0 {
+		t.Fatalf("cancelled runtime runner created refs = %#v", refs.Objects)
 	}
 }
 
@@ -549,7 +549,7 @@ func TestRuntimeRunSchedulerExecuteTaskRejectsInvalidCandidatesWithoutSideEffect
 		Status:          agentTaskStatusCompleted,
 		Progress:        100,
 		ResultSummary:   "already done",
-		ArtifactRefs:    []string{"runtime://refs/task-output"},
+		ArtifactRefs:    []string{"runtime://objects/task-output"},
 		StartedAt:       1200,
 		FinishedAt:      1300,
 	})
@@ -622,9 +622,9 @@ func (c *phase25RuntimeWorkbenchCoordinator) GenerateCompactSummary(context.Cont
 func (c *phase25RuntimeWorkbenchCoordinator) RunCompactHooks(context.Context, string, string, string, string) (agent.CompactHookResult, error) {
 	return agent.CompactHookResult{}, nil
 }
-func (c *phase25RuntimeWorkbenchCoordinator) Model() agent.Model                      { return agent.Model{} }
-func (c *phase25RuntimeWorkbenchCoordinator) UpdateModels(context.Context) error      { return nil }
-func (c *phase25RuntimeWorkbenchCoordinator) RefreshSkills(context.Context) error     { return nil }
+func (c *phase25RuntimeWorkbenchCoordinator) Model() agent.Model                  { return agent.Model{} }
+func (c *phase25RuntimeWorkbenchCoordinator) UpdateModels(context.Context) error  { return nil }
+func (c *phase25RuntimeWorkbenchCoordinator) RefreshSkills(context.Context) error { return nil }
 func (c *phase25RuntimeWorkbenchCoordinator) ExecuteConfiguredStartedAgentTask(ctx context.Context, req agent.StartedAgentTaskExecutionRequest) (agent.StartedAgentTaskExecutionResult, error) {
 	c.calls++
 	c.last = req

@@ -42,7 +42,7 @@ func newRuntimeScenarioHarness(t *testing.T) *runtimeScenarioHarness {
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
 	service.hookExecutions = newRuntimeHookExecutionStore(conn)
 	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
-	service.refs = newRuntimeRefStore(conn, dataDir)
+	service.objects = newRuntimeObjectStore(conn, dataDir)
 	service.eventStore = newRuntimeEventStore(conn)
 	service.runs = newRuntimeRunStore(conn)
 	service.transitions = newRuntimeRunTransitionStore(conn)
@@ -67,7 +67,7 @@ func (h *runtimeScenarioHarness) restartedService() *runtimeService {
 	restarted.agentTasks = newRuntimeAgentTaskStore(h.service.turns.db)
 	restarted.hookExecutions = newRuntimeHookExecutionStore(h.service.turns.db)
 	restarted.mcpRequestStore = newRuntimeMCPRequestStore(h.service.turns.db)
-	restarted.refs = newRuntimeRefStore(h.service.turns.db, h.connDir)
+	restarted.objects = newRuntimeObjectStore(h.service.turns.db, h.connDir)
 	restarted.eventStore = newRuntimeEventStore(h.service.turns.db)
 	restarted.runs = newRuntimeRunStore(h.service.turns.db)
 	restarted.transitions = newRuntimeRunTransitionStore(h.service.turns.db)
@@ -869,7 +869,7 @@ func hasReplayPolicy(replay RuntimeReplayExportResponse, toolCallID string, deci
 
 // TestRuntimeScenarioHarnessSideEffectsDoNotBootstrapWorkspace guards the
 // deadlock fix: ambient side effects that fire from EvaluateToolCall
-// (audit persistence, runtime ref creation, sandbox bookkeeping) must
+// (audit persistence, runtime object creation, sandbox bookkeeping) must
 // never call ensureWorkspaceStarted behind the caller's back. If they
 // did, a headless test harness with no attached backend would suddenly
 // gain a live workbench and permission service — a subsequent

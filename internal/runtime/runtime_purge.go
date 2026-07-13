@@ -29,7 +29,7 @@ func runtimeDeleteMode(ctx context.Context, db *sql.DB) string {
 	return runtimeDeleteModeHard
 }
 
-func purgeRuntimeSession(ctx context.Context, db *sql.DB, sessionID string, refsRoot string) error {
+func purgeRuntimeSession(ctx context.Context, db *sql.DB, sessionID string, dataDir string) error {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return nil
@@ -39,18 +39,18 @@ func purgeRuntimeSession(ctx context.Context, db *sql.DB, sessionID string, refs
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
-	refs, err := purgeRuntimeSessionTx(ctx, tx, sessionID, refsRoot)
+	objects, err := purgeRuntimeSessionTx(ctx, tx, sessionID, dataDir)
 	if err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	deleteRuntimeRefFiles(refs)
+	deleteRuntimeObjectFiles(objects)
 	return nil
 }
 
-func purgeRuntimeProject(ctx context.Context, db *sql.DB, projectID string, refsRoot string) error {
+func purgeRuntimeProject(ctx context.Context, db *sql.DB, projectID string, dataDir string) error {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
 		return nil
@@ -81,7 +81,7 @@ func purgeRuntimeProject(ctx context.Context, db *sql.DB, projectID string, refs
 	}
 	var allRefs []string
 	for _, sessionID := range sessionIDs {
-		refs, err := purgeRuntimeSessionTx(ctx, tx, sessionID, refsRoot)
+		refs, err := purgeRuntimeSessionTx(ctx, tx, sessionID, dataDir)
 		if err != nil {
 			return err
 		}
@@ -99,12 +99,17 @@ func purgeRuntimeProject(ctx context.Context, db *sql.DB, projectID string, refs
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	deleteRuntimeRefFiles(allRefs)
+	deleteRuntimeObjectFiles(allRefs)
+	if dataLayout, err := newApplicationDataLayout(dataDir); err == nil {
+		if projectLayout, err := dataLayout.Project(projectID); err == nil {
+			_ = os.RemoveAll(projectLayout.Root)
+		}
+	}
 	return nil
 }
 
-func purgeRuntimeSessionTx(ctx context.Context, tx *sql.Tx, sessionID string, refsRoot string) ([]string, error) {
-	refs, err := runtimeRefStoragePathsForSession(ctx, tx, sessionID, refsRoot)
+func purgeRuntimeSessionTx(ctx context.Context, tx *sql.Tx, sessionID string, dataDir string) ([]string, error) {
+	refs, err := runtimeObjectStoragePathsForSession(ctx, tx, sessionID, dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +134,7 @@ func purgeRuntimeSessionTx(ctx context.Context, tx *sql.Tx, sessionID string, re
 		`DELETE FROM runtime_sandbox_decisions WHERE session_id = ?`,
 		`DELETE FROM runtime_mcp_requests WHERE session_id = ?`,
 		`DELETE FROM runtime_events WHERE session_id = ?`,
-		`DELETE FROM runtime_refs WHERE session_id = ?`,
+		`DELETE FROM objects WHERE session_id = ?`,
 		`DELETE FROM runtime_worktrees WHERE session_id = ?`,
 		`DELETE FROM runtime_permission_requests WHERE session_id = ?`,
 		`DELETE FROM runtime_tool_calls WHERE session_id = ?`,
@@ -158,30 +163,38 @@ func purgeRuntimeSessionTx(ctx context.Context, tx *sql.Tx, sessionID string, re
 	return refs, nil
 }
 
-func deleteRuntimeRefFiles(paths []string) {
+func deleteRuntimeObjectFiles(paths []string) {
 	for _, path := range paths {
 		_ = os.Remove(path)
 	}
 }
 
-func runtimeRefStoragePathsForSession(ctx context.Context, tx *sql.Tx, sessionID string, refsRoot string) ([]string, error) {
-	if strings.TrimSpace(refsRoot) == "" {
+func runtimeObjectStoragePathsForSession(ctx context.Context, tx *sql.Tx, sessionID string, dataDir string) ([]string, error) {
+	if strings.TrimSpace(dataDir) == "" {
 		return nil, nil
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT storage_path FROM runtime_refs WHERE session_id = ? AND storage_kind = 'file' AND COALESCE(storage_path, '') <> ''`, sessionID)
+	rows, err := tx.QueryContext(ctx, `SELECT project_id, storage_path FROM objects WHERE session_id = ? AND storage_kind = 'file' AND COALESCE(storage_path, '') <> ''`, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close() //nolint:errcheck
 	var paths []string
-	rootAbs, err := filepath.Abs(filepath.Clean(refsRoot))
+	dataLayout, err := newApplicationDataLayout(dataDir)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
-		var rel string
-		if err := rows.Scan(&rel); err != nil {
+		var projectID, rel string
+		if err := rows.Scan(&projectID, &rel); err != nil {
 			return nil, err
+		}
+		projectLayout, err := dataLayout.Project(projectID)
+		if err != nil {
+			continue
+		}
+		rootAbs, err := filepath.Abs(projectLayout.ObjectsDir)
+		if err != nil {
+			continue
 		}
 		cleanRel := filepath.Clean(filepath.FromSlash(rel))
 		if cleanRel == "." || filepath.IsAbs(cleanRel) || strings.HasPrefix(cleanRel, ".."+string(filepath.Separator)) || cleanRel == ".." {

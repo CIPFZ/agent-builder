@@ -519,9 +519,10 @@ CREATE TABLE runtime_recovery_links (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE runtime_refs (
+CREATE TABLE objects (
     id TEXT PRIMARY KEY,
     uri TEXT NOT NULL UNIQUE,
+    project_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
     turn_id TEXT,
     tool_call_id TEXT,
@@ -913,20 +914,23 @@ CREATE INDEX idx_runtime_recovery_links_resumed_turn ON runtime_recovery_links(r
 
 CREATE INDEX idx_runtime_recovery_links_source_turn ON runtime_recovery_links(source_turn_id);
 
-CREATE INDEX idx_runtime_refs_kind_created_at
-    ON runtime_refs (kind, created_at);
+CREATE INDEX idx_objects_kind_created_at
+    ON objects (kind, created_at);
 
-CREATE INDEX idx_runtime_refs_session_created_at
-    ON runtime_refs (session_id, created_at);
+CREATE INDEX idx_objects_project_created_at
+    ON objects (project_id, created_at);
 
-CREATE INDEX idx_runtime_refs_task_created_at
-    ON runtime_refs (task_id, created_at);
+CREATE INDEX idx_objects_session_created_at
+    ON objects (session_id, created_at);
 
-CREATE INDEX idx_runtime_refs_tool_call_created_at
-    ON runtime_refs (tool_call_id, created_at);
+CREATE INDEX idx_objects_task_created_at
+    ON objects (task_id, created_at);
 
-CREATE INDEX idx_runtime_refs_turn_created_at
-    ON runtime_refs (turn_id, created_at);
+CREATE INDEX idx_objects_tool_call_created_at
+    ON objects (tool_call_id, created_at);
+
+CREATE INDEX idx_objects_turn_created_at
+    ON objects (turn_id, created_at);
 
 CREATE INDEX idx_runtime_run_checkpoints_run_created_at
     ON runtime_run_checkpoints (run_id, created_at);
