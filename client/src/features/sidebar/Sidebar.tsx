@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Button, ConfigProvider, Dropdown, Input, Modal, Tooltip } from 'antd';
 import {
   CaretDownOutlined,
@@ -24,6 +24,12 @@ import type {
   WorkbenchMode,
   WorkbenchViewModel,
 } from '../../runtime/workbenchTypes.ts';
+import {
+  loadSidebarPreferences,
+  reconcileProjectExpandedPreferences,
+  saveProjectExpandedPreference,
+  saveSidebarGroupPreference,
+} from '../../runtime/sidebarPreferences.ts';
 import { settingAction } from '../../runtime/staticWorkbenchAdapter.tsx';
 import styles from './Sidebar.module.css';
 
@@ -60,9 +66,10 @@ export function Sidebar({
   onSessionDelete,
   onSessionSelect,
 }: SidebarProps) {
-  const [projectsOpen, setProjectsOpen] = useState(true);
-  const [sessionsOpen, setSessionsOpen] = useState(true);
-  const [expandedProjectIDs, setExpandedProjectIDs] = useState<Record<string, boolean>>({});
+  const [initialPreferences] = useState(loadSidebarPreferences);
+  const [projectsOpen, setProjectsOpen] = useState(initialPreferences.projectsOpen);
+  const [sessionsOpen, setSessionsOpen] = useState(initialPreferences.sessionsOpen);
+  const [expandedProjectIDs, setExpandedProjectIDs] = useState<Record<string, boolean>>(initialPreferences.projectOverrides);
   const [projectDialogMode, setProjectDialogMode] = useState<'new' | 'rename' | undefined>();
   const [projectDialogTarget, setProjectDialogTarget] = useState<ProjectViewModel | undefined>();
   const [projectName, setProjectName] = useState('New project');
@@ -78,6 +85,24 @@ export function Sidebar({
   const standaloneSessions = viewModel.sessions.filter((session) => session.scope === 'standalone');
   const showCollapsedShortcuts = viewModel.mode !== 'plugins';
   const isPrimaryActionCurrent = (action: SidebarActionViewModel) => action.id !== 'new-chat' && viewModel.mode === action.id;
+
+  useEffect(() => {
+    reconcileProjectExpandedPreferences(viewModel.projects.map((project) => project.id));
+  }, [viewModel.projects]);
+
+  const toggleGroup = (group: 'projects' | 'sessions') => {
+    if (group === 'projects') {
+      setProjectsOpen((open) => {
+        saveSidebarGroupPreference(group, !open);
+        return !open;
+      });
+      return;
+    }
+    setSessionsOpen((open) => {
+      saveSidebarGroupPreference(group, !open);
+      return !open;
+    });
+  };
 
   const runSidebarAction = (action: SidebarActionViewModel) => {
     if (action.id === 'new-chat') {
@@ -141,7 +166,11 @@ export function Sidebar({
   const toggleProject = (project: ProjectViewModel) => {
     setExpandedProjectIDs((current) => ({
       ...current,
-      [project.id]: !(current[project.id] ?? project.current),
+      [project.id]: (() => {
+        const expanded = !(current[project.id] ?? project.current);
+        saveProjectExpandedPreference(project.id, expanded);
+        return expanded;
+      })(),
     }));
   };
   const openSessionRenameDialog = (session: { id: string; title: string }) => {
@@ -305,7 +334,7 @@ export function Sidebar({
                   icon={projectsOpen ? <CaretDownOutlined /> : <CaretRightOutlined />}
                   size="small"
                   type="text"
-                  onClick={() => setProjectsOpen((open) => !open)}
+                  onClick={() => toggleGroup('projects')}
                 />
                 <Button
                   aria-controls="project-list"
@@ -313,7 +342,7 @@ export function Sidebar({
                   className={styles.groupSpacer}
                   size="small"
                   type="link"
-                  onClick={() => setProjectsOpen((open) => !open)}
+                  onClick={() => toggleGroup('projects')}
                 />
                 <div className={styles.groupActions}>
                   <Button aria-label="项目更多操作" icon={<MoreOutlined />} size="small" type="text" />
@@ -484,7 +513,7 @@ export function Sidebar({
                   icon={sessionsOpen ? <CaretDownOutlined /> : <CaretRightOutlined />}
                   size="small"
                   type="text"
-                  onClick={() => setSessionsOpen((open) => !open)}
+                  onClick={() => toggleGroup('sessions')}
                 />
                 <Button
                   aria-controls="session-list"
@@ -492,7 +521,7 @@ export function Sidebar({
                   className={styles.groupSpacer}
                   size="small"
                   type="link"
-                  onClick={() => setSessionsOpen((open) => !open)}
+                  onClick={() => toggleGroup('sessions')}
                 />
                 <div className={styles.groupActions}>
                   <Button aria-label="对话更多操作" icon={<MoreOutlined />} size="small" type="text" />

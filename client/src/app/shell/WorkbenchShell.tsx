@@ -15,6 +15,7 @@ import { createCanonicalConversationCoordinator } from '../../runtime/canonicalC
 import { selectOwnedClientRequestIds } from '../../runtime/canonicalConversationSelectors.ts';
 import { installWebviewCursorRecovery, nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
 import { runtimeEventCoveredByOutputStream, runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
+import { loadSidebarPreferences, saveSidebarCollapsedPreference } from '../../runtime/sidebarPreferences.ts';
 import { PluginCenter } from '../../features/plugins/PluginCenter.tsx';
 import { Sidebar } from '../../features/sidebar/Sidebar.tsx';
 import { SettingsPanel } from '../../features/settings/SettingsPanel.tsx';
@@ -55,7 +56,7 @@ function clampSidebarWidth(width: number, maxWidth = getSidebarMaxWidth()) {
 export function WorkbenchShell({ adapter, viewModel: initialViewModel }: WorkbenchShellProps) {
   const [viewModel, setViewModel] = useState<WorkbenchViewModel>(initialViewModel);
   const [mode, setMode] = useState<WorkbenchMode>(initialViewModel.mode);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadSidebarPreferences().sidebarCollapsed);
   const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(SIDEBAR_DEFAULT_WIDTH));
   const [workspaceMinVisibleWidth, setWorkspaceMinVisibleWidth] = useState(WORKSPACE_MIN_VISIBLE_WIDTH);
   const [sidebarMaxWidth, setSidebarMaxWidth] = useState(() => getSidebarMaxWidth());
@@ -939,6 +940,10 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const handleMinimumWorkspaceWidthChange = useCallback((width: number) => {
     setWorkspaceMinVisibleWidth(Math.max(WORKSPACE_MIN_VISIBLE_WIDTH, Math.ceil(width)));
   }, []);
+  const handleSidebarCollapsedChange = useCallback((collapsed: boolean) => {
+    setSidebarCollapsed(collapsed);
+    saveSidebarCollapsedPreference(collapsed);
+  }, []);
 
   const startSidebarWidthDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -1019,7 +1024,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       <Sidebar
         collapsed={effectiveSidebarCollapsed}
         viewModel={workbenchViewModel}
-        onCollapsedChange={setSidebarCollapsed}
+        onCollapsedChange={handleSidebarCollapsedChange}
         onModeChange={changeMode}
         onProjectCreate={createProject}
         onProjectOpen={openProject}

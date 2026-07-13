@@ -27,6 +27,7 @@
     "smoke:phase5010": "node scripts/phase5010-checkpoint-marker-adapter-smoke.mjs",
     "smoke:phase55-terminal": "node scripts/phase55-terminal-ownership-adapter-smoke.mjs",
     "smoke:project-sidebar": "node scripts/project-sidebar-projection-smoke.mjs",
+    "smoke:sidebar-preferences": "node scripts/sidebar-preferences-smoke.mjs",
     "smoke:conversation-target": "node scripts/conversation-target-submit-smoke.mjs",
     "smoke:conversation-contract-v2": "node scripts/conversation-contract-v2-fixture-smoke.mjs",
     "smoke:canonical-conversation-store": "node scripts/canonical-conversation-store-smoke.mjs",
