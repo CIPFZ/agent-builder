@@ -1133,5 +1133,5 @@ UPDATE sessions SET updated_at = strftime('%s', 'now')
 WHERE id = new.id;
 END;
 
-INSERT INTO runtime_settings (key, value, updated_at) VALUES ('schema_generation', '1', strftime('%s', 'now'));
+INSERT INTO runtime_settings (key, value, updated_at) VALUES ('schema_generation', '2', strftime('%s', 'now'));
 INSERT INTO runtime_settings (key, value, updated_at) VALUES ('delete_mode', 'hard', strftime('%s', 'now'));

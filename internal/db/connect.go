@@ -25,7 +25,7 @@ var (
 	}
 )
 
-const expectedSchemaGeneration = "1"
+const expectedSchemaGeneration = "2"
 
 //go:embed schema.sql
 var schemaFS embed.FS
