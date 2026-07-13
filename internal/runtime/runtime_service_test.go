@@ -4415,7 +4415,7 @@ func TestRuntimeCancelAgentTaskAlreadyFinalDoesNotRewriteEvidence(t *testing.T) 
 		Status:           agentTaskStatusCompleted,
 		Progress:         100,
 		ResultSummary:    "completed output",
-		ArtifactRefs:     []string{"runtime://refs/task-output"},
+		ArtifactRefs:     []string{"runtime://objects/task-output"},
 		StartedAt:        1000,
 		FinishedAt:       2000,
 	})
@@ -4426,7 +4426,7 @@ func TestRuntimeCancelAgentTaskAlreadyFinalDoesNotRewriteEvidence(t *testing.T) 
 		TaskID:       task.ID,
 		Status:       agentTaskStatusCompleted,
 		Summary:      "completed output",
-		ArtifactRefs: []string{"runtime://refs/task-output"},
+		ArtifactRefs: []string{"runtime://objects/task-output"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -4442,7 +4442,7 @@ func TestRuntimeCancelAgentTaskAlreadyFinalDoesNotRewriteEvidence(t *testing.T) 
 	if resp.Action == nil || resp.Action.Accepted || resp.Action.Reason != runtimeAgentTaskCancelReasonAlreadyFinal || resp.Action.Source.IdempotentBy != "task_id" {
 		t.Fatalf("final cancel action metadata = %#v", resp.Action)
 	}
-	if len(resp.Task.ArtifactRefs) != 1 || resp.Task.ArtifactRefs[0] != "runtime://refs/task-output" {
+	if len(resp.Task.ArtifactRefs) != 1 || resp.Task.ArtifactRefs[0] != "runtime://objects/task-output" {
 		t.Fatalf("final task artifact refs rewritten = %#v", resp.Task.ArtifactRefs)
 	}
 	refreshedResult, err := newRuntimeAgentTaskResultStore(conn).Get(context.Background(), task.ID)
@@ -4549,7 +4549,7 @@ func TestRuntimeAgentTaskToolOutputUsesRefs(t *testing.T) {
 
 	service := newRuntimeService()
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
-	service.refs = newRuntimeRefStore(conn, dataDir)
+	service.objects = newRuntimeObjectStore(conn, dataDir)
 	service.turns = newRuntimeTurnStore(conn)
 	if _, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
 		ID:               "task-1",
@@ -4563,12 +4563,12 @@ func TestRuntimeAgentTaskToolOutputUsesRefs(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.createRuntimeRef(context.Background(), runtimeRefCreateRequest{
+	_, err = service.createRuntimeObject(context.Background(), runtimeObjectCreateRequest{
 		SessionID:   "session-parent",
 		TurnID:      "turn-1",
 		ToolCallID:  "tool-1",
 		TaskID:      "task-1",
-		Kind:        runtimeRefKindTaskArtifact,
+		Kind:        runtimeObjectKindTaskArtifact,
 		MediaType:   "text/plain",
 		ContentType: "task_output",
 		Payload:     []byte(strings.Repeat("large-output", 200)),
@@ -4761,9 +4761,9 @@ type recordingRuntimeService struct {
 	hookExecutionsReq           RuntimeHookExecutionsRequest
 	sandboxDecision             RuntimeSandboxDecisionResponse
 	sandboxDecisions            RuntimeSandboxDecisionsResponse
-	ref                         RuntimeRefResponse
-	refs                        RuntimeRefsResponse
-	refContent                  RuntimeRefContentResponse
+	ref                         RuntimeObjectResponse
+	refs                        RuntimeObjectsResponse
+	refContent                  RuntimeObjectContentResponse
 	compactBoundaries           RuntimeCompactBoundariesResponse
 	worktrees                   RuntimeWorktreesResponse
 	worktree                    RuntimeWorktreeResponse
@@ -5132,15 +5132,15 @@ func (s *recordingRuntimeService) SandboxDecisions(context.Context, RuntimeSandb
 	return s.sandboxDecisions, nil
 }
 
-func (s *recordingRuntimeService) Refs(context.Context, RuntimeRefListRequest) (RuntimeRefsResponse, error) {
-	return s.refs, nil
+func (s *recordingRuntimeService) Objects(context.Context, RuntimeObjectListRequest) (RuntimeObjectsResponse, error) {
+	return s.objects, nil
 }
 
-func (s *recordingRuntimeService) Ref(context.Context, string) (RuntimeRefResponse, error) {
+func (s *recordingRuntimeService) Object(context.Context, string) (RuntimeObjectResponse, error) {
 	return s.ref, nil
 }
 
-func (s *recordingRuntimeService) ReadRefContent(context.Context, string) (RuntimeRefContentResponse, error) {
+func (s *recordingRuntimeService) ReadObjectContent(context.Context, string) (RuntimeObjectContentResponse, error) {
 	return s.refContent, nil
 }
 

@@ -181,7 +181,7 @@ func (r *runtimeService) RemoveProject(ctx context.Context, req RuntimeProjectAc
 			return RuntimeOpenProjectResponse{}, err
 		}
 	} else {
-		if err := purgeRuntimeProject(ctx, store.db, project.ID, filepath.Join(store.dataDir, "runtime_refs")); err != nil {
+		if err := purgeRuntimeProject(ctx, store.db, project.ID, filepath.Join(store.dataDir, "objects")); err != nil {
 			return RuntimeOpenProjectResponse{}, fmt.Errorf("failed to purge project data: %w", err)
 		}
 	}
