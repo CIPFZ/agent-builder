@@ -35,8 +35,10 @@ assert.equal(initialProcessDisclosureState(done).open, false, 'runtime success a
 const disclosureSource = fs.readFileSync(new URL('../src/features/timeline/ProcessDisclosure.tsx', import.meta.url), 'utf8');
 const timelineStyles = fs.readFileSync(new URL('../src/features/timeline/Timeline.module.css', import.meta.url), 'utf8');
 assert.match(disclosureSource, /aria-expanded=\{disclosure\.open\}/);
-assert.match(disclosureSource, /\{disclosure\.open && \(/, 'collapsed process details are unmounted');
+assert.match(disclosureSource, /\{disclosure\.open && groupedItems\.length > 0 && \(/, 'collapsed or empty process details are unmounted');
 assert.doesNotMatch(disclosureSource, /hidden=\{!disclosure\.open\}/);
+assert.doesNotMatch(disclosureSource, /groupedItems\.length === 0[\s\S]*?processTraceStandalone/, 'an empty active process uses the same chevron header from its first frame');
+assert.match(disclosureSource, /disclosure\.open && groupedItems\.length > 0/, 'the stable header does not mount an empty detail stream');
 assert.match(disclosureSource, /<ProcessLabel \{\.\.\.props\} \/><RightOutlined className=\{styles\.processTraceChevron\}/, 'chevron follows the process label');
 assert.doesNotMatch(disclosureSource, /\bpinned\b/, 'disclosure must not depend on scroll position');
 assert.doesNotMatch(disclosureSource, /\bCollapse\b/, 'outer disclosure must not use Ant Collapse');

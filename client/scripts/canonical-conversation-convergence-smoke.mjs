@@ -78,6 +78,17 @@ const groupedItems = selectCanonicalConversationTurnViewModels(hydrateCanonicalC
 assert.equal(groupedItems.filter((item) => item.kind === 'tool_group').length, 1, 'canonical grouping runs once even when a message separates members');
 assert.equal(groupedItems.find((item) => item.kind === 'tool_group').toolCalls.length, 2);
 
+const firstSubmitSnapshot = snapshot('FIRST', '2');
+firstSubmitSnapshot.turns[0].startedAt = 1000;
+const adoptedFirstSubmit = selectCanonicalConversationTurnViewModels(
+  hydrateCanonicalConversationStore(firstSubmitSnapshot),
+  undefined,
+  { 'prompt-first': { clientRequestId: 'prompt-first', sessionId: 'FIRST', prompt: 'hello', createdAt: 1000, status: 'submitting' } },
+);
+assert.equal(adoptedFirstSubmit.length, 1, 'first draft submit adopts the canonical Turn instead of rendering two processing rows');
+assert.equal(adoptedFirstSubmit[0].id, 'turn-1', 'the canonical Turn remains the single lifecycle owner');
+assert.equal(adoptedFirstSubmit[0].user?.content, 'hello', 'optimistic user content remains visible until the canonical user-message link arrives');
+
 const order = []; let listener; let startedStreamId;
 const close = subscribeCanonicalConversation({
   sessionId: 'A', after: '7',

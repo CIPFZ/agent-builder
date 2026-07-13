@@ -112,11 +112,6 @@
   color: var(--ant-color-text-tertiary);
 }
 
-.processTraceStandalone {
-  min-height: 28px;
-  padding: 4px 12px;
-}
-
 .processTraceError {
   margin-top: 2px;
   color: var(--ant-color-error);

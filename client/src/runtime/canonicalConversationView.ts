@@ -25,9 +25,36 @@ export function selectCanonicalConversationTurnViewModels(store?: CanonicalConve
   const echoed = selectOwnedClientRequestIds(store);
   for (const submit of Object.values(optimistic ?? {})) {
     if (echoed.has(submit.clientRequestId) || (store?.sessionId && submit.sessionId && submit.sessionId !== store.sessionId)) continue;
-    turns.push({ id: `optimistic:${submit.clientRequestId}`, revisionKey: `optimistic:${submit.status}:${submit.error ?? ''}`, sessionId: submit.sessionId || store?.sessionId || '', status: submit.status === 'error' ? 'failed' : 'queued', startedAt: submit.createdAt, user: { id: `optimistic-message:${submit.clientRequestId}`, kind: 'user_message', sessionId: submit.sessionId, role: 'user', content: submit.prompt, status: submit.status === 'error' ? 'error' : 'loading', createdAt: submit.createdAt, clientRequestId: submit.clientRequestId, error: submit.error }, process: { status: submit.status === 'error' ? 'failed' : 'queued', items: [], startedAt: submit.createdAt, finishedAt: undefined, hasFailure: submit.status === 'error' }, error: submit.error });
+    const optimisticUser = { id: `optimistic-message:${submit.clientRequestId}`, kind: 'user_message' as const, sessionId: submit.sessionId, role: 'user' as const, content: submit.prompt, status: submit.status === 'error' ? 'error' : 'loading', createdAt: submit.createdAt, clientRequestId: submit.clientRequestId, error: submit.error };
+    const adoptedTurn = submit.status !== 'error' ? findAdoptedCanonicalTurn(turns, submit) : undefined;
+    if (adoptedTurn) {
+      // During the first draft -> Session transition, the canonical Turn can
+      // arrive before its user-message link/clientRequestId. Keep the local
+      // user bubble on that Turn until the canonical message catches up, but
+      // never render a second optimistic Turn/process placeholder beside it.
+      if (!adoptedTurn.user) adoptedTurn.user = optimisticUser;
+      adoptedTurn.revisionKey += `|adopted:${submit.clientRequestId}`;
+      continue;
+    }
+    turns.push({ id: `optimistic:${submit.clientRequestId}`, revisionKey: `optimistic:${submit.status}:${submit.error ?? ''}`, sessionId: submit.sessionId || store?.sessionId || '', status: submit.status === 'error' ? 'failed' : 'queued', startedAt: submit.createdAt, user: optimisticUser, process: { status: submit.status === 'error' ? 'failed' : 'queued', items: [], startedAt: submit.createdAt, finishedAt: undefined, hasFailure: submit.status === 'error' }, error: submit.error });
   }
   return turns.sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0) || left.id.localeCompare(right.id));
+}
+
+const optimisticAdoptionWindowMs = 60_000;
+
+function findAdoptedCanonicalTurn(turns: ConversationTurnViewModel[], submit: OptimisticConversationSubmit) {
+  const prompt = submit.prompt.trim();
+  return turns
+    .filter((turn) => !turn.id.startsWith('optimistic:'))
+    .filter((turn) => !submit.sessionId || !turn.sessionId || turn.sessionId === submit.sessionId)
+    .filter((turn) => {
+      const canonicalPrompt = turn.user?.content?.trim();
+      if (canonicalPrompt) return canonicalPrompt === prompt;
+      if (turn.status !== 'queued' && turn.status !== 'running' && turn.status !== 'waiting_permission') return false;
+      return Math.abs((turn.startedAt ?? submit.createdAt) - submit.createdAt) <= optimisticAdoptionWindowMs;
+    })
+    .sort((left, right) => Math.abs((left.startedAt ?? submit.createdAt) - submit.createdAt) - Math.abs((right.startedAt ?? submit.createdAt) - submit.createdAt))[0];
 }
 
 function turnRevisionKey(turn: { revision: string }, user: CanonicalMessage | undefined, final: CanonicalMessage | undefined, process: CanonicalProcessEntity[]) {

@@ -44,13 +44,11 @@ export function ProcessDisclosure(props: ProcessDisclosureProps) {
     'data-process-disclosure-mode': disclosure.mode,
     'data-process-open': disclosure.open,
   };
-  if (groupedItems.length === 0) {
-    return <section {...sectionProps}><div className={styles.processTraceStandalone}><ProcessLabel {...props} />{props.error && <div className={styles.processTraceError}>{props.error}</div>}</div></section>;
-  }
   return (
     <section {...sectionProps}>
       <button className={styles.processTraceHeader} type="button" aria-expanded={disclosure.open} onClick={() => dispatch({ type: 'manual', open: !disclosure.open })}><ProcessLabel {...props} /><RightOutlined className={styles.processTraceChevron} aria-hidden="true" /></button>
-      {disclosure.open && (
+      {props.error && groupedItems.length === 0 && <div className={styles.processTraceError}>{props.error}</div>}
+      {disclosure.open && groupedItems.length > 0 && (
         <div className={styles.processStream} data-testid="process-stream">
           {groupedItems.map((item) => <div key={item.id} className={styles.processStreamItem}>{props.renderItem(item)}</div>)}
         </div>
