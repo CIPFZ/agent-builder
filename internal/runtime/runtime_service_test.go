@@ -221,6 +221,29 @@ func TestRuntimeCreateProjectUsesManagedWorkspacesDirectory(t *testing.T) {
 	}
 }
 
+func TestRuntimeProjectMemoryUsesProjectDataDirectory(t *testing.T) {
+	root := runtimeDevTestRoot(t, "project-memory-layout")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
+
+	service := newRuntimeService()
+	created, err := service.CreateProject(context.Background(), RuntimeCreateProjectRequest{Name: "Memory Project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memories, err := service.ProjectMemories(context.Background(), created.Project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoot := filepath.Join(root, "data", "projects", created.Project.ID, "memory")
+	if memories.ProjectID != created.Project.ID || memories.Root != wantRoot {
+		t.Fatalf("project memory = %#v, want project %q root %q", memories, created.Project.ID, wantRoot)
+	}
+	if _, err := os.Stat(wantRoot); err != nil {
+		t.Fatalf("project memory directory was not created: %v", err)
+	}
+}
+
 func TestRuntimeCreateProjectRejectsInvalidOrExistingName(t *testing.T) {
 	root := runtimeDevTestRoot(t, "create-project-invalid")
 	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)

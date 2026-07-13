@@ -8,18 +8,6 @@ import (
 	"strings"
 )
 
-func Root(dataDir string) (string, error) {
-	dataDir = strings.TrimSpace(dataDir)
-	if dataDir == "" {
-		return "", errors.New("project data directory is required")
-	}
-	abs, err := filepath.Abs(dataDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve project data directory: %w", err)
-	}
-	return filepath.Join(abs, "memory"), nil
-}
-
 func EnsureLayout(root string) error {
 	if root == "" {
 		return errors.New("memory root is required")

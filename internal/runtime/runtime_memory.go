@@ -154,18 +154,33 @@ func (r *runtimeService) projectMemoryService(ctx context.Context, projectID str
 	if err := r.ensureStarted(ctx); err != nil {
 		return memory.Service{}, "", "", err
 	}
-	cfg, workspaceID, err := r.workspaceConfig(ctx)
+	cfg, _, err := r.workspaceConfig(ctx)
 	if err != nil {
 		return memory.Service{}, "", "", err
 	}
-	projectID = strings.TrimSpace(firstNonEmpty(projectID, workspaceID))
+	r.mu.Lock()
+	activeProjectID := strings.TrimSpace(r.activeProjectID)
+	r.mu.Unlock()
+	requestedProjectID := strings.TrimSpace(projectID)
+	if requestedProjectID != "" && requestedProjectID != activeProjectID {
+		return memory.Service{}, "", "", errors.New("project memory is only available for the active project")
+	}
+	projectID = activeProjectID
 	if projectID == "" {
 		return memory.Service{}, "", "", errors.New("project id is required")
 	}
-	root, err := memory.Root(cfg.Config().Options.DataDirectory)
+	dataLayout, err := newApplicationDataLayout(cfg.Config().Options.DataDirectory)
 	if err != nil {
 		return memory.Service{}, "", "", err
 	}
+	projectLayout, err := dataLayout.Project(projectID)
+	if err != nil {
+		return memory.Service{}, "", "", err
+	}
+	if err := ensureProjectDataLayout(projectLayout); err != nil {
+		return memory.Service{}, "", "", err
+	}
+	root := projectLayout.MemoryDir
 	db, err := r.workspaceDB(ctx)
 	if err != nil {
 		return memory.Service{}, "", "", err

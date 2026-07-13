@@ -12,10 +12,7 @@ import (
 func TestScannerStoreRebuildAndRetrieval(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
-	root, err := Root(dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := filepath.Join(dataDir, "memory")
 	if err := EnsureLayout(root); err != nil {
 		t.Fatal(err)
 	}
@@ -61,10 +58,7 @@ func TestScannerStoreRebuildAndRetrieval(t *testing.T) {
 func TestRebuildMarksMissingFilesDeleted(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
-	root, err := Root(dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := filepath.Join(dataDir, "memory")
 	if err := EnsureLayout(root); err != nil {
 		t.Fatal(err)
 	}
