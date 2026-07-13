@@ -26,7 +26,11 @@ func (r *runtimeService) CreateProject(ctx context.Context, req RuntimeCreatePro
 	if err != nil {
 		return RuntimeOpenProjectResponse{}, err
 	}
-	projectRoot := filepath.Join(layout.DataDir, "projects")
+	dataLayout, err := newApplicationDataLayout(layout.DataDir)
+	if err != nil {
+		return RuntimeOpenProjectResponse{}, err
+	}
+	projectRoot := dataLayout.ManagedWorkspaces
 	projectPath := filepath.Join(projectRoot, name)
 	if err := ensureRuntimeProjectPathUnderRoot(projectRoot, projectPath); err != nil {
 		return RuntimeOpenProjectResponse{}, err
@@ -215,6 +219,17 @@ func (r *runtimeService) OpenProject(ctx context.Context, req RuntimeOpenProject
 	}
 	project, err := store.UpsertActiveByPath(ctx, projectPath)
 	if err != nil {
+		return RuntimeOpenProjectResponse{}, err
+	}
+	dataLayout, err := newApplicationDataLayout(store.dataDir)
+	if err != nil {
+		return RuntimeOpenProjectResponse{}, err
+	}
+	projectLayout, err := dataLayout.Project(project.ID)
+	if err != nil {
+		return RuntimeOpenProjectResponse{}, err
+	}
+	if err := ensureProjectDataLayout(projectLayout); err != nil {
 		return RuntimeOpenProjectResponse{}, err
 	}
 

@@ -201,7 +201,7 @@ func TestRuntimeStatusOpenProjectIsExplicitProject(t *testing.T) {
 	}
 }
 
-func TestRuntimeCreateProjectUsesDesktopDataProjectsDirectory(t *testing.T) {
+func TestRuntimeCreateProjectUsesManagedWorkspacesDirectory(t *testing.T) {
 	root := runtimeDevTestRoot(t, "create-project")
 	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
 	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
@@ -212,7 +212,7 @@ func TestRuntimeCreateProjectUsesDesktopDataProjectsDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantPath := filepath.Join(root, "data", "projects", "Blank Project")
+	wantPath := filepath.Join(root, "data", "managed-workspaces", "Blank Project")
 	if created.Project.Path != wantPath || created.Status.WorkingDir != wantPath {
 		t.Fatalf("created project path = %#v status=%#v, want %s", created.Project, created.Status, wantPath)
 	}
@@ -233,7 +233,7 @@ func TestRuntimeCreateProjectRejectsInvalidOrExistingName(t *testing.T) {
 		}
 	}
 
-	existing := filepath.Join(root, "data", "projects", "Existing")
+	existing := filepath.Join(root, "data", "managed-workspaces", "Existing")
 	if err := os.MkdirAll(existing, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestRuntimeCreateProjectSucceedsWithoutConfiguredModel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantPath := filepath.Join(root, "data", "projects", "No Model Project")
+	wantPath := filepath.Join(root, "data", "managed-workspaces", "No Model Project")
 	if created.Status.Ready {
 		t.Fatalf("created status ready = true, want false without configured model")
 	}
@@ -300,7 +300,7 @@ func TestRuntimeRenameProjectRenamesDirectoryKeepsSessionsAndClosesTerminals(t *
 		t.Fatal(err)
 	}
 
-	wantPath := filepath.Join(root, "data", "projects", "After Rename")
+	wantPath := filepath.Join(root, "data", "managed-workspaces", "After Rename")
 	if renamed.Project.Name != "After Rename" || renamed.Project.Path != wantPath || renamed.Status.WorkingDir != wantPath {
 		t.Fatalf("renamed project = %#v status=%#v, want path %s", renamed.Project, renamed.Status, wantPath)
 	}
@@ -345,7 +345,7 @@ func TestRuntimeRenameProjectRejectsInvalidExistingOrNonCurrentProject(t *testin
 	if _, err := service.RenameProject(context.Background(), RuntimeRenameProjectRequest{ProjectID: "not-current", Name: "Other"}); err == nil {
 		t.Fatal("RenameProject accepted non-current project id")
 	}
-	existing := filepath.Join(root, "data", "projects", "Existing")
+	existing := filepath.Join(root, "data", "managed-workspaces", "Existing")
 	if err := os.MkdirAll(existing, 0o755); err != nil {
 		t.Fatal(err)
 	}
