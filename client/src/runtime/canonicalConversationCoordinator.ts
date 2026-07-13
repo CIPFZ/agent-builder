@@ -94,6 +94,16 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
     activate(sessionId) {
       clearRetry();
       stopStream();
+      // Historical pagination deliberately grows only the active Session.
+      // Once the user leaves it, do not retain that expanded history in the
+      // LRU: a later activation can cheaply reconstruct the newest window and
+      // page upward again. Normal one-window Sessions remain hot-cached.
+      if (activeSessionId && activeSessionId !== sessionId) {
+        const previous = cache.get(activeSessionId);
+        if (previous && Object.keys(previous.turnsById).length > INITIAL_TURN_WINDOW) {
+          cache.delete(activeSessionId);
+        }
+      }
       activeSessionId = sessionId;
       recovering = false;
       retryAttempt = 0;

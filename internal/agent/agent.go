@@ -209,6 +209,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	systemPrompt := a.systemPrompt.Get()
 	systemSections := a.systemSections.Copy()
 	promptPrefix := a.systemPromptPrefix.Get()
+	if effectiveCWD := tools.GetEffectiveCWDFromContext(ctx); effectiveCWD != "" {
+		// The desktop runtime can host Sessions owned by different projects in
+		// one long-lived coordinator. Keep the persisted user prompt untouched,
+		// while making the per-session cwd authoritative for both model
+		// reasoning and the tools that read the same context value.
+		systemPrompt += "\n\n<session-working-directory>\nThe authoritative working directory for this session is " + effectiveCWD + ". Treat it as the project root.\n</session-working-directory>"
+	}
 	var instructions strings.Builder
 	var mcpInstructions []mcpInstructionSnapshot
 

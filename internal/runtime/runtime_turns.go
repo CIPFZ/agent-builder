@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	agenttools "github.com/CIPFZ/agent-builder/internal/agent/tools"
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
 	"github.com/CIPFZ/agent-builder/internal/message"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
@@ -295,7 +296,15 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 	}
 
 	userMessageMetadata := runtimeUserMessageMetadata(normalized)
-	go r.runChat(runCtx, requestID, wsID, sessionID, prompt, userMessageMetadata, start, usageBefore, status.Provider, status.Model)
+	// Session ownership and cwd are persisted independently from the desktop's
+	// currently selected project. Resolve the execution cwd from the Session so
+	// switching the project picker cannot make an existing/new Turn run against
+	// the process workspace (typically the agent-builder checkout).
+	sessionWorkdir := ""
+	if sess, sessionErr := r.runtime.GetSession(ctx, wsID, sessionID); sessionErr == nil {
+		sessionWorkdir = strings.TrimSpace(sess.Workdir)
+	}
+	go r.runChat(runCtx, requestID, wsID, sessionID, sessionWorkdir, prompt, userMessageMetadata, start, usageBefore, status.Provider, status.Model)
 
 	return RuntimeChatResponse{
 		RequestID:       requestID,
@@ -707,7 +716,10 @@ func (r *runtimeService) MarkInterruptedDone(ctx context.Context, turnID string)
 	return withRuntimeTurnResponseAction(resp, runtimeTurnActionMarkInterruptedDone, runtimeTurnActionReasonInterruptedMarkedDone), nil
 }
 
-func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID, prompt string, userMessageMetadata map[string]string, start time.Time, usageBefore RuntimeUsage, provider, model string) {
+func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID, workdir, prompt string, userMessageMetadata map[string]string, start time.Time, usageBefore RuntimeUsage, provider, model string) {
+	if workdir != "" {
+		ctx = context.WithValue(ctx, agenttools.EffectiveCWDContextKey, workdir)
+	}
 	err := r.runtime.SendMessage(ctx, wsID, apitypes.AgentMessage{
 		SessionID: sessionID,
 		TurnID:    requestID,

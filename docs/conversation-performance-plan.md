@@ -65,6 +65,9 @@ must only retain a bounded working set that can be reconstructed from Runtime.
 - Track the earliest loaded boundary and `hasMoreBefore` separately from the
   live cursor.
 - Replace the unbounded Session Map with an LRU cache capped at two Sessions.
+- Expanded historical windows are active-Session-only: switching away evicts
+  any cache entry that grew beyond the initial 30 Turns, so pagination in
+  several Sessions cannot accumulate hidden history in renderer memory.
 - Add explicit eviction for deleted Sessions and project/draft transitions.
 
 ### Rendering

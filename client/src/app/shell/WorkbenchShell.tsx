@@ -70,11 +70,17 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     return createCanonicalConversationCoordinator({
       fetchSnapshot: adapter.fetchCanonicalConversationSnapshot,
       subscribe: adapter.subscribeCanonicalConversation,
-      onStore: (store) => setViewModel((current) => (
-        current.conversationTarget.kind === 'session' && current.conversationTarget.sessionId === store.sessionId
-          ? { ...current, canonicalConversationStore: store, optimisticConversationByClientRequestId: pruneEchoedOptimisticSubmits(current.optimisticConversationByClientRequestId, store) }
-          : current
-      )),
+      onStore: (store) => {
+        // The canonical snapshot is the readiness boundary for conversation
+        // rendering. Do not keep the loading placeholder coupled to the
+        // slower diagnostics/status hydration performed by selectSession.
+        setSwitchingSessionID((current) => current === store.sessionId ? '' : current);
+        setViewModel((current) => (
+          current.conversationTarget.kind === 'session' && current.conversationTarget.sessionId === store.sessionId
+            ? { ...current, canonicalConversationStore: store, optimisticConversationByClientRequestId: pruneEchoedOptimisticSubmits(current.optimisticConversationByClientRequestId, store) }
+            : current
+        ));
+      },
     });
   }, [adapter.fetchCanonicalConversationSnapshot, adapter.subscribeCanonicalConversation]);
   const hasBusySession = viewModel.sessions.some((session) => session.busy);
@@ -445,9 +451,17 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         if (sessionMutationSeqRef.current !== mutationSeq) {
           return;
         }
-        setSwitchingSessionID('');
         modeRef.current = nextViewModel.mode;
-        viewModelRef.current = { ...nextViewModel, conversationTarget: { kind: 'session', sessionId: sessionID } };
+        // A canonical snapshot may have arrived while the ancillary session
+        // hydration was in flight. Preserve it instead of replacing the
+        // rendered conversation with the hydration request's stale base.
+        const canonicalStore = canonicalCoordinator?.cached(sessionID);
+        viewModelRef.current = {
+          ...nextViewModel,
+          conversationTarget: { kind: 'session', sessionId: sessionID },
+          canonicalConversationStore: canonicalStore,
+        };
+        if (canonicalStore) setSwitchingSessionID('');
         setMode(nextViewModel.mode);
         setViewModel(viewModelRef.current);
       })
