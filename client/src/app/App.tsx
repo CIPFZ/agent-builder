@@ -5,7 +5,6 @@ import { wailsWorkbenchAdapter } from '../runtime/wailsWorkbenchAdapter.ts';
 
 export default function App() {
   const [viewModel, setViewModel] = useState(getInitialWorkbenchViewModel());
-  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -15,14 +14,10 @@ export default function App() {
       .then((nextViewModel) => {
         if (active) {
           setViewModel(nextViewModel);
-          setLoaded(true);
         }
       })
       .catch((error) => {
         console.error('[app] failed to load initial runtime view model', error);
-        if (active) {
-          setLoaded(true);
-        }
       });
 
     return () => {
@@ -30,5 +25,5 @@ export default function App() {
     };
   }, []);
 
-  return <WorkbenchShell key={loaded ? 'runtime' : 'booting'} adapter={wailsWorkbenchAdapter} viewModel={viewModel} />;
+  return <WorkbenchShell adapter={wailsWorkbenchAdapter} viewModel={viewModel} />;
 }

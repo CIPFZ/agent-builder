@@ -3575,10 +3575,14 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     activeTurns.find((turn) => turn.sessionId === activeSessionID && !isFinalTurnStatus(turn.status)) ||
     activityTurns.find((turn) => !isFinalTurnStatus(turn.status));
   const busy =
-    typeof status?.requests?.sessionBusy === 'boolean'
+    !activeSessionID
+      ? false
+      : typeof status?.requests?.sessionBusy === 'boolean'
       ? status.requests.sessionBusy
       : Boolean(sessionActiveTurn);
-  const activeTurnId = status?.requests?.sessionRequestId || sessionActiveTurn?.id || (busy ? current.composer.activeTurnId : undefined);
+  const activeTurnId = activeSessionID
+    ? status?.requests?.sessionRequestId || sessionActiveTurn?.id || (busy ? current.composer.activeTurnId : undefined)
+    : undefined;
   // Batch B: requests that depend on Batch A results (runProjection / activity)
   // or on activeTurnId (derived synchronously above) — independent of each other.
   const [
@@ -3937,7 +3941,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     const initial = getInitialWorkbenchViewModel(mode);
 
     return withBridge(
-      (bridge) => hydrateWorkbench(initial, bridge),
+      async (bridge) => bindDraftToCurrentProject(await hydrateWorkbench(initial, bridge)),
       () => staticWorkbenchAdapter.loadInitialViewModel(mode),
     );
   },

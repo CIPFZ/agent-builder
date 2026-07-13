@@ -62,6 +62,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const [viewportWidth, setViewportWidth] = useState(() => (typeof window === 'undefined' ? 0 : window.innerWidth));
   const [switchingSessionID, setSwitchingSessionID] = useState('');
   const viewModelRef = useRef(viewModel);
+  const bootstrapPropRef = useRef(initialViewModel);
   const modeRef = useRef(mode);
   const sessionMutationSeqRef = useRef(0);
   const promptSubmitQueueRef = useRef(createConversationSubmitQueue());
@@ -83,6 +84,22 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       },
     });
   }, [adapter.fetchCanonicalConversationSnapshot, adapter.subscribeCanonicalConversation]);
+
+  // App renders the draft shell immediately, then supplies one background
+  // runtime metadata hydration. Adopt that bootstrap result without remounting
+  // the whole workbench or disturbing later shell-owned state mutations.
+  useEffect(() => {
+    const previousBootstrap = bootstrapPropRef.current;
+    bootstrapPropRef.current = initialViewModel;
+    const timer = window.setTimeout(() => {
+      if (viewModelRef.current !== previousBootstrap) return;
+      viewModelRef.current = initialViewModel;
+      modeRef.current = initialViewModel.mode;
+      setMode(initialViewModel.mode);
+      setViewModel(initialViewModel);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [initialViewModel]);
   const hasBusySession = viewModel.sessions.some((session) => session.busy);
   const sidebarForceCollapsed =
     !sidebarCollapsed &&
