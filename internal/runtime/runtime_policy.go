@@ -2,14 +2,15 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/CIPFZ/agent-builder/internal/db"
 	"github.com/CIPFZ/agent-builder/internal/permission"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 	"github.com/CIPFZ/agent-builder/internal/workbench"
@@ -21,13 +22,6 @@ var runtimePolicyModes = []string{
 	string(permission.PolicyModeFullAccess),
 	string(permission.PolicyModePlan),
 	string(permission.PolicyModeDenyAll),
-}
-
-type runtimePolicyFile struct {
-	Mode      string              `json:"mode"`
-	Profile   string              `json:"profile,omitempty"`
-	Rules     []RuntimePolicyRule `json:"rules,omitempty"`
-	UpdatedAt int64               `json:"updatedAt,omitempty"`
 }
 
 func defaultRuntimePolicy() RuntimePolicy {
@@ -81,41 +75,35 @@ func runtimePolicyFromParts(mode permission.PolicyMode, profile string, rules []
 	}
 }
 
-func loadRuntimePolicy(layout desktopLayout) (RuntimePolicy, error) {
-	data, err := os.ReadFile(layout.PolicyConfigPath)
-	if errors.Is(err, os.ErrNotExist) {
+func loadRuntimePolicy(ctx context.Context, conn *sql.DB) (RuntimePolicy, error) {
+	var modeValue, profile, rulesJSON string
+	var updatedAt int64
+	err := conn.QueryRowContext(ctx, `SELECT mode, profile, rules_json, updated_at FROM policy_settings WHERE scope = 'global' AND project_id = ''`).Scan(&modeValue, &profile, &rulesJSON, &updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
 		return defaultRuntimePolicy(), nil
 	}
 	if err != nil {
-		return RuntimePolicy{}, fmt.Errorf("failed to read runtime policy config: %w", err)
+		return RuntimePolicy{}, fmt.Errorf("load runtime policy: %w", err)
 	}
-	var file runtimePolicyFile
-	if err := json.Unmarshal(data, &file); err != nil {
-		return RuntimePolicy{}, fmt.Errorf("failed to parse runtime policy config: %w", err)
+	var rules []RuntimePolicyRule
+	if err := json.Unmarshal([]byte(rulesJSON), &rules); err != nil {
+		return RuntimePolicy{}, fmt.Errorf("decode runtime policy rules: %w", err)
 	}
-	mode, err := normalizeRuntimePolicyMode(file.Mode)
+	mode, err := normalizeRuntimePolicyMode(modeValue)
 	if err != nil {
 		return RuntimePolicy{}, err
 	}
-	return runtimePolicyFromParts(mode, file.Profile, file.Rules, file.UpdatedAt), nil
+	return runtimePolicyFromParts(mode, profile, rules, updatedAt), nil
 }
 
-func saveRuntimePolicy(layout desktopLayout, policy RuntimePolicy) error {
-	if err := ensureDesktopLayout(layout); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(runtimePolicyFile{
-		Mode:      policy.Mode,
-		Profile:   policy.Profile,
-		Rules:     policy.Rules,
-		UpdatedAt: policy.UpdatedAt,
-	}, "", "  ")
+func saveRuntimePolicy(ctx context.Context, conn *sql.DB, policy RuntimePolicy) error {
+	rulesJSON, err := json.Marshal(policy.Rules)
 	if err != nil {
-		return fmt.Errorf("failed to encode runtime policy config: %w", err)
+		return fmt.Errorf("encode runtime policy rules: %w", err)
 	}
-	data = append(data, '\n')
-	if err := os.WriteFile(layout.PolicyConfigPath, data, 0o600); err != nil {
-		return fmt.Errorf("failed to write runtime policy config: %w", err)
+	if _, err := conn.ExecContext(ctx, `INSERT INTO policy_settings (scope, project_id, mode, profile, rules_json, updated_at)
+VALUES ('global', '', ?, ?, ?, ?) ON CONFLICT(scope, project_id) DO UPDATE SET mode = excluded.mode, profile = excluded.profile, rules_json = excluded.rules_json, updated_at = excluded.updated_at`, policy.Mode, policy.Profile, string(rulesJSON), policy.UpdatedAt); err != nil {
+		return fmt.Errorf("save runtime policy: %w", err)
 	}
 	return nil
 }
@@ -239,11 +227,12 @@ func (r *runtimeService) applyPolicyToWorkspace(ctx context.Context, policy Runt
 }
 
 func (r *runtimeService) GetPolicy(ctx context.Context) (RuntimePolicyResponse, error) {
-	layout, err := resolveDesktopLayout()
+	conn, dataDir, err := openDesktopDB(ctx)
 	if err != nil {
 		return RuntimePolicyResponse{}, err
 	}
-	policy, err := loadRuntimePolicy(layout)
+	defer db.Release(dataDir) //nolint:errcheck
+	policy, err := loadRuntimePolicy(ctx, conn)
 	if err != nil {
 		return RuntimePolicyResponse{}, err
 	}
@@ -258,11 +247,12 @@ func (r *runtimeService) UpdatePolicy(ctx context.Context, req RuntimePolicyUpda
 	if err != nil {
 		return RuntimePolicyResponse{}, err
 	}
-	layout, err := resolveDesktopLayout()
+	conn, dataDir, err := openDesktopDB(ctx)
 	if err != nil {
 		return RuntimePolicyResponse{}, err
 	}
-	current, err := loadRuntimePolicy(layout)
+	defer db.Release(dataDir) //nolint:errcheck
+	current, err := loadRuntimePolicy(ctx, conn)
 	if err != nil {
 		return RuntimePolicyResponse{}, err
 	}
@@ -278,11 +268,11 @@ func (r *runtimeService) UpdatePolicy(ctx context.Context, req RuntimePolicyUpda
 	if hasRuntimePolicyErrors(updated.Diagnostics) {
 		return RuntimePolicyResponse{}, fmt.Errorf("invalid policy rules")
 	}
-	if err := saveRuntimePolicy(layout, updated); err != nil {
+	if err := saveRuntimePolicy(ctx, conn, updated); err != nil {
 		return RuntimePolicyResponse{}, err
 	}
 	r.mu.Lock()
-	started := r.runtime != nil && r.workspace != nil
+	started := r.runtime != nil && r.workspace != nil && r.runtimeConfigured
 	r.mu.Unlock()
 	if started {
 		if err := r.applyPolicyToWorkspace(ctx, updated); err != nil {

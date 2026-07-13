@@ -5,8 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -100,9 +98,7 @@ func phase321ProviderBackedTaskFixture(t *testing.T, handler http.HandlerFunc) (
 	}))
 	t.Cleanup(provider.Close)
 	writeRuntimeDevModelConfig(t, root, provider.URL)
-	if err := os.WriteFile(filepath.Join(root, "config", "policy.json"), []byte(`{"mode":"full_access"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeRuntimeDevPolicy(t, root, "full_access")
 
 	service := newRuntimeService()
 	if _, err := service.Status(context.Background()); err != nil {

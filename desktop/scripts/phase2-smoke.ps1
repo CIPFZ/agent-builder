@@ -53,19 +53,9 @@ try {
     $models = Get-OpenAICompatibleModels "https://api.deepseek.com" $providerKey
     $selectedModel = $models[0]
     Write-Host "Live smoke selected model: $selectedModel"
-    $modelConfig = @{
-      protocol = "openai"
-      url = "https://api.deepseek.com"
-      apiKey = $providerKey
-      model = $selectedModel
-      models = $models
-    } | ConvertTo-Json -Depth 4
-    New-Item -ItemType Directory -Path (Join-Path $smokeRoot "config") -Force | Out-Null
-    [System.IO.File]::WriteAllText(
-      (Join-Path $smokeRoot "config\model.json"),
-      $modelConfig + [Environment]::NewLine,
-      [System.Text.UTF8Encoding]::new($false)
-    )
+    $env:AGENT_BUILDER_LIVE_MODEL = $selectedModel
+    Write-Host ">> seed live provider settings in SQLite"
+    Run "go" @("test", "-tags", "desktop_live", ".", "-run", "TestDesktopRuntimeBridgeLiveSeed", "-count=1") $desktopRoot
   }
 
   Write-Host ">> go test ."
@@ -102,6 +92,7 @@ try {
   Write-Host "Phase 2 smoke passed. Runtime root: $smokeRoot"
 } finally {
   Remove-Item Env:\AGENT_BUILDER_DESKTOP_ROOT -ErrorAction SilentlyContinue
+  Remove-Item Env:\AGENT_BUILDER_LIVE_MODEL -ErrorAction SilentlyContinue
   if (Test-Path $smokeRoot) {
     Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
   }

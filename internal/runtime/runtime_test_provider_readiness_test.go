@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -96,17 +95,27 @@ func runtimeDevTestRoot(t *testing.T, name string) string {
 
 func writeRuntimeDevModelConfig(t *testing.T, root, providerURL string) {
 	t.Helper()
-	data, err := json.MarshalIndent(RuntimeModelConfig{
-		Protocol: "openai",
-		URL:      providerURL,
-		APIKey:   "phase-27-local-test-token",
-		Model:    "phase-27-local-model",
-		Models:   []string{"phase-27-local-model"},
-	}, "", "  ")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	service := newRuntimeService()
+	_, err := service.SaveConfiguredProvider(context.Background(), RuntimeConfiguredProviderRequest{
+		ProviderID:   "openai",
+		Name:         "Test Provider",
+		Protocol:     "openai-compat",
+		APIEndpoint:  providerURL,
+		APIKey:       "phase-27-local-test-token",
+		DefaultModel: "phase-27-local-model",
+		Models:       []RuntimeProviderModel{{ID: "phase-27-local-model"}},
+		Enabled:      true,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "config", "model.json"), data, 0o600); err != nil {
+}
+
+func writeRuntimeDevPolicy(t *testing.T, root, mode string) {
+	t.Helper()
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	if _, err := newRuntimeService().UpdatePolicy(context.Background(), RuntimePolicyUpdateRequest{Mode: mode}); err != nil {
 		t.Fatal(err)
 	}
 }

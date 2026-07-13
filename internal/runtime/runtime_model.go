@@ -24,18 +24,6 @@ func (r *runtimeService) Models(ctx context.Context) (RuntimeModelsResponse, err
 		if errors.Is(err, errSelectedModelMissing) {
 			return RuntimeModelsResponse{}, nil
 		}
-		if errors.Is(err, errModelConfigMissing) {
-			cfg, cfgErr := r.readConfiguredModel()
-			if cfgErr != nil {
-				return RuntimeModelsResponse{}, err
-			}
-			return RuntimeModelsResponse{Models: []RuntimeModel{{
-				ID:       cfg.Model,
-				Name:     cfg.Model,
-				Provider: localProviderID,
-				Selected: true,
-			}}}, nil
-		}
 		return RuntimeModelsResponse{}, err
 	}
 
@@ -114,43 +102,27 @@ func configuredProviderModelIDs(provider RuntimeConfiguredProvider) []string {
 	return compactModelIDs(append(providerModelIDs(provider.Models), strings.TrimSpace(provider.DefaultModel)))
 }
 
+func runtimeProviderModelsFromIDs(ids []string) []RuntimeProviderModel {
+	models := make([]RuntimeProviderModel, 0, len(ids))
+	for _, id := range compactModelIDs(ids) {
+		models = append(models, RuntimeProviderModel{ID: id})
+	}
+	return models
+}
+
 func (r *runtimeService) GetModelConfig(ctx context.Context) (RuntimeConfigResponse, error) {
-	layout, err := resolveDesktopLayout()
+	providers, err := r.ConfiguredProviders(ctx)
 	if err != nil {
 		return RuntimeConfigResponse{}, err
 	}
-	if err := ensureDesktopLayout(layout); err != nil {
-		return RuntimeConfigResponse{}, err
+	if len(providers.Providers) == 0 {
+		return RuntimeConfigResponse{Config: RuntimeModelConfig{Protocol: "openai"}}, nil
 	}
-
-	local, result := loadLocalModelConfig(layout)
-	if result.Error != nil {
-		return RuntimeConfigResponse{}, result.Error
-	}
-	if !result.Applied {
-		local = RuntimeModelConfig{
-			Protocol: "openai",
-		}
-	}
-	hasAPIKey := result.Applied && local.APIKey != ""
-	local.APIKey = ""
-	local.HasAPIKey = hasAPIKey
-	local.ConfigPath = layout.ModelConfigPath
-
-	return RuntimeConfigResponse{Config: local}, nil
+	provider := providers.Providers[0]
+	return RuntimeConfigResponse{Config: RuntimeModelConfig{Protocol: provider.Protocol, URL: provider.APIEndpoint, Model: provider.DefaultModel, Models: providerModelIDs(provider.Models), Proxy: provider.Proxy, HasAPIKey: provider.HasAPIKey}}, nil
 }
 
 func (r *runtimeService) SaveModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeConfigResponse, error) {
-	layout, err := resolveDesktopLayout()
-	if err != nil {
-		return RuntimeConfigResponse{}, err
-	}
-
-	current, result := loadLocalModelConfig(layout)
-	if result.Error != nil {
-		return RuntimeConfigResponse{}, result.Error
-	}
-
 	next := RuntimeModelConfig{
 		Protocol: strings.TrimSpace(req.Protocol),
 		URL:      strings.TrimSpace(req.URL),
@@ -158,49 +130,30 @@ func (r *runtimeService) SaveModelConfig(ctx context.Context, req RuntimeModelCo
 		Model:    strings.TrimSpace(req.Model),
 		Proxy:    strings.TrimSpace(req.Proxy),
 	}
-	if next.APIKey == "" {
-		next.APIKey = current.APIKey
-	}
 	discovered, discoverErr := discoverModels(ctx, next)
 	if discoverErr == nil && len(discovered) > 0 {
 		next.Models = providerModelIDs(discovered)
 	} else if next.Model != "" {
-		next.Models = mergeModelIDs([]string{next.Model}, req.Models, current.Models)
+		next.Models = mergeModelIDs([]string{next.Model}, req.Models)
 	}
 	if err := validateModelConfig(next, true); err != nil {
 		return RuntimeConfigResponse{}, err
 	}
 
-	if err := saveLocalModelConfig(layout, next); err != nil {
+	_, err := r.SaveConfiguredProvider(ctx, RuntimeConfiguredProviderRequest{ProviderID: next.Protocol, Name: "Default Provider", Protocol: next.Protocol, APIEndpoint: next.URL, APIKey: next.APIKey, Proxy: next.Proxy, DefaultModel: next.Model, Models: runtimeProviderModelsFromIDs(next.Models), Enabled: true})
+	if err != nil {
 		return RuntimeConfigResponse{}, err
 	}
-
-	r.restart()
-
-	next.APIKey = ""
-	next.HasAPIKey = true
-	next.ConfigPath = layout.ModelConfigPath
-	return RuntimeConfigResponse{Config: next}, nil
+	return r.GetModelConfig(ctx)
 }
 
 func (r *runtimeService) DiscoverModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeModelDiscoveryResponse, error) {
-	layout, err := resolveDesktopLayout()
-	if err != nil {
-		return RuntimeModelDiscoveryResponse{}, err
-	}
-	current, result := loadLocalModelConfig(layout)
-	if result.Error != nil {
-		return RuntimeModelDiscoveryResponse{}, result.Error
-	}
 	cfg := RuntimeModelConfig{
 		Protocol: strings.TrimSpace(req.Protocol),
 		URL:      strings.TrimSpace(req.URL),
 		APIKey:   strings.TrimSpace(req.APIKey),
 		Model:    strings.TrimSpace(req.Model),
 		Proxy:    strings.TrimSpace(req.Proxy),
-	}
-	if cfg.APIKey == "" {
-		cfg.APIKey = current.APIKey
 	}
 	if err := validateModelConfig(cfg, false); err != nil {
 		return RuntimeModelDiscoveryResponse{}, err
@@ -226,14 +179,6 @@ func (r *runtimeService) DiscoverModelConfig(ctx context.Context, req RuntimeMod
 }
 
 func (r *runtimeService) VerifyModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeModelVerifyResponse, error) {
-	layout, err := resolveDesktopLayout()
-	if err != nil {
-		return RuntimeModelVerifyResponse{}, err
-	}
-	current, result := loadLocalModelConfig(layout)
-	if result.Error != nil {
-		return RuntimeModelVerifyResponse{}, result.Error
-	}
 	cfg := RuntimeModelConfig{
 		Protocol: strings.TrimSpace(req.Protocol),
 		URL:      strings.TrimSpace(req.URL),
@@ -241,9 +186,6 @@ func (r *runtimeService) VerifyModelConfig(ctx context.Context, req RuntimeModel
 		Model:    strings.TrimSpace(req.Model),
 		Proxy:    strings.TrimSpace(req.Proxy),
 		Models:   req.Models,
-	}
-	if cfg.APIKey == "" {
-		cfg.APIKey = current.APIKey
 	}
 	discovered, discoverErr := discoverModels(ctx, cfg)
 	if discoverErr == nil && len(discovered) > 0 {
@@ -291,19 +233,4 @@ func (r *runtimeService) VerifyModelConfig(ctx context.Context, req RuntimeModel
 		Model:    cfg.Model,
 		Models:   cfg.Models,
 	}, nil
-}
-
-func (r *runtimeService) readConfiguredModel() (RuntimeModelConfig, error) {
-	layout, err := resolveDesktopLayout()
-	if err != nil {
-		return RuntimeModelConfig{}, err
-	}
-	local, result := loadLocalModelConfig(layout)
-	if result.Error != nil {
-		return RuntimeModelConfig{}, result.Error
-	}
-	if !result.Applied {
-		return RuntimeModelConfig{}, errModelConfigMissing
-	}
-	return local, nil
 }

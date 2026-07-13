@@ -1,13 +1,14 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"slices"
+	"time"
 
 	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/db"
 )
 
 type desktopMCPConfig struct {
@@ -15,19 +16,33 @@ type desktopMCPConfig struct {
 }
 
 func loadDesktopMCPConfig(layout desktopLayout) (desktopMCPConfig, error) {
-	data, err := os.ReadFile(layout.MCPConfigPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return desktopMCPConfig{}, nil
+	if err := ensureDesktopLayout(layout); err != nil {
+		return desktopMCPConfig{}, err
 	}
+	conn, err := db.Connect(context.Background(), layout.DataDir)
 	if err != nil {
-		return desktopMCPConfig{}, fmt.Errorf("failed to read desktop mcp config: %w", err)
+		return desktopMCPConfig{}, err
 	}
-	var cfg desktopMCPConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return desktopMCPConfig{}, fmt.Errorf("failed to parse desktop mcp config %s: %w", layout.MCPConfigPath, err)
+	defer db.Release(layout.DataDir) //nolint:errcheck
+	rows, err := conn.Query(`SELECT name, config_json FROM mcp_servers WHERE scope = 'global' AND project_id = '' ORDER BY name`)
+	if err != nil {
+		return desktopMCPConfig{}, fmt.Errorf("load mcp servers: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	cfg := desktopMCPConfig{Servers: config.MCPs{}}
+	for rows.Next() {
+		var name, configJSON string
+		if err := rows.Scan(&name, &configJSON); err != nil {
+			return desktopMCPConfig{}, err
+		}
+		var server config.MCPConfig
+		if err := json.Unmarshal([]byte(configJSON), &server); err != nil {
+			return desktopMCPConfig{}, fmt.Errorf("decode mcp server %s: %w", name, err)
+		}
+		cfg.Servers[name] = server
 	}
 	cfg.Servers = normalizeMCPs(cfg.Servers)
-	return cfg, nil
+	return cfg, rows.Err()
 }
 
 func saveDesktopMCPConfig(layout desktopLayout, cfg desktopMCPConfig) error {
@@ -35,15 +50,30 @@ func saveDesktopMCPConfig(layout desktopLayout, cfg desktopMCPConfig) error {
 		return err
 	}
 	cfg.Servers = normalizeMCPs(cfg.Servers)
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	conn, err := db.Connect(context.Background(), layout.DataDir)
 	if err != nil {
-		return fmt.Errorf("failed to encode desktop mcp config: %w", err)
+		return err
 	}
-	data = append(data, '\n')
-	if err := os.WriteFile(layout.MCPConfigPath, data, 0o600); err != nil {
-		return fmt.Errorf("failed to write desktop mcp config: %w", err)
+	defer db.Release(layout.DataDir) //nolint:errcheck
+	tx, err := conn.Begin()
+	if err != nil {
+		return err
 	}
-	return nil
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.Exec(`DELETE FROM mcp_servers WHERE scope = 'global' AND project_id = ''`); err != nil {
+		return err
+	}
+	now := time.Now().UnixMilli()
+	for name, server := range cfg.Servers {
+		data, err := json.Marshal(server)
+		if err != nil {
+			return fmt.Errorf("encode mcp server %s: %w", name, err)
+		}
+		if _, err := tx.Exec(`INSERT INTO mcp_servers (name, scope, project_id, config_json, updated_at) VALUES (?, 'global', '', ?, ?)`, name, string(data), now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func applyDesktopMCPConfigToStore(store *config.ConfigStore, layout desktopLayout) error {

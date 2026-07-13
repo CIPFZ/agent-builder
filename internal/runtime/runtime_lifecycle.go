@@ -47,6 +47,18 @@ func (r *runtimeService) workspaceDB(ctx context.Context) (*sql.DB, error) {
 	return conn, nil
 }
 
+func openDesktopDB(ctx context.Context) (*sql.DB, string, error) {
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		return nil, "", err
+	}
+	if err := ensureDesktopLayout(layout); err != nil {
+		return nil, "", err
+	}
+	conn, err := db.Connect(ctx, layout.DataDir)
+	return conn, layout.DataDir, err
+}
+
 // workspaceDBIfStarted returns the workspace database if the runtime has
 // already been bootstrapped, or (nil, nil) if it has not. Unlike
 // workspaceDB it never calls ensureWorkspaceStarted, so it's safe to call
@@ -199,14 +211,8 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 	}
 	workingDir = filepath.Clean(workingDir)
 	cfg := config.NewRuntimeConfig(workingDir, layout.DataDir, false)
-	store := config.NewRuntimeStore(workingDir, cfg, layout.ModelConfigPath)
-	_, localResult, selectedModelErr := r.applySelectedConfiguredModel(ctx, store)
-	if selectedModelErr != nil {
-		localResult = applyLocalModelConfig(store, layout)
-		if localResult.Error != nil && requireConfigured {
-			return localResult.Error
-		}
-	}
+	store := config.NewRuntimeStore(workingDir, cfg)
+	_, _, selectedModelErr := r.applySelectedConfiguredModel(ctx, store)
 	if requireConfigured && !store.Config().IsConfigured() {
 		if errors.Is(selectedModelErr, errSelectedModelMissing) {
 			return errSelectedModelMissing
@@ -220,7 +226,6 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 		return err
 	}
 	store.Config().SetupAgents()
-	applyDesktopProxy(localResult)
 
 	logFile := filepath.Join(layout.LogsDir, "agent-builder.log")
 	agentbuilderlog.Setup(logFile, false)
@@ -245,13 +250,7 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 		r.cancel = nil
 		return fmt.Errorf("failed to create Agent Builder workspace: %w", err)
 	}
-	_, workspaceLocalResult, workspaceSelectedModelErr := r.applySelectedConfiguredModel(ctx, wsRuntime.Cfg)
-	if workspaceSelectedModelErr != nil {
-		workspaceLocalResult = applyLocalModelConfig(wsRuntime.Cfg, layout)
-		if workspaceLocalResult.Error != nil && requireConfigured {
-			return workspaceLocalResult.Error
-		}
-	}
+	_, _, workspaceSelectedModelErr := r.applySelectedConfiguredModel(ctx, wsRuntime.Cfg)
 	workspaceConfigured := wsRuntime.Cfg.Config().IsConfigured()
 	if requireConfigured && !workspaceConfigured {
 		if errors.Is(workspaceSelectedModelErr, errSelectedModelMissing) {
@@ -266,7 +265,12 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 		return err
 	}
 	wsRuntime.Cfg.SetupAgents()
-	policy, err := loadRuntimePolicy(layout)
+	settingsDB, err := db.Connect(ctx, layout.DataDir)
+	if err != nil {
+		return err
+	}
+	policy, err := loadRuntimePolicy(ctx, settingsDB)
+	_ = db.Release(layout.DataDir)
 	if err != nil {
 		return err
 	}

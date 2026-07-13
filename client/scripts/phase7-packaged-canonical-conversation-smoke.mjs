@@ -26,7 +26,6 @@ try {
   await assertPlaywrightAvailable();
   const provider = await startLoopbackProvider();
   try {
-    writeRuntimeConfig(provider.url);
     await runProcess('sync-frontend', 'wails3', ['task', 'sync:frontend'], desktopRoot);
     await runProcess('wails-build', 'wails3', ['task', 'build', 'EXTRA_TAGS=webview_test'], desktopRoot);
     if (!existsSync(exePath)) {
@@ -168,17 +167,6 @@ function startLoopbackProvider() {
 function writeJSON(res, payload) {
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(payload));
-}
-
-function writeRuntimeConfig(providerURL) {
-  writeFileSync(resolve(configRoot, 'model.json'), JSON.stringify({
-    protocol: 'openai',
-    url: providerURL,
-    apiKey: 'phase-36-local-test-token',
-    model: 'phase-27-local-model',
-    models: ['phase-27-local-model'],
-  }, null, 2), { encoding: 'utf8', mode: 0o600 });
-  writeFileSync(resolve(configRoot, 'policy.json'), '{"mode":"full_access"}\n', { encoding: 'utf8', mode: 0o600 });
 }
 
 function startProcess(label, command, args, cwd, env = {}) {

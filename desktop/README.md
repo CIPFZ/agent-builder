@@ -40,17 +40,11 @@ desktop/bin/data/
 desktop/bin/logs/
 ```
 
-Model settings are saved by the Go runtime bridge to
-`bin/config/model.json`. See `scripts/phase2-smoke.ps1` for a packaged desktop
-smoke flow and `../docs/frontend-and-desktop.md` for the current boundary.
-
-Desktop-managed runtime settings live next to the executable:
-
-```text
-bin/config/model.json
-bin/config/skills.json
-bin/config/mcp.json
-```
+Desktop settings are stored in `bin/data/agent-builder.db`. Project-owned
+files live under `bin/data/projects/<project-id>/`; the runtime does not write
+model, terminal, policy, Skill, or MCP JSON configuration files. See
+`scripts/phase2-smoke.ps1` for a packaged desktop smoke flow and
+`../docs/data-storage.md` for the storage boundary.
 
 ## Frontend Sync
 

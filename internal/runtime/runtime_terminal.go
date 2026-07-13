@@ -112,13 +112,13 @@ func (r *runtimeService) CreateTerminal(ctx context.Context, req RuntimeTerminal
 		return RuntimeTerminalResponse{}, fmt.Errorf("terminal cwd %s is outside project path %s", cwd, projectPath)
 	}
 	if strings.TrimSpace(req.ProfileID) == "" {
-		settings, settingsErr := loadRuntimeTerminalSettings()
+		settings, settingsErr := r.loadRuntimeTerminalSettings(ctx)
 		if settingsErr != nil {
 			return RuntimeTerminalResponse{}, settingsErr
 		}
 		req.ProfileID = settings.ProfileID
 	}
-	profile, err := runtimeTerminalProfile(req)
+	profile, err := r.runtimeTerminalProfile(ctx, req)
 	if err != nil {
 		return RuntimeTerminalResponse{}, err
 	}
@@ -625,7 +625,7 @@ type runtimeTerminalProfileDefinition struct {
 	resolver func() (runtimeTerminalShellProfile, error)
 }
 
-func runtimeTerminalProfile(req RuntimeTerminalCreateRequest) (runtimeTerminalShellProfile, error) {
+func (r *runtimeService) runtimeTerminalProfile(ctx context.Context, req RuntimeTerminalCreateRequest) (runtimeTerminalShellProfile, error) {
 	if strings.TrimSpace(req.ShellPath) != "" {
 		path := strings.TrimSpace(req.ShellPath)
 		return runtimeTerminalShellProfile{
@@ -637,7 +637,7 @@ func runtimeTerminalProfile(req RuntimeTerminalCreateRequest) (runtimeTerminalSh
 	}
 	profileID := strings.TrimSpace(req.ProfileID)
 	if profileID == "" {
-		settings, err := loadRuntimeTerminalSettings()
+		settings, err := r.loadRuntimeTerminalSettings(ctx)
 		if err != nil {
 			return runtimeTerminalShellProfile{}, err
 		}

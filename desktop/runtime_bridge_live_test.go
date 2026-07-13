@@ -13,6 +13,22 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
 )
 
+func TestDesktopRuntimeBridgeLiveSeed(t *testing.T) {
+	apiKey := strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
+	model := strings.TrimSpace(os.Getenv("AGENT_BUILDER_LIVE_MODEL"))
+	if apiKey == "" || model == "" {
+		t.Fatal("DEEPSEEK_API_KEY and AGENT_BUILDER_LIVE_MODEL are required")
+	}
+	bridge := NewRuntimeBridge()
+	if _, err := bridge.SaveConfiguredProvider(context.Background(), RuntimeConfiguredProviderRequest{
+		ProviderID: "deepseek", Name: "DeepSeek", Protocol: "openai-compat",
+		APIEndpoint: "https://api.deepseek.com", APIKey: apiKey, DefaultModel: model,
+		Models: []RuntimeProviderModel{{ID: model}}, Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDesktopRuntimeBridgeLiveModelDiscovery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()

@@ -16,7 +16,6 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	"github.com/CIPFZ/agent-builder/internal/config"
-	"github.com/CIPFZ/agent-builder/internal/db"
 	"github.com/CIPFZ/agent-builder/internal/modelmeta"
 )
 
@@ -36,11 +35,6 @@ func resolveDesktopLayout() (desktopLayout, error) {
 		DataDir:   filepath.Join(root, "data"),
 		LogsDir:   filepath.Join(root, "logs"),
 	}
-	layout.ModelConfigPath = filepath.Join(layout.ConfigDir, "model.json")
-	layout.SkillConfigPath = filepath.Join(layout.ConfigDir, "skills.json")
-	layout.MCPConfigPath = filepath.Join(layout.ConfigDir, "mcp.json")
-	layout.PolicyConfigPath = filepath.Join(layout.ConfigDir, "policy.json")
-	layout.TerminalConfigPath = filepath.Join(layout.ConfigDir, "terminal.json")
 	return layout, nil
 }
 
@@ -53,85 +47,9 @@ func ensureDesktopLayout(layout desktopLayout) error {
 	return nil
 }
 
-func loadLocalModelConfig(layout desktopLayout) (RuntimeModelConfig, localModelConfigResult) {
-	result := localModelConfigResult{}
-	path := filepath.Clean(layout.ModelConfigPath)
-	result.CheckedPaths = append(result.CheckedPaths, path)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return RuntimeModelConfig{}, result
-	}
-
-	var local RuntimeModelConfig
-	if err := json.Unmarshal(data, &local); err != nil {
-		result.Error = fmt.Errorf("failed to parse local model config %s: %w", path, err)
-		return RuntimeModelConfig{}, result
-	}
-	if local.Model == "" && len(local.Models) > 0 {
-		local.Model = local.Models[0]
-	}
-	if local.Model != "" && len(local.Models) == 0 {
-		local.Models = []string{local.Model}
-	}
-	if err := validateModelConfig(local, false); err != nil {
-		result.Error = fmt.Errorf("invalid local model config %s: %w", path, err)
-		return RuntimeModelConfig{}, result
-	}
-
-	result.Applied = true
-	result.Path = path
-	result.Config = local
-	return local, result
-}
-
-func applyLocalModelConfig(store *config.ConfigStore, layout desktopLayout) localModelConfigResult {
-	local, result := loadLocalModelConfig(layout)
-	if result.Error != nil || !result.Applied {
-		return result
-	}
-	applyModelConfig(store, local, embeddedCatalogAllModels(), loadLocalModelMetadataCache(layout))
-	return result
-}
-
 // loadLocalModelMetadataCache reads discovered model metadata for the local
 // provider from the desktop config database, keyed by model id. Missing
 // database or table simply yields no metadata.
-func loadLocalModelMetadataCache(layout desktopLayout) map[string]RuntimeProviderModel {
-	conn, err := db.Connect(context.Background(), layout.DataDir)
-	if err != nil {
-		return nil
-	}
-	models, err := newRuntimeProviderSettingsStore(conn).ListModelMetadata(context.Background(), localProviderID)
-	if err != nil || len(models) == 0 {
-		return nil
-	}
-	byID := make(map[string]RuntimeProviderModel, len(models))
-	for _, model := range models {
-		byID[model.ID] = model
-	}
-	return byID
-}
-
-func applyDesktopProxy(result localModelConfigResult) {
-	if !result.Applied {
-		return
-	}
-
-	proxy := strings.TrimSpace(result.Config.Proxy)
-	if proxy == "" {
-		_ = os.Unsetenv("HTTP_PROXY")
-		_ = os.Unsetenv("HTTPS_PROXY")
-		_ = os.Unsetenv("http_proxy")
-		_ = os.Unsetenv("https_proxy")
-		return
-	}
-
-	_ = os.Setenv("HTTP_PROXY", proxy)
-	_ = os.Setenv("HTTPS_PROXY", proxy)
-	_ = os.Setenv("http_proxy", proxy)
-	_ = os.Setenv("https_proxy", proxy)
-}
-
 func validateModelConfig(local RuntimeModelConfig, requireModel bool) error {
 	if local.Protocol != "openai" && local.Protocol != "anthropic" {
 		return errors.New("protocol must be openai or anthropic")
@@ -141,26 +59,6 @@ func validateModelConfig(local RuntimeModelConfig, requireModel bool) error {
 			return errors.New("url, apiKey, and model are required")
 		}
 		return errors.New("url and apiKey are required")
-	}
-	return nil
-}
-
-func saveLocalModelConfig(layout desktopLayout, local RuntimeModelConfig) error {
-	if err := ensureDesktopLayout(layout); err != nil {
-		return err
-	}
-	local.ConfigPath = ""
-	local.HasAPIKey = false
-	if local.Model != "" && len(local.Models) == 0 {
-		local.Models = []string{local.Model}
-	}
-	data, err := json.MarshalIndent(local, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to encode local model config: %w", err)
-	}
-	data = append(data, '\n')
-	if err := os.WriteFile(layout.ModelConfigPath, data, 0o600); err != nil {
-		return fmt.Errorf("failed to write local model config: %w", err)
 	}
 	return nil
 }

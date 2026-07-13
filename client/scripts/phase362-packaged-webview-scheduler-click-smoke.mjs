@@ -26,12 +26,20 @@ try {
   await assertPlaywrightAvailable();
   const provider = await startLoopbackProvider();
   try {
-    writeRuntimeConfig(provider.url);
     await runProcess('sync-frontend', 'wails3', ['task', 'sync:frontend'], desktopRoot);
     await runProcess('wails-build', 'wails3', ['task', 'build', 'EXTRA_TAGS=webview_test'], desktopRoot);
     if (!existsSync(exePath)) {
       throw new Error(`AgentBuilder.exe was not found at ${exePath}`);
     }
+
+    await runProcess('seed', 'go', [
+      'test', './internal/runtime', '-run', 'TestPhase362PackagedWebViewSchedulerSeed', '-count=1', '-v',
+    ], repoRoot, {
+      AGENT_BUILDER_PHASE362_PACKAGED_WEBVIEW_SEED: '1',
+      AGENT_BUILDER_PHASE362_HARNESS_ROOT: harnessRoot,
+      AGENT_BUILDER_PHASE362_PROVIDER_URL: provider.url,
+      AGENT_BUILDER_PHASE362_MANIFEST: manifestPath,
+    });
 
     const remoteDebugPort = await freePort();
     const app = startProcess('packaged-app', exePath, [], dirname(exePath), {
@@ -47,19 +55,6 @@ try {
       await page.waitForLoadState('load');
       await ensurePackagedRuntimeStarted(page);
 
-      await runProcess('seed', 'go', [
-        'test',
-        './internal/runtime',
-        '-run',
-        'TestPhase362PackagedWebViewSchedulerSeed',
-        '-count=1',
-        '-v',
-      ], repoRoot, {
-        AGENT_BUILDER_PHASE362_PACKAGED_WEBVIEW_SEED: '1',
-        AGENT_BUILDER_PHASE362_HARNESS_ROOT: harnessRoot,
-        AGENT_BUILDER_PHASE362_PROVIDER_URL: provider.url,
-        AGENT_BUILDER_PHASE362_MANIFEST: manifestPath,
-      });
       const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 
       await selectPackagedSession(page, manifest.sessionID);
@@ -199,17 +194,6 @@ function startLoopbackProvider() {
 function writeJSON(res, payload) {
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(payload));
-}
-
-function writeRuntimeConfig(providerURL) {
-  writeFileSync(resolve(configRoot, 'model.json'), JSON.stringify({
-    protocol: 'openai',
-    url: providerURL,
-    apiKey: 'phase-36-local-test-token',
-    model: 'phase-27-local-model',
-    models: ['phase-27-local-model'],
-  }, null, 2), { encoding: 'utf8', mode: 0o600 });
-  writeFileSync(resolve(configRoot, 'policy.json'), '{"mode":"full_access"}\n', { encoding: 'utf8', mode: 0o600 });
 }
 
 function startProcess(label, command, args, cwd, env = {}) {

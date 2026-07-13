@@ -1,15 +1,16 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/db"
 )
 
 type desktopSkillConfig struct {
@@ -18,14 +19,34 @@ type desktopSkillConfig struct {
 }
 
 func loadDesktopSkillConfig(layout desktopLayout) (desktopSkillConfig, error) {
-	data, err := os.ReadFile(layout.SkillConfigPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return desktopSkillConfig{}, nil
+	if err := ensureDesktopLayout(layout); err != nil {
+		return desktopSkillConfig{}, err
 	}
+	conn, err := db.Connect(context.Background(), layout.DataDir)
 	if err != nil {
-		return desktopSkillConfig{}, fmt.Errorf("failed to read desktop skill config: %w", err)
+		return desktopSkillConfig{}, err
 	}
-	return parseDesktopSkillConfig(data, layout.SkillConfigPath)
+	defer db.Release(layout.DataDir) //nolint:errcheck
+	rows, err := conn.Query(`SELECT path, name, enabled, source FROM skill_registrations WHERE scope = 'global' AND project_id = '' ORDER BY id`)
+	if err != nil {
+		return desktopSkillConfig{}, fmt.Errorf("load skill registrations: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var cfg desktopSkillConfig
+	for rows.Next() {
+		var path, name, source string
+		var enabled int
+		if err := rows.Scan(&path, &name, &enabled, &source); err != nil {
+			return desktopSkillConfig{}, err
+		}
+		if source == "external_path" && path != "" {
+			cfg.SkillPaths = append(cfg.SkillPaths, path)
+		}
+		if enabled == 0 && name != "" {
+			cfg.DisabledSkills = append(cfg.DisabledSkills, name)
+		}
+	}
+	return desktopSkillConfig{SkillPaths: normalizeStringList(cfg.SkillPaths), DisabledSkills: normalizeSkillNames(cfg.DisabledSkills)}, rows.Err()
 }
 
 func parseDesktopSkillConfig(data []byte, path string) (desktopSkillConfig, error) {
@@ -44,15 +65,32 @@ func saveDesktopSkillConfig(layout desktopLayout, cfg desktopSkillConfig) error 
 	}
 	cfg.SkillPaths = normalizeStringList(cfg.SkillPaths)
 	cfg.DisabledSkills = normalizeSkillNames(cfg.DisabledSkills)
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	conn, err := db.Connect(context.Background(), layout.DataDir)
 	if err != nil {
-		return fmt.Errorf("failed to encode desktop skill config: %w", err)
+		return err
 	}
-	data = append(data, '\n')
-	if err := os.WriteFile(layout.SkillConfigPath, data, 0o600); err != nil {
-		return fmt.Errorf("failed to write desktop skill config: %w", err)
+	defer db.Release(layout.DataDir) //nolint:errcheck
+	tx, err := conn.Begin()
+	if err != nil {
+		return err
 	}
-	return nil
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.Exec(`DELETE FROM skill_registrations WHERE scope = 'global' AND project_id = ''`); err != nil {
+		return err
+	}
+	now := time.Now().UnixMilli()
+	for _, path := range cfg.SkillPaths {
+		id := "global:path:" + filepath.ToSlash(path)
+		if _, err := tx.Exec(`INSERT INTO skill_registrations (id, scope, project_id, path, name, enabled, source, updated_at) VALUES (?, 'global', '', ?, '', 1, 'external_path', ?)`, id, path, now); err != nil {
+			return err
+		}
+	}
+	for _, name := range cfg.DisabledSkills {
+		if _, err := tx.Exec(`INSERT INTO skill_registrations (id, scope, project_id, path, name, enabled, source, updated_at) VALUES (?, 'global', '', '', ?, 0, 'builtin', ?)`, "global:name:"+name, name, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func desktopSkillConfigForRuntime(layout desktopLayout) (desktopSkillConfig, error) {

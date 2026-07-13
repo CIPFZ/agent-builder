@@ -38,9 +38,7 @@ func TestPhase362PackagedWebViewSchedulerSeed(t *testing.T) {
 	}
 	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
 	writeRuntimeDevModelConfig(t, root, providerURL)
-	if err := os.WriteFile(filepath.Join(root, "config", "policy.json"), []byte(`{"mode":"full_access"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeRuntimeDevPolicy(t, root, "full_access")
 
 	ctx := context.Background()
 	service := newRuntimeService()

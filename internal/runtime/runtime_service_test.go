@@ -29,22 +29,6 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/workbench"
 )
 
-func TestLocalModelConfigUsesDesktopConfigPath(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	layout := desktopLayout{
-		Root:            filepath.Join(root, "desktop", "agent-builder", "bin"),
-		ConfigDir:       filepath.Join(root, "desktop", "agent-builder", "bin", "config"),
-		DataDir:         filepath.Join(root, "desktop", "agent-builder", "bin", "data"),
-		LogsDir:         filepath.Join(root, "desktop", "agent-builder", "bin", "logs"),
-		ModelConfigPath: filepath.Join(root, "desktop", "agent-builder", "bin", "config", "model.json"),
-	}
-	if filepath.Base(layout.ModelConfigPath) != "model.json" {
-		t.Fatalf("ModelConfigPath = %s, want model.json", layout.ModelConfigPath)
-	}
-}
-
 func TestRuntimeOpenProjectCreatesSwitchesWithoutClosingTerminals(t *testing.T) {
 	root := runtimeDevTestRoot(t, "open-project")
 	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
@@ -497,64 +481,6 @@ func TestRuntimeRemoveProjectRejectsNonCurrentProject(t *testing.T) {
 	}
 }
 
-func TestApplyLocalModelConfigConfiguresProvider(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	layout := desktopLayout{
-		Root:            root,
-		ConfigDir:       filepath.Join(root, "config"),
-		DataDir:         filepath.Join(root, "data"),
-		LogsDir:         filepath.Join(root, "logs"),
-		ModelConfigPath: filepath.Join(root, "config", "model.json"),
-	}
-	if err := os.MkdirAll(layout.ConfigDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(layout.ModelConfigPath, []byte(`{
-  "protocol": "openai",
-  "url": "https://api.example.com",
-  "apiKey": "test-key",
-  "model": "example-chat",
-  "proxy": "http://127.0.0.1:7890",
-  "models": ["example-chat"]
-}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	store := config.NewTestStore(&config.Config{
-		Providers: csync.NewMap[string, config.ProviderConfig](),
-		Models:    map[config.SelectedModelType]config.SelectedModel{},
-		Options:   &config.Options{},
-	})
-
-	result := applyLocalModelConfig(store, layout)
-	if result.Error != nil {
-		t.Fatal(result.Error)
-	}
-	if !result.Applied {
-		t.Fatal("local config was not applied")
-	}
-	if result.Path != layout.ModelConfigPath {
-		t.Fatalf("Path = %s, want %s", result.Path, layout.ModelConfigPath)
-	}
-	if result.Config.Proxy != "http://127.0.0.1:7890" {
-		t.Fatalf("Proxy = %s", result.Config.Proxy)
-	}
-
-	provider, ok := store.Config().Providers.Get(localProviderID)
-	if !ok {
-		t.Fatal("local provider was not configured")
-	}
-	if provider.APIKey != "test-key" {
-		t.Fatal("api key was not applied")
-	}
-	selected := store.Config().Models[config.SelectedModelTypeLarge]
-	if selected.Provider != localProviderID || selected.Model != "example-chat" {
-		t.Fatalf("selected model = %#v", selected)
-	}
-}
-
 func TestApplyModelConfigSelectsConfiguredModelFromDiscoveredList(t *testing.T) {
 	t.Parallel()
 
@@ -893,97 +819,6 @@ func TestSaveConfiguredProviderRejectsDuplicateName(t *testing.T) {
 	}
 }
 
-func TestApplyDesktopProxySetsAndClearsProxyEnvironment(t *testing.T) {
-	t.Setenv("HTTP_PROXY", "")
-	t.Setenv("HTTPS_PROXY", "")
-	t.Setenv("http_proxy", "")
-	t.Setenv("https_proxy", "")
-
-	applyDesktopProxy(localModelConfigResult{
-		Applied: true,
-		Config:  RuntimeModelConfig{Proxy: "http://127.0.0.1:7890"},
-	})
-
-	if os.Getenv("HTTP_PROXY") != "http://127.0.0.1:7890" {
-		t.Fatalf("HTTP_PROXY = %q", os.Getenv("HTTP_PROXY"))
-	}
-	if os.Getenv("HTTPS_PROXY") != "http://127.0.0.1:7890" {
-		t.Fatalf("HTTPS_PROXY = %q", os.Getenv("HTTPS_PROXY"))
-	}
-
-	applyDesktopProxy(localModelConfigResult{Applied: true})
-	if os.Getenv("HTTP_PROXY") != "" || os.Getenv("HTTPS_PROXY") != "" || os.Getenv("http_proxy") != "" || os.Getenv("https_proxy") != "" {
-		t.Fatal("proxy environment was not cleared")
-	}
-}
-
-func TestLocalModelConfigIgnoresLegacyFile(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	layout := desktopLayout{
-		Root:            root,
-		ConfigDir:       filepath.Join(root, "config"),
-		DataDir:         filepath.Join(root, "data"),
-		LogsDir:         filepath.Join(root, "logs"),
-		ModelConfigPath: filepath.Join(root, "config", "model.json"),
-	}
-	legacyDir := filepath.Join(root, "client", "server")
-	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(legacyDir, "deepseek.local.json"), []byte("\xef\xbb\xbf{}"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	_, result := loadLocalModelConfig(layout)
-	if result.Error != nil {
-		t.Fatal(result.Error)
-	}
-	if result.Applied {
-		t.Fatal("legacy model config should not be loaded")
-	}
-}
-
-func TestSaveLocalModelConfigWritesDesktopConfig(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	layout := desktopLayout{
-		Root:            root,
-		ConfigDir:       filepath.Join(root, "config"),
-		DataDir:         filepath.Join(root, "data"),
-		LogsDir:         filepath.Join(root, "logs"),
-		ModelConfigPath: filepath.Join(root, "config", "model.json"),
-	}
-
-	err := saveLocalModelConfig(layout, RuntimeModelConfig{
-		Protocol: "openai",
-		URL:      "https://api.example.com",
-		APIKey:   "test-key",
-		Model:    "example-chat",
-		Models:   []string{"example-chat", "example-reasoner"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	data, err := os.ReadFile(layout.ModelConfigPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) == "" {
-		t.Fatal("config file is empty")
-	}
-	var saved RuntimeModelConfig
-	if err := json.Unmarshal(data, &saved); err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(saved.Models, []string{"example-chat", "example-reasoner"}) {
-		t.Fatalf("Models = %#v", saved.Models)
-	}
-}
-
 func TestDiscoverModelsOpenAICompatible(t *testing.T) {
 	t.Parallel()
 
@@ -1222,6 +1057,7 @@ func TestRuntimeMCPServersFromConfigRedactsSecrets(t *testing.T) {
 func TestRuntimePolicyLoadSaveAndUpdate(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	t.Cleanup(db.ResetPool)
 	service := newRuntimeService()
 
 	resp, err := service.GetPolicy(context.Background())
@@ -1240,12 +1076,12 @@ func TestRuntimePolicyLoadSaveAndUpdate(t *testing.T) {
 		t.Fatalf("updated policy = %#v", updated.Policy)
 	}
 
-	loaded, err := loadRuntimePolicy(desktopLayout{
-		ConfigDir:        filepath.Join(root, "config"),
-		DataDir:          filepath.Join(root, "data"),
-		LogsDir:          filepath.Join(root, "logs"),
-		PolicyConfigPath: filepath.Join(root, "config", "policy.json"),
-	})
+	conn, dataDir, err := openDesktopDB(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Release(dataDir) //nolint:errcheck
+	loaded, err := loadRuntimePolicy(context.Background(), conn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1748,13 +1584,10 @@ func TestDesktopMCPConfigIsSeparateFromAgentBuilderConfig(t *testing.T) {
 
 	root := t.TempDir()
 	layout := desktopLayout{
-		Root:            root,
-		ConfigDir:       filepath.Join(root, "config"),
-		DataDir:         filepath.Join(root, "data"),
-		LogsDir:         filepath.Join(root, "logs"),
-		ModelConfigPath: filepath.Join(root, "config", "model.json"),
-		SkillConfigPath: filepath.Join(root, "config", "skills.json"),
-		MCPConfigPath:   filepath.Join(root, "config", "mcp.json"),
+		Root:      root,
+		ConfigDir: filepath.Join(root, "config"),
+		DataDir:   filepath.Join(root, "data"),
+		LogsDir:   filepath.Join(root, "logs"),
 	}
 	store := config.NewTestStore(&config.Config{
 		MCP: config.MCPs{
@@ -1782,9 +1615,6 @@ func TestDesktopMCPConfigIsSeparateFromAgentBuilderConfig(t *testing.T) {
 	}
 	if desktop.Command != "npx" || !slices.Equal(desktop.Args, []string{"server"}) {
 		t.Fatalf("desktop mcp server was not normalized: %#v", desktop)
-	}
-	if _, err := os.Stat(layout.MCPConfigPath); err != nil {
-		t.Fatalf("desktop mcp config was not written: %v", err)
 	}
 }
 
@@ -2773,12 +2603,10 @@ func TestDesktopSkillConfigIsSeparateFromAgentBuilderConfig(t *testing.T) {
 
 	root := t.TempDir()
 	layout := desktopLayout{
-		Root:            root,
-		ConfigDir:       filepath.Join(root, "config"),
-		DataDir:         filepath.Join(root, "data"),
-		LogsDir:         filepath.Join(root, "logs"),
-		ModelConfigPath: filepath.Join(root, "config", "model.json"),
-		SkillConfigPath: filepath.Join(root, "config", "skills.json"),
+		Root:      root,
+		ConfigDir: filepath.Join(root, "config"),
+		DataDir:   filepath.Join(root, "data"),
+		LogsDir:   filepath.Join(root, "logs"),
 	}
 	store := config.NewTestStore(&config.Config{
 		Options: &config.Options{

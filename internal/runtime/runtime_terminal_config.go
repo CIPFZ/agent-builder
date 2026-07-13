@@ -2,23 +2,27 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
+	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"runtime"
 	"strings"
+	"time"
+
+	"github.com/CIPFZ/agent-builder/internal/db"
 )
 
-func (r *runtimeService) TerminalSettings(context.Context) (RuntimeTerminalSettingsResponse, error) {
-	settings, err := loadRuntimeTerminalSettings()
+const terminalProfileSettingKey = "terminal.selected_profile_id"
+
+func (r *runtimeService) TerminalSettings(ctx context.Context) (RuntimeTerminalSettingsResponse, error) {
+	settings, err := r.loadRuntimeTerminalSettings(ctx)
 	if err != nil {
 		return RuntimeTerminalSettingsResponse{}, err
 	}
 	return RuntimeTerminalSettingsResponse{Settings: settings}, nil
 }
 
-func (r *runtimeService) SaveTerminalSettings(_ context.Context, req RuntimeTerminalSettings) (RuntimeTerminalSettingsResponse, error) {
+func (r *runtimeService) SaveTerminalSettings(ctx context.Context, req RuntimeTerminalSettings) (RuntimeTerminalSettingsResponse, error) {
 	profileID := strings.TrimSpace(req.ProfileID)
 	profiles := runtimeTerminalAvailableProfiles()
 	if profileID == "" {
@@ -30,53 +34,40 @@ func (r *runtimeService) SaveTerminalSettings(_ context.Context, req RuntimeTerm
 	if !runtimeTerminalProfileAvailable(profileID, profiles) {
 		return RuntimeTerminalSettingsResponse{}, fmt.Errorf("terminal profile %q is not available on this machine", profileID)
 	}
-	layout, err := resolveDesktopLayout()
+	conn, dataDir, err := openDesktopDB(ctx)
 	if err != nil {
 		return RuntimeTerminalSettingsResponse{}, err
 	}
-	if err := ensureDesktopLayout(layout); err != nil {
-		return RuntimeTerminalSettingsResponse{}, err
-	}
+	defer db.Release(dataDir) //nolint:errcheck
 	settings := RuntimeTerminalSettings{
 		ProfileID: profileID,
 		Profiles:  profiles,
 	}
-	data, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return RuntimeTerminalSettingsResponse{}, err
-	}
-	if err := os.WriteFile(layout.TerminalConfigPath, data, 0o600); err != nil {
-		return RuntimeTerminalSettingsResponse{}, fmt.Errorf("failed to write terminal config: %w", err)
+	if _, err := conn.ExecContext(ctx, `INSERT INTO application_settings (key, value_json, updated_at) VALUES (?, ?, ?)
+ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`, terminalProfileSettingKey, profileID, time.Now().UnixMilli()); err != nil {
+		return RuntimeTerminalSettingsResponse{}, fmt.Errorf("save terminal profile setting: %w", err)
 	}
 	return RuntimeTerminalSettingsResponse{Settings: settings}, nil
 }
 
-func loadRuntimeTerminalSettings() (RuntimeTerminalSettings, error) {
-	layout, err := resolveDesktopLayout()
-	if err != nil {
-		return RuntimeTerminalSettings{}, err
-	}
-	if err := ensureDesktopLayout(layout); err != nil {
-		return RuntimeTerminalSettings{}, err
-	}
+func (r *runtimeService) loadRuntimeTerminalSettings(ctx context.Context) (RuntimeTerminalSettings, error) {
 	profiles := runtimeTerminalAvailableProfiles()
 	settings := RuntimeTerminalSettings{
 		ProfileID: runtimeTerminalDefaultProfileID(profiles),
 		Profiles:  profiles,
 	}
-	data, err := os.ReadFile(layout.TerminalConfigPath)
+	conn, dataDir, err := openDesktopDB(ctx)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return settings, nil
-		}
-		return RuntimeTerminalSettings{}, fmt.Errorf("failed to read terminal config: %w", err)
+		return RuntimeTerminalSettings{}, err
 	}
-	var saved RuntimeTerminalSettings
-	if err := json.Unmarshal(data, &saved); err != nil {
-		return RuntimeTerminalSettings{}, fmt.Errorf("failed to parse terminal config: %w", err)
+	defer db.Release(dataDir) //nolint:errcheck
+	var savedProfileID string
+	err = conn.QueryRowContext(ctx, `SELECT value_json FROM application_settings WHERE key = ?`, terminalProfileSettingKey).Scan(&savedProfileID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return RuntimeTerminalSettings{}, fmt.Errorf("load terminal profile setting: %w", err)
 	}
-	if runtimeTerminalProfileAvailable(saved.ProfileID, profiles) {
-		settings.ProfileID = saved.ProfileID
+	if runtimeTerminalProfileAvailable(savedProfileID, profiles) {
+		settings.ProfileID = savedProfileID
 	}
 	return settings, nil
 }
