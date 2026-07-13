@@ -1091,7 +1091,9 @@ func TestRuntimePolicyLoadSaveAndUpdate(t *testing.T) {
 }
 
 func TestRuntimePolicyApplicationEventAndAudit(t *testing.T) {
-	dataDir := filepath.Join(t.TempDir(), "runtime-state")
+	root := t.TempDir()
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	dataDir := filepath.Join(root, "data")
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -1181,6 +1183,9 @@ func TestRuntimePolicyApplicationEventAndAudit(t *testing.T) {
 		return event.Type == "permission_policy_applied" && event.Payload["policy_mode"] == string(permission.PolicyModePlan)
 	}) {
 		t.Fatalf("policy audit missing from %#v", audit.Events)
+	}
+	if _, err := os.Stat(filepath.Join(root, "logs", "agent-builder-audit.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("audit JSONL should not be written: %v", err)
 	}
 }
 

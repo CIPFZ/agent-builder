@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
@@ -118,40 +116,6 @@ type auditToolCall struct {
 
 func (r *runtimeService) writeAudit(entry auditEntry) {
 	r.writeRuntimeAuditEvent(context.Background(), entry)
-
-	layout, err := resolveDesktopLayout()
-	if err != nil {
-		slog.Error("Failed to resolve desktop audit path", "error", err)
-		return
-	}
-	if err := ensureDesktopLayout(layout); err != nil {
-		slog.Error("Failed to create desktop audit directory", "error", err)
-		return
-	}
-	if entry.Timestamp == "" {
-		entry.Timestamp = time.Now().Format(time.RFC3339Nano)
-	}
-	path := filepath.Join(layout.LogsDir, "agent-builder-audit.jsonl")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		slog.Error("Failed to open desktop audit log", "path", path, "error", err)
-		return
-	}
-	defer file.Close() //nolint:errcheck
-
-	payload, err := auditPayload(entry)
-	if err != nil {
-		slog.Error("Failed to prepare desktop audit entry", "error", err)
-		return
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		slog.Error("Failed to encode desktop audit entry", "error", err)
-		return
-	}
-	if _, err := file.Write(append(data, '\n')); err != nil {
-		slog.Error("Failed to write desktop audit entry", "path", path, "error", err)
-	}
 }
 
 func (r *runtimeService) writeRuntimeAuditEvent(ctx context.Context, entry auditEntry) {
