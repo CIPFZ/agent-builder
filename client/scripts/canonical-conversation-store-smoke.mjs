@@ -83,7 +83,9 @@ assert.deepEqual(selectedLargeTurn.process.map((item) => item.id), ['bulk-messag
 const optimistic = { 'request-1': { clientRequestId: 'request-1', sessionId: 'session-1', prompt: 'stay visible', createdAt: 1, status: 'submitting' } };
 const echoedUser = { ...message('user-echo', 'intermediate'), role: 'user', clientRequestId: 'request-1' };
 const messageFirst = hydrateCanonicalConversationStore(snapshot('full', '20', { turns: [{ ...turn(), userMessageId: undefined, finalMessageId: undefined }], messages: [echoedUser], toolCalls: [] }));
-assert.equal(selectCanonicalConversationTurnViewModels(messageFirst, undefined, optimistic).some((item) => item.id === 'optimistic:request-1'), true, 'bare Message echo cannot remove optimism before Turn ownership arrives');
+const messageFirstTurns = selectCanonicalConversationTurnViewModels(messageFirst, undefined, optimistic);
+assert.equal(messageFirstTurns.some((item) => item.id === 'optimistic:request-1'), false, 'an active canonical Turn adopts optimism before its user-message link arrives');
+assert.equal(messageFirstTurns.find((item) => item.id === 'turn-1')?.user?.content, 'stay visible', 'adoption keeps the optimistic user bubble visible without a second process row');
 const turnOwned = hydrateCanonicalConversationStore(snapshot('full', '21', { turns: [{ ...turn(), userMessageId: 'user-echo', finalMessageId: undefined }], messages: [echoedUser], toolCalls: [] }), messageFirst);
 assert.equal(selectCanonicalConversationTurnViewModels(turnOwned, undefined, optimistic).some((item) => item.id === 'optimistic:request-1'), false, 'owned canonical user message settles optimism without a duplicate');
 assert.equal(createCanonicalConversationStore('session-1').cursor, '0');

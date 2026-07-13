@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createCanonicalConversationCoordinator } from '../src/runtime/canonicalConversationCoordinator.ts';
 import { subscribeCanonicalConversation } from '../src/runtime/canonicalConversationStream.ts';
-import { hydrateCanonicalConversationStore } from '../src/runtime/canonicalConversationStore.ts';
+import { applyCanonicalConversationDeltas, hydrateCanonicalConversationStore } from '../src/runtime/canonicalConversationStore.ts';
 import { selectCanonicalConversationTurnViewModels } from '../src/runtime/canonicalConversationView.ts';
 
 const wait = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -21,8 +21,11 @@ assert.deepEqual(fetchRequests[0], { scope: 'window', limit: 30 }, 'first activa
 assert.equal(subscriptions[0].after, '90071992547409930', 'cursor remains a decimal string');
 handlers.get('A').onBatch(upsertBatch('A', '90071992547409930', '90071992547409931'));
 assert.equal(stores.at(-1).toolCallsById['tool-1'].status, 'completed');
+handlers.get('A').onBatch({ schemaVersion: 2, sessionId: 'A', afterCursor: '90071992547409931', cursor: '90071992547409931', events: [], deltas: [{ messageId: 'live-A', turnId: 'turn-1', partType: 'text', delta: 'live', contentLength: 4, createdAt: 2 }] });
+assert.equal(coordinator.cached('A').streamingByMessageId['live-A'].text, 'live', 'active Session retains its live overlay');
 const oldAHandler = handlers.get('A');
 coordinator.activate('B'); await wait(); await wait();
+assert.deepEqual(coordinator.cached('A').streamingByMessageId, {}, 'leaving a Session releases its ephemeral token buffers');
 oldAHandler.onBatch(upsertBatch('A', '90071992547409931', '90071992547409932', 'failed'));
 assert.equal(stores.at(-1).sessionId, 'B', 'late batch from old generation is ignored');
 coordinator.activate('A'); await wait();
@@ -88,6 +91,38 @@ const adoptedFirstSubmit = selectCanonicalConversationTurnViewModels(
 assert.equal(adoptedFirstSubmit.length, 1, 'first draft submit adopts the canonical Turn instead of rendering two processing rows');
 assert.equal(adoptedFirstSubmit[0].id, 'turn-1', 'the canonical Turn remains the single lifecycle owner');
 assert.equal(adoptedFirstSubmit[0].user?.content, 'hello', 'optimistic user content remains visible until the canonical user-message link arrives');
+
+const liveSnapshot = snapshot('LIVE', '2');
+liveSnapshot.messages = [{ id: 'message-live', sessionId: 'LIVE', turnId: 'turn-1', activitySequence: '2', revision: '2', createdAt: 1000, updatedAt: 1000, role: 'assistant', phase: 'intermediate', status: 'streaming', content: '', contentLength: 0, reasoningContent: '', reasoningContentLength: 0 }];
+let liveStore = hydrateCanonicalConversationStore(liveSnapshot);
+liveStore = applyCanonicalConversationDeltas(liveStore, [
+  { messageId: 'message-live', turnId: 'turn-1', partType: 'reasoning', delta: '思', contentLength: Buffer.byteLength('思'), createdAt: 1010 },
+  { messageId: 'message-live', turnId: 'turn-1', partType: 'reasoning', delta: '考', contentLength: Buffer.byteLength('思考'), createdAt: 1020 },
+]);
+const afterDuplicate = applyCanonicalConversationDeltas(liveStore, [{ messageId: 'message-live', turnId: 'turn-1', partType: 'reasoning', delta: '考', contentLength: Buffer.byteLength('思考'), createdAt: 1030 }]);
+assert.equal(afterDuplicate, liveStore, 'duplicate deltas are ignored idempotently');
+const afterGap = applyCanonicalConversationDeltas(liveStore, [{ messageId: 'message-live', turnId: 'turn-1', partType: 'reasoning', delta: '失', contentLength: Buffer.byteLength('思考缺失'), createdAt: 1040 }]);
+assert.equal(afterGap, liveStore, 'a missing delta prefix is not fabricated');
+const afterOversize = applyCanonicalConversationDeltas(liveStore, [{ messageId: 'message-live', turnId: 'turn-1', partType: 'text', delta: 'x', contentLength: 64 * 1024 + 1, createdAt: 1050 }]);
+assert.equal(afterOversize, liveStore, 'live overlays remain bounded to the canonical message window');
+const liveTurns = selectCanonicalConversationTurnViewModels(liveStore);
+assert.match(liveTurns[0].process.items.find((item) => item.messageId === 'message-live')?.content ?? '', /思考/, 'reasoning deltas render before the durable message update');
+const durableLiveSnapshot = structuredClone(liveSnapshot);
+durableLiveSnapshot.cursor = '3';
+durableLiveSnapshot.messages[0].revision = '3';
+durableLiveSnapshot.messages[0].updatedAt = 1050;
+durableLiveSnapshot.messages[0].reasoningContent = '思考';
+durableLiveSnapshot.messages[0].reasoningContentLength = Buffer.byteLength('思考');
+liveStore = hydrateCanonicalConversationStore(durableLiveSnapshot, liveStore);
+assert.equal(liveStore.streamingByMessageId['message-live'], undefined, 'durable canonical content retires the matching live overlay');
+
+const earlyDeltaSnapshot = snapshot('EARLY', '1');
+earlyDeltaSnapshot.messages = [];
+earlyDeltaSnapshot.toolCalls = [];
+let earlyDeltaStore = hydrateCanonicalConversationStore(earlyDeltaSnapshot);
+earlyDeltaStore = applyCanonicalConversationDeltas(earlyDeltaStore, [{ messageId: 'message-early', turnId: 'turn-1', partType: 'text', delta: 'first token', contentLength: Buffer.byteLength('first token'), createdAt: 1010 }]);
+const earlyDeltaTurn = selectCanonicalConversationTurnViewModels(earlyDeltaStore)[0];
+assert.equal(earlyDeltaTurn.process.items.find((item) => item.messageId === 'message-early')?.content, 'first token', 'a live delta renders even when it beats canonical message creation');
 
 const order = []; let listener; let startedStreamId;
 const close = subscribeCanonicalConversation({

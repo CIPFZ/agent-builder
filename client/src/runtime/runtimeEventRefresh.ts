@@ -112,6 +112,7 @@ export function runtimeEventCoveredByOutputStream(event: RuntimeEventViewModel) 
   return (
     type.startsWith('message.') ||
     type.startsWith('tool.call.') ||
+    type === 'output.text.delta' ||
     type === 'permission.requested' ||
     type === 'permission.decided'
   );

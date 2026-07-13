@@ -1,4 +1,4 @@
-import { CANONICAL_CONVERSATION_SCHEMA_VERSION, type CanonicalAgentTask, type CanonicalAssistantStep, type CanonicalConversationEventBatch, type CanonicalConversationSnapshot, type CanonicalConversationScope, type CanonicalEntityType, type CanonicalMessage, type CanonicalNotice, type CanonicalPermission, type CanonicalTodoPlan, type CanonicalToolCall, type CanonicalToolResult, type CanonicalTurn } from './canonicalConversationTypes.ts';
+import { CANONICAL_CONVERSATION_SCHEMA_VERSION, type CanonicalAgentTask, type CanonicalAssistantStep, type CanonicalConversationEventBatch, type CanonicalConversationSnapshot, type CanonicalConversationScope, type CanonicalConversationTextDelta, type CanonicalEntityType, type CanonicalMessage, type CanonicalNotice, type CanonicalPermission, type CanonicalTodoPlan, type CanonicalToolCall, type CanonicalToolResult, type CanonicalTurn } from './canonicalConversationTypes.ts';
 
 export interface CanonicalStoreRecovery { reason: 'snapshot_required' | 'cursor_gap' | 'revision_conflict' | 'session_mismatch'; entityKey?: string }
 export interface CanonicalConversationStore {
@@ -16,12 +16,16 @@ export interface CanonicalConversationStore {
   todoPlansById: Record<string, CanonicalTodoPlan>;
   agentTasksById: Record<string, CanonicalAgentTask>;
   noticesById: Record<string, CanonicalNotice>;
+  streamingByMessageId: Record<string, CanonicalStreamingMessage>;
   entityKeysByTurnId: Record<string, string[]>;
   tombstoneRevisionByKey: Record<string, string>;
   recovery?: CanonicalStoreRecovery;
 }
 
-export function createCanonicalConversationStore(sessionId = ''): CanonicalConversationStore { return { schemaVersion: CANONICAL_CONVERSATION_SCHEMA_VERSION, sessionId, cursor: '0', scope: 'full', turnsById: {}, messagesById: {}, assistantStepsById: {}, toolCallsById: {}, toolResultsById: {}, permissionsById: {}, todoPlansById: {}, agentTasksById: {}, noticesById: {}, entityKeysByTurnId: {}, tombstoneRevisionByKey: {} } }
+export interface CanonicalStreamingMessage { messageId: string; turnId?: string; text?: string; textLength?: number; reasoning?: string; reasoningLength?: number; updatedAt: number }
+const MAX_LIVE_MESSAGE_BYTES = 64 * 1024;
+
+export function createCanonicalConversationStore(sessionId = ''): CanonicalConversationStore { return { schemaVersion: CANONICAL_CONVERSATION_SCHEMA_VERSION, sessionId, cursor: '0', scope: 'full', turnsById: {}, messagesById: {}, assistantStepsById: {}, toolCallsById: {}, toolResultsById: {}, permissionsById: {}, todoPlansById: {}, agentTasksById: {}, noticesById: {}, streamingByMessageId: {}, entityKeysByTurnId: {}, tombstoneRevisionByKey: {} } }
 
 export function hydrateCanonicalConversationStore(snapshot: CanonicalConversationSnapshot, previous?: CanonicalConversationStore): CanonicalConversationStore {
   if (snapshot.schemaVersion !== CANONICAL_CONVERSATION_SCHEMA_VERSION) return { ...(previous ?? createCanonicalConversationStore(snapshot.sessionId)), recovery: { reason: 'snapshot_required' } };
@@ -38,6 +42,7 @@ export function hydrateCanonicalConversationStore(snapshot: CanonicalConversatio
   for (const entity of snapshot.todoPlans) next = upsertEntity(next, 'todoPlan', entity);
   for (const entity of snapshot.agentTasks) next = upsertEntity(next, 'agentTask', entity);
   for (const entity of snapshot.notices) next = upsertEntity(next, 'notice', entity);
+  reconcileStreamingMessages(next);
   return next;
 }
 
@@ -60,17 +65,70 @@ export function applyCanonicalConversationBatch(store: CanonicalConversationStor
     next = upsertEntity(next, event.entityType, incoming); delete next.tombstoneRevisionByKey[key];
   }
   next.cursor = batch.cursor;
+  reconcileStreamingMessages(next);
   return next;
 }
 
-function cloneCanonicalStore(store: CanonicalConversationStore): CanonicalConversationStore { return { ...store, turnsById: { ...store.turnsById }, messagesById: { ...store.messagesById }, assistantStepsById: { ...store.assistantStepsById }, toolCallsById: { ...store.toolCallsById }, toolResultsById: { ...store.toolResultsById }, permissionsById: { ...store.permissionsById }, todoPlansById: { ...store.todoPlansById }, agentTasksById: { ...store.agentTasksById }, noticesById: { ...store.noticesById }, entityKeysByTurnId: { ...store.entityKeysByTurnId }, tombstoneRevisionByKey: { ...store.tombstoneRevisionByKey } } }
+export function applyCanonicalConversationDeltas(store: CanonicalConversationStore, deltas: CanonicalConversationTextDelta[] = []): CanonicalConversationStore {
+  if (deltas.length === 0) return store;
+  const streamingByMessageId = { ...store.streamingByMessageId };
+  let changed = false;
+  for (const delta of deltas) {
+    if (!delta.messageId || !delta.delta || delta.contentLength <= 0 || delta.contentLength > MAX_LIVE_MESSAGE_BYTES) continue;
+    const canonical = store.messagesById[delta.messageId];
+    const current = streamingByMessageId[delta.messageId];
+    const isReasoning = delta.partType === 'reasoning';
+    if (isReasoning ? canonical?.reasoningContentTruncated : canonical?.contentTruncated) continue;
+    const baseContent = isReasoning ? canonical?.reasoningContent ?? '' : canonical?.content ?? '';
+    const baseLength = isReasoning ? canonical?.reasoningContentLength ?? utf8Length(baseContent) : canonical?.contentLength ?? utf8Length(baseContent);
+    const knownLength = isReasoning ? current?.reasoningLength ?? baseLength : current?.textLength ?? baseLength;
+    if (delta.contentLength <= knownLength) continue;
+    const deltaStart = delta.contentLength - utf8Length(delta.delta);
+    // A missing prefix means this subscriber joined mid-stream. Never invent
+    // content; the next durable canonical message update supplies the base.
+    if (deltaStart !== knownLength) continue;
+    const previousContent = isReasoning ? current?.reasoning ?? baseContent : current?.text ?? baseContent;
+    const next: CanonicalStreamingMessage = { ...(current ?? { messageId: delta.messageId, turnId: delta.turnId, updatedAt: delta.createdAt }), turnId: current?.turnId || delta.turnId, updatedAt: Math.max(current?.updatedAt ?? 0, delta.createdAt) };
+    if (isReasoning) { next.reasoning = previousContent + delta.delta; next.reasoningLength = delta.contentLength; }
+    else { next.text = previousContent + delta.delta; next.textLength = delta.contentLength; }
+    streamingByMessageId[delta.messageId] = next;
+    changed = true;
+  }
+  return changed ? { ...store, streamingByMessageId } : store;
+}
+
+function cloneCanonicalStore(store: CanonicalConversationStore): CanonicalConversationStore { return { ...store, turnsById: { ...store.turnsById }, messagesById: { ...store.messagesById }, assistantStepsById: { ...store.assistantStepsById }, toolCallsById: { ...store.toolCallsById }, toolResultsById: { ...store.toolResultsById }, permissionsById: { ...store.permissionsById }, todoPlansById: { ...store.todoPlansById }, agentTasksById: { ...store.agentTasksById }, noticesById: { ...store.noticesById }, streamingByMessageId: { ...store.streamingByMessageId }, entityKeysByTurnId: { ...store.entityKeysByTurnId }, tombstoneRevisionByKey: { ...store.tombstoneRevisionByKey } } }
 
 function cloneCanonicalStoreForBatch(store: CanonicalConversationStore, batch: CanonicalConversationEventBatch): CanonicalConversationStore {
-  const next: CanonicalConversationStore = { ...store, entityKeysByTurnId: { ...store.entityKeysByTurnId }, tombstoneRevisionByKey: { ...store.tombstoneRevisionByKey } };
+  const next: CanonicalConversationStore = { ...store, streamingByMessageId: { ...store.streamingByMessageId }, entityKeysByTurnId: { ...store.entityKeysByTurnId }, tombstoneRevisionByKey: { ...store.tombstoneRevisionByKey } };
   const kinds = new Set(batch.events.map((event) => event.entityType));
   for (const kind of kinds) setEntityMap(next, kind, { ...entityMap(store, kind) });
   return next;
 }
+
+function reconcileStreamingMessages(store: CanonicalConversationStore) {
+  for (const [messageId, live] of Object.entries(store.streamingByMessageId)) {
+    const message = store.messagesById[messageId];
+    if (!message) continue;
+    if (message.status === 'completed' || message.status === 'failed' || message.status === 'cancelled') {
+      delete store.streamingByMessageId[messageId];
+      continue;
+    }
+    const next = { ...live };
+    if ((message.contentLength ?? utf8Length(message.content ?? '')) >= (live.textLength ?? Number.MAX_SAFE_INTEGER)) {
+      delete next.text;
+      delete next.textLength;
+    }
+    if ((message.reasoningContentLength ?? utf8Length(message.reasoningContent ?? '')) >= (live.reasoningLength ?? Number.MAX_SAFE_INTEGER)) {
+      delete next.reasoning;
+      delete next.reasoningLength;
+    }
+    if (next.text === undefined && next.reasoning === undefined) delete store.streamingByMessageId[messageId];
+    else store.streamingByMessageId[messageId] = next;
+  }
+}
+
+function utf8Length(value: string) { return new TextEncoder().encode(value).length; }
 
 function preserveNewerThanSnapshot(next: CanonicalConversationStore, previous: CanonicalConversationStore, cursor: string) { for (const kind of entityKinds) { for (const entity of Object.values(entityMap(previous, kind))) if (compareDecimal(entity.revision, cursor) > 0) setEntity(next, kind, entity); } for (const [key, revision] of Object.entries(previous.tombstoneRevisionByKey)) if (compareDecimal(revision, cursor) > 0) next.tombstoneRevisionByKey[key] = revision; }
 function upsertEntity(store: CanonicalConversationStore, kind: CanonicalEntityType, entity: CanonicalEntity): CanonicalConversationStore { const current = entityFromStore(store, kind, entity.id); const tombstone = store.tombstoneRevisionByKey[entityKey(kind, entity.id)]; if (!current && tombstone === undefined) { setEntity(store, kind, entity); return store; } const known = maxRevision(current?.revision, tombstone); const relation = compareDecimal(entity.revision, known); if (relation < 0) return store; if (relation === 0) { if (current && equivalentEntity(current, entity)) return store; return { ...store, recovery: { reason: 'revision_conflict', entityKey: entityKey(kind, entity.id) } }; } setEntity(store, kind, entity); delete store.tombstoneRevisionByKey[entityKey(kind, entity.id)]; return store; }

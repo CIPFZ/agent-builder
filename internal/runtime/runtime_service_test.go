@@ -241,6 +241,25 @@ func TestReleaseFinishedTurnMemoryDropsExecutionOnlyIndexes(t *testing.T) {
 	}
 }
 
+func TestOutputTextDeltasEmitFirstImmediatelyAndCoalesceSuffixes(t *testing.T) {
+	service := newRuntimeService()
+	now := time.Now()
+	msg := apitypes.Message{ID: "message-1", SessionID: "session-1", Role: apitypes.Assistant, Parts: []apitypes.ContentPart{apitypes.TextContent{Text: "你"}}}
+	first := service.deriveOutputTextDeltasLocked(msg, "turn-1", now)
+	if len(first) != 1 || stringFromMap(first[0].Payload, "delta") != "你" || intFromMap(first[0].Payload, "content_len") != len("你") {
+		t.Fatalf("first delta was not emitted immediately: %#v", first)
+	}
+	msg.Parts = []apitypes.ContentPart{apitypes.TextContent{Text: "你好"}}
+	if early := service.deriveOutputTextDeltasLocked(msg, "turn-1", now.Add(10*time.Millisecond)); len(early) != 0 {
+		t.Fatalf("delta cadence was not bounded: %#v", early)
+	}
+	msg.Parts = []apitypes.ContentPart{apitypes.TextContent{Text: "你好！"}}
+	coalesced := service.deriveOutputTextDeltasLocked(msg, "turn-1", now.Add(runtimeOutputTextDeltaWindow))
+	if len(coalesced) != 1 || stringFromMap(coalesced[0].Payload, "delta") != "好！" || intFromMap(coalesced[0].Payload, "content_len") != len("你好！") {
+		t.Fatalf("coalesced suffix was not lossless: %#v", coalesced)
+	}
+}
+
 func TestContextUsageDebounceTimerRemovesRegistryEntry(t *testing.T) {
 	service := newRuntimeService()
 	service.scheduleContextUsageUpdate("session-1", "turn-1")

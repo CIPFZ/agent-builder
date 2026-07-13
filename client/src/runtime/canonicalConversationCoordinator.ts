@@ -1,4 +1,4 @@
-import { applyCanonicalConversationBatch, hydrateCanonicalConversationStore, type CanonicalConversationStore } from './canonicalConversationStore.ts';
+import { applyCanonicalConversationBatch, applyCanonicalConversationDeltas, hydrateCanonicalConversationStore, type CanonicalConversationStore } from './canonicalConversationStore.ts';
 import type { CanonicalConversationEventBatch, CanonicalConversationSnapshot, CanonicalConversationSnapshotRequest } from './canonicalConversationTypes.ts';
 
 const INITIAL_TURN_WINDOW = 30;
@@ -51,7 +51,8 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
         if (!current(sessionId, gen) || recovering) return;
         const base = cache.get(sessionId);
         if (!base) return;
-        const next = applyCanonicalConversationBatch(base, batch);
+        const durable = applyCanonicalConversationBatch(base, batch);
+        const next = applyCanonicalConversationDeltas(durable, batch.deltas);
         if (next.recovery) {
           void recover(sessionId, gen);
           return;
@@ -102,6 +103,11 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
         const previous = cache.get(activeSessionId);
         if (previous && Object.keys(previous.turnsById).length > INITIAL_TURN_WINDOW) {
           cache.delete(activeSessionId);
+        } else if (previous && Object.keys(previous.streamingByMessageId).length > 0) {
+          // Live deltas belong only to the actively subscribed Session. Drop
+          // them when leaving; a later activation rehydrates durable content
+          // before reconnecting and cannot retain stale token buffers.
+          cache.set(activeSessionId, { ...previous, streamingByMessageId: {} });
         }
       }
       activeSessionId = sessionId;

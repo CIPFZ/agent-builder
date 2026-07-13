@@ -44,7 +44,7 @@ func TestCanonicalConversationOutboxConvergesSnapshotAndPropagatesDerivedRevisio
 		t.Fatal(err)
 	}
 	h.service.publishRuntimeEvent(RuntimeEvent{Type: runtimeapi.EventToolCallStarted, SessionID: session.ID, TurnID: "turn-1", ToolCallID: call.ID})
-	assistant, err := ws.Messages.Create(h.ctx, session.ID, message.CreateMessageParams{Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: "done"}, message.ToolResult{ToolCallID: call.ID, Name: "shell", Content: "ok", DeliveredToModel: true}, message.Finish{Reason: "stop"}}, Metadata: map[string]string{"turn_id": "turn-1"}})
+	assistant, err := ws.Messages.Create(h.ctx, session.ID, message.CreateMessageParams{Role: message.Assistant, Parts: []message.ContentPart{message.ReasoningContent{Thinking: "inspect"}, message.TextContent{Text: "done"}, message.ToolResult{ToolCallID: call.ID, Name: "shell", Content: "ok", DeliveredToModel: true}, message.Finish{Reason: "stop"}}, Metadata: map[string]string{"turn_id": "turn-1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,6 +117,9 @@ func TestCanonicalConversationOutboxConvergesSnapshotAndPropagatesDerivedRevisio
 	}
 	oldMessage := findCanonicalMessage(t, beforeTerminal, assistant.ID)
 	newMessage := findCanonicalMessage(t, fresh, assistant.ID)
+	if oldMessage.ReasoningContent != "inspect" || oldMessage.ReasoningContentLength != len("inspect") {
+		t.Fatalf("canonical message omitted durable reasoning: %#v", oldMessage)
+	}
 	if oldMessage.Phase == RuntimeConversationPhaseFinal || newMessage.Phase != RuntimeConversationPhaseFinal {
 		t.Fatalf("phase transition old=%s new=%s", oldMessage.Phase, newMessage.Phase)
 	}
@@ -127,6 +130,58 @@ func TestCanonicalConversationOutboxConvergesSnapshotAndPropagatesDerivedRevisio
 	result := fresh.ToolResults[0]
 	if decimalLE(tool.Revision, result.Revision) && tool.Revision != result.Revision {
 		t.Fatalf("tool revision did not absorb result: tool=%s result=%s", tool.Revision, result.Revision)
+	}
+}
+
+func TestCanonicalConversationStreamForwardsEphemeralTextDeltaWithoutPersistingIt(t *testing.T) {
+	h := newRuntimeScenarioHarness(t)
+	h.attachBackend()
+	session, err := h.service.runtime.CreateSession(h.ctx, h.service.workspace.ID, "live delta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = h.service.turns.Upsert(h.ctx, RuntimeTurn{ID: "turn-live", SessionID: session.ID, Status: "running", StartedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	h.service.publishRuntimeEvent(RuntimeEvent{Type: runtimeapi.EventTurnStarted, SessionID: session.ID, TurnID: "turn-live"})
+	base, err := h.service.SessionConversationSnapshotV2(h.ctx, session.ID, RuntimeCanonicalConversationSnapshotRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, stop := h.service.SubscribeSessionConversationEventsV2(h.ctx, session.ID, base.Cursor)
+	defer stop()
+	// The subscription first emits its durable catch-up batch.
+	select {
+	case <-stream:
+	case <-time.After(time.Second):
+		t.Fatal("canonical stream did not start")
+	}
+
+	h.service.publishRuntimeEvent(newOutputTextDeltaEvent(time.Now(), session.ID, "message-live", "turn-live", "reasoning", "thinking", len("thinking")))
+	select {
+	case batch := <-stream:
+		if len(batch.Deltas) != 1 {
+			t.Fatalf("expected one live delta, got %#v", batch)
+		}
+		delta := batch.Deltas[0]
+		if delta.MessageID != "message-live" || delta.TurnID != "turn-live" || delta.PartType != "reasoning" || delta.Delta != "thinking" || delta.ContentLength != len("thinking") {
+			t.Fatalf("unexpected live delta %#v", delta)
+		}
+		if batch.Cursor != base.Cursor || batch.AfterCursor != base.Cursor {
+			t.Fatalf("ephemeral delta advanced durable cursor: %#v", batch)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ephemeral delta was not forwarded")
+	}
+
+	events, err := h.service.Events(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events.Events {
+		if event.Type == runtimeapi.EventOutputTextDelta {
+			t.Fatal("ephemeral delta leaked into durable event history")
+		}
 	}
 }
 
@@ -586,8 +641,6 @@ func TestCanonicalRawOutboxStateAndCheckpointRollbackTogether(t *testing.T) {
 	}
 }
 
-
-
 func TestSubscribeCanonicalConversationEventsV2DeliversAtomicWatermark(t *testing.T) {
 	h := newRuntimeScenarioHarness(t)
 	h.attachBackend()
@@ -634,6 +687,19 @@ func TestSubscribeCanonicalConversationEventsV2OverflowIsObservable(t *testing.T
 	}
 }
 
+func TestSubscribeCanonicalConversationEventsV2DropsOnlyLiveDeltaOnBackpressure(t *testing.T) {
+	out := make(chan RuntimeCanonicalConversationEventBatchV2, 1)
+	durable := RuntimeCanonicalConversationEventBatchV2{Cursor: "11", Events: []RuntimeConversationEntityEventV2{{EntityID: "turn-1"}}}
+	out <- durable
+	live := RuntimeCanonicalConversationEventBatchV2{Cursor: "11", Deltas: []RuntimeConversationTextDeltaV2{{MessageID: "message-1", PartType: "text", Delta: "x", ContentLength: 1}}}
+	if keep := sendCanonicalConversationBatchV2(context.Background(), out, live, "session-1", "11"); !keep {
+		t.Fatal("advisory delta backpressure stopped the durable stream")
+	}
+	kept := <-out
+	if len(kept.Events) != 1 || kept.Events[0].EntityID != "turn-1" || kept.SnapshotRequired {
+		t.Fatalf("live delta displaced durable batch: %#v", kept)
+	}
+}
 
 func applyCanonicalEventsForTest(s RuntimeCanonicalConversationSnapshot, events []RuntimeConversationEntityEventV2) RuntimeCanonicalConversationSnapshot {
 	for _, e := range events {

@@ -380,8 +380,8 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 		r.eventStats.otherEvents++
 	}
 	r.mu.Unlock()
-	// Ephemeral text deltas are pushed immediately with no persistence,
-	// no ring-buffer eviction, and no coalescing debounce.
+	// Ephemeral text deltas are pushed with a short cadence cap, no
+	// persistence, and no ring-buffer retention.
 	for _, runtimeEvent := range deltaEvents {
 		r.publishRuntimeEvent(runtimeEvent)
 	}
@@ -509,6 +509,11 @@ func (r *runtimeService) publishRuntimeEvent(event RuntimeEvent) {
 		}
 	}
 	if runtimeapi.IsEphemeralEventType(event.Type) {
+		// Ephemeral events bypass persistence and the replay ring, but active
+		// subscribers still need them for real-time UI updates.
+		if r.eventStream != nil {
+			r.eventStream.Publish(event)
+		}
 		return
 	}
 	if r.eventStream == nil {

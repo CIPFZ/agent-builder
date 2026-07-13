@@ -111,8 +111,21 @@ type RuntimeCanonicalConversationEventBatchV2 struct {
 	AfterCursor      string                             `json:"afterCursor"`
 	Cursor           string                             `json:"cursor"`
 	Events           []RuntimeConversationEntityEventV2 `json:"events"`
+	Deltas           []RuntimeConversationTextDeltaV2   `json:"deltas,omitempty"`
 	SnapshotRequired bool                               `json:"snapshotRequired,omitempty"`
 	Reason           string                             `json:"reason,omitempty"`
+}
+
+// RuntimeConversationTextDeltaV2 is an advisory, non-durable live suffix.
+// ContentLength is the UTF-8 byte length after applying Delta and makes
+// duplicate/out-of-order delivery safe to ignore on the client.
+type RuntimeConversationTextDeltaV2 struct {
+	MessageID     string `json:"messageId"`
+	TurnID        string `json:"turnId,omitempty"`
+	PartType      string `json:"partType"`
+	Delta         string `json:"delta"`
+	ContentLength int    `json:"contentLength"`
+	CreatedAt     int64  `json:"createdAt"`
 }
 
 type RuntimeCanonicalConversationStreamStartRequestV2 struct {
@@ -152,15 +165,18 @@ type RuntimeCanonicalTurn struct {
 
 type RuntimeCanonicalMessage struct {
 	RuntimeConversationEntityMeta
-	Role             string `json:"role"`
-	Phase            string `json:"phase,omitempty"`
-	AssistantStepID  string `json:"assistantStepId,omitempty"`
-	Status           string `json:"status"`
-	Content          string `json:"content,omitempty"`
-	ContentLength    int    `json:"contentLength,omitempty"`
-	ContentTruncated bool   `json:"contentTruncated,omitempty"`
-	ClientRequestID  string `json:"clientRequestId,omitempty"`
-	Error            string `json:"error,omitempty"`
+	Role                      string `json:"role"`
+	Phase                     string `json:"phase,omitempty"`
+	AssistantStepID           string `json:"assistantStepId,omitempty"`
+	Status                    string `json:"status"`
+	Content                   string `json:"content,omitempty"`
+	ContentLength             int    `json:"contentLength,omitempty"`
+	ContentTruncated          bool   `json:"contentTruncated,omitempty"`
+	ReasoningContent          string `json:"reasoningContent,omitempty"`
+	ReasoningContentLength    int    `json:"reasoningContentLength,omitempty"`
+	ReasoningContentTruncated bool   `json:"reasoningContentTruncated,omitempty"`
+	ClientRequestID           string `json:"clientRequestId,omitempty"`
+	Error                     string `json:"error,omitempty"`
 }
 
 type RuntimeCanonicalAssistantStep struct {

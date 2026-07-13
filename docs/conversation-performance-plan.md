@@ -198,6 +198,29 @@ under a hard 1 GB process-tree budget also requires bounded execution
 admission: queued Turns may be unlimited and durable, but only a configured
 small number of prompt/provider/tool working sets may execute concurrently.
 
+### Live output transport invariant
+
+Live assistant text and reasoning use two deliberately separate layers:
+
+- Durable `message.updated/completed` canonical events remain the recovery and
+  history authority. They continue to be coalesced and replayable.
+- `output.text.delta` is an advisory, per-Session Wails stream suffix. The
+  first suffix is emitted immediately and subsequent suffixes are aggregated
+  to a 50 ms cadence. Deltas are never written to SQLite, the Runtime event
+  ring, or canonical replay storage.
+- Every delta carries its post-append UTF-8 byte length. The client applies it
+  only when it exactly follows the known prefix, ignores duplicates and gaps,
+  and lets the next durable message revision repair any dropped live suffix.
+- Live overlays are removed when durable content catches up, when a message
+  terminates, or when the user leaves the Session. Backpressure may drop only
+  advisory deltas; it must never displace a durable batch or force snapshot
+  recovery.
+
+This keeps Runtime/SQLite as the source of truth while avoiding full-workbench
+refreshes and per-token React/Wails traffic. Reasoning is shown in the process
+disclosure while the Turn is active; final text moves to the final response
+when the durable Turn reaches its terminal phase.
+
 Frontend deterministic gate:
 
 ```text

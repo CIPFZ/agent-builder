@@ -1,7 +1,7 @@
 import { selectCanonicalConversationTurns, selectOwnedClientRequestIds, type CanonicalProcessEntity } from './canonicalConversationSelectors.ts';
 import { canonicalToolGroupKey } from './canonicalConversationPresentation.ts';
 import { groupCanonicalProcess } from './canonicalConversationPresentation.ts';
-import type { CanonicalConversationStore } from './canonicalConversationStore.ts';
+import type { CanonicalConversationStore, CanonicalStreamingMessage } from './canonicalConversationStore.ts';
 import type { CanonicalMessage, CanonicalToolCall } from './canonicalConversationTypes.ts';
 import type { ConversationTurnViewModel, ConversationTurnStatus } from './conversation/conversationTypes.ts';
 import type { ConversationTimelineItemViewModel, OptimisticConversationSubmit, ToolCallViewModel } from './workbenchTypes.ts';
@@ -15,13 +15,20 @@ export function selectCanonicalConversationTurnViewModels(store?: CanonicalConve
       ? projectToolGroup(item.key, item.tools, store!, structured)
       : projectProcessEntity(item.entity, store!, structured)).filter((item): item is ConversationTimelineItemViewModel => Boolean(item)));
     return {
-      id: turn.id, revisionKey: turnRevisionKey(turn, user, final, process), sessionId: turn.sessionId, status,
+      id: turn.id, revisionKey: turnRevisionKey(turn, user, final, process, store), sessionId: turn.sessionId, status,
       user: user ? projectMessage(user) : undefined,
-      final: final ? projectMessage(final) : undefined,
+      final: final ? projectMessage(withStreamingContent(final, store?.streamingByMessageId[final.id])) : undefined,
       process: { status, items, startedAt: turn.startedAt, finishedAt: turn.finishedAt, hasFailure: status === 'failed' || items.some((item) => isFailure(item.status)) },
       startedAt: turn.startedAt, finishedAt: turn.finishedAt, error: turn.error,
     };
   });
+  for (const live of Object.values(store?.streamingByMessageId ?? {})) {
+    if (store?.messagesById[live.messageId] || !live.turnId) continue;
+    const owner = turns.find((turn) => turn.id === live.turnId);
+    if (!owner) continue;
+    owner.process.items.push(projectLiveMessage(live, owner.sessionId));
+    owner.revisionKey += `|live:${live.messageId}:${live.updatedAt}:${live.textLength ?? 0}:${live.reasoningLength ?? 0}`;
+  }
   const echoed = selectOwnedClientRequestIds(store);
   for (const submit of Object.values(optimistic ?? {})) {
     if (echoed.has(submit.clientRequestId) || (store?.sessionId && submit.sessionId && submit.sessionId !== store.sessionId)) continue;
@@ -57,12 +64,12 @@ function findAdoptedCanonicalTurn(turns: ConversationTurnViewModel[], submit: Op
     .sort((left, right) => Math.abs((left.startedAt ?? submit.createdAt) - submit.createdAt) - Math.abs((right.startedAt ?? submit.createdAt) - submit.createdAt))[0];
 }
 
-function turnRevisionKey(turn: { revision: string }, user: CanonicalMessage | undefined, final: CanonicalMessage | undefined, process: CanonicalProcessEntity[]) {
-  return [turn.revision, user?.revision ?? '', final?.revision ?? '', ...process.map((entity) => `${entity.id}:${entity.revision}`)].join('|');
+function turnRevisionKey(turn: { revision: string }, user: CanonicalMessage | undefined, final: CanonicalMessage | undefined, process: CanonicalProcessEntity[], store?: CanonicalConversationStore) {
+  return [turn.revision, user?.revision ?? '', final?.revision ?? '', ...process.map((entity) => `${entity.id}:${entity.revision}:${store?.streamingByMessageId[entity.id]?.updatedAt ?? 0}:${store?.streamingByMessageId[entity.id]?.textLength ?? 0}:${store?.streamingByMessageId[entity.id]?.reasoningLength ?? 0}`)].join('|');
 }
 
 function projectProcessEntity(entity: CanonicalProcessEntity, store: CanonicalConversationStore, structured: CanonicalStructuredActivity): ConversationTimelineItemViewModel | undefined {
-  if ('role' in entity) return projectMessage(entity);
+  if ('role' in entity) return projectMessage(withStreamingContent(entity, store.streamingByMessageId[entity.id]));
   if ('name' in entity && 'source' in entity) return projectTool(entity, store, structured);
   if ('toolCallId' in entity && !('ordinal' in entity)) return { id: `permission:${entity.id}`, kind: 'permission', sessionId: entity.sessionId, turnId: entity.turnId, status: entity.status, createdAt: entity.createdAt, updatedAt: entity.updatedAt, permission: structured.permissionsById[entity.id] };
   if (structured.agentTasksById[entity.id]) return { id: `agentTask:${entity.id}`, kind: 'agent_task', sessionId: entity.sessionId, turnId: entity.turnId, status: entity.status, createdAt: entity.createdAt, updatedAt: entity.updatedAt, agentTask: structured.agentTasksById[entity.id] };
@@ -87,7 +94,23 @@ function stringValue(value: unknown) { return typeof value === 'string' ? value 
 function numberValue(value: unknown) { return typeof value === 'number' ? value : undefined; }
 
 function projectMessage(message: CanonicalMessage): ConversationTimelineItemViewModel {
-  return { id: `message:${message.id}`, kind: message.role === 'user' ? 'user_message' : message.phase === 'reasoning' ? 'assistant_thinking' : 'assistant_message', sessionId: message.sessionId, turnId: message.turnId, messageId: message.id, role: message.role as 'user' | 'assistant' | 'tool' | 'system', phase: message.phase === 'final' ? 'final' : 'intermediate', content: message.content, contentLength: message.contentLength, contentTruncated: message.contentTruncated, status: message.status, createdAt: message.createdAt, updatedAt: message.updatedAt, clientRequestId: message.clientRequestId, error: message.error };
+  const final = message.phase === 'final';
+  const reasoning = message.reasoningContent?.trim();
+  const text = message.content?.trim();
+  const content = final || message.role === 'user' ? message.content : [reasoning, text].filter(Boolean).join('\n\n');
+  const thinking = message.role === 'assistant' && !final && Boolean(reasoning) && !text;
+  return { id: `message:${message.id}`, kind: message.role === 'user' ? 'user_message' : thinking || message.phase === 'reasoning' ? 'assistant_thinking' : 'assistant_message', sessionId: message.sessionId, turnId: message.turnId, messageId: message.id, role: message.role as 'user' | 'assistant' | 'tool' | 'system', phase: final ? 'final' : 'intermediate', content, contentLength: message.contentLength, contentTruncated: message.contentTruncated || message.reasoningContentTruncated, status: message.status, streaming: message.status === 'streaming', createdAt: message.createdAt, updatedAt: message.updatedAt, clientRequestId: message.clientRequestId, error: message.error };
+}
+
+function withStreamingContent(message: CanonicalMessage, live?: CanonicalStreamingMessage): CanonicalMessage {
+  if (!live) return message;
+  return { ...message, content: live.text ?? message.content, contentLength: live.textLength ?? message.contentLength, reasoningContent: live.reasoning ?? message.reasoningContent, reasoningContentLength: live.reasoningLength ?? message.reasoningContentLength, updatedAt: Math.max(message.updatedAt, live.updatedAt), status: message.status === 'completed' ? message.status : 'streaming' };
+}
+
+function projectLiveMessage(live: CanonicalStreamingMessage, sessionId: string): ConversationTimelineItemViewModel {
+  const reasoning = live.reasoning?.trim();
+  const text = live.text?.trim();
+  return { id: `live-message:${live.messageId}`, kind: reasoning && !text ? 'assistant_thinking' : 'assistant_message', sessionId, turnId: live.turnId, messageId: live.messageId, role: 'assistant', phase: 'intermediate', content: [reasoning, text].filter(Boolean).join('\n\n'), status: 'streaming', streaming: true, createdAt: live.updatedAt, updatedAt: live.updatedAt };
 }
 
 function projectTool(call: CanonicalToolCall, store: CanonicalConversationStore, structured: CanonicalStructuredActivity): ConversationTimelineItemViewModel {

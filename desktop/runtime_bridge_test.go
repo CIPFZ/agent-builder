@@ -296,9 +296,9 @@ func TestSessionConversationStreamV2ReplacesSessionAndPreservesAtomicBatch(t *te
 	for i := range events {
 		events[i].Sequence = "42"
 	}
-	batch := runtime.RuntimeCanonicalConversationEventBatchV2{SchemaVersion: 2, SessionID: "session-1", AfterCursor: "41", Cursor: "42", Events: events, SnapshotRequired: true, Reason: "overflow"}
+	batch := runtime.RuntimeCanonicalConversationEventBatchV2{SchemaVersion: 2, SessionID: "session-1", AfterCursor: "41", Cursor: "42", Events: events, Deltas: []runtime.RuntimeConversationTextDeltaV2{{MessageID: "message-live", PartType: "text", Delta: "x", ContentLength: 1}}, SnapshotRequired: true, Reason: "overflow"}
 	message := RuntimeCanonicalConversationStreamMessageV2{StreamID: "new", RuntimeCanonicalConversationEventBatchV2: batch}
-	if len(message.Events) != 100 || message.Cursor != "42" || !message.SnapshotRequired || message.Reason != "overflow" {
+	if len(message.Events) != 100 || len(message.Deltas) != 1 || message.Deltas[0].Delta != "x" || message.Cursor != "42" || !message.SnapshotRequired || message.Reason != "overflow" {
 		t.Fatalf("batch changed at bridge: %#v", message)
 	}
 	if ok := bridge.stopSessionConversationStreamV2("new"); !ok {

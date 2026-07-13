@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 const runtimeConversationV2SubscriberCap = 128
@@ -115,6 +117,22 @@ func (r *runtimeService) SubscribeSessionConversationEventsV2(ctx context.Contex
 				if raw.SessionID != sessionID {
 					continue
 				}
+				if raw.Type == runtimeapi.EventOutputTextDelta {
+					delta := RuntimeConversationTextDeltaV2{
+						MessageID:     raw.MessageID,
+						TurnID:        raw.TurnID,
+						PartType:      stringFromMap(raw.Payload, "part_type"),
+						Delta:         stringFromMap(raw.Payload, "delta"),
+						ContentLength: intFromMap(raw.Payload, "content_len"),
+						CreatedAt:     parseRuntimeEventMillis(raw.CreatedAt),
+					}
+					if delta.MessageID != "" && delta.Delta != "" && (delta.PartType == "text" || delta.PartType == "reasoning") {
+						if !sendCanonicalConversationBatchV2(streamCtx, out, RuntimeCanonicalConversationEventBatchV2{SchemaVersion: RuntimeConversationSchemaVersion, SessionID: sessionID, AfterCursor: cursor, Cursor: cursor, Events: []RuntimeConversationEntityEventV2{}, Deltas: []RuntimeConversationTextDeltaV2{delta}}, sessionID, cursor) {
+							return
+						}
+					}
+					continue
+				}
 				resp, readErr := r.SessionConversationEventsV2(streamCtx, sessionID, RuntimeCanonicalConversationEventsRequestV2{After: cursor})
 				if readErr != nil {
 					return
@@ -135,6 +153,18 @@ func (r *runtimeService) SubscribeSessionConversationEventsV2(ctx context.Contex
 }
 
 func sendCanonicalConversationBatchV2(ctx context.Context, out chan RuntimeCanonicalConversationEventBatchV2, batch RuntimeCanonicalConversationEventBatchV2, sessionID, cursor string) bool {
+	if len(batch.Deltas) > 0 && len(batch.Events) == 0 {
+		select {
+		case out <- batch:
+		case <-ctx.Done():
+			return false
+		default:
+			// Live suffixes are advisory. Dropping one under backpressure is
+			// safer than evicting a durable batch or forcing snapshot recovery;
+			// the next canonical message revision reconciles the full content.
+		}
+		return true
+	}
 	select {
 	case out <- batch:
 		return !batch.SnapshotRequired

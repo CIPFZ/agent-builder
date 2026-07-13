@@ -238,7 +238,9 @@ func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Contex
 			meta.Revision = maxDecimal(meta.Revision, strconv.FormatInt(ranges["turn:"+tid].last, 10))
 		}
 		content, truncated := boundedUTF8Content(msg.Content, canonicalMessageContentLimit)
-		cm := RuntimeCanonicalMessage{RuntimeConversationEntityMeta: meta, Role: msg.Role, Phase: phase, AssistantStepID: stepByMessage[msg.ID], Status: ternary(msg.Finished, "completed", "streaming"), Content: content, ContentLength: len(msg.Content), ContentTruncated: truncated, ClientRequestID: msg.ClientRequestID, Error: msg.Error}
+		reasoningRaw := canonicalMessageReasoningContent(msg)
+		reasoning, reasoningTruncated := boundedUTF8Content(reasoningRaw, canonicalMessageContentLimit)
+		cm := RuntimeCanonicalMessage{RuntimeConversationEntityMeta: meta, Role: msg.Role, Phase: phase, AssistantStepID: stepByMessage[msg.ID], Status: ternary(msg.Finished, "completed", "streaming"), Content: content, ContentLength: len(msg.Content), ContentTruncated: truncated, ReasoningContent: reasoning, ReasoningContentLength: len(reasoningRaw), ReasoningContentTruncated: reasoningTruncated, ClientRequestID: msg.ClientRequestID, Error: msg.Error}
 		snapshot.Messages = append(snapshot.Messages, cm)
 		if msg.Role == "assistant" {
 			seenStep[tid]++
@@ -325,6 +327,16 @@ func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Contex
 		return RuntimeCanonicalConversationSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+func canonicalMessageReasoningContent(msg RuntimeMessage) string {
+	var content strings.Builder
+	for _, part := range msg.Parts {
+		if part.Type == "reasoning" {
+			content.WriteString(part.Thinking)
+		}
+	}
+	return content.String()
 }
 
 func (r *runtimeService) SessionConversationMessageContentV2(ctx context.Context, sessionID, messageID string) (RuntimeCanonicalMessageContentResponseV2, error) {

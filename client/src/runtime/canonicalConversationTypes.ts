@@ -43,11 +43,12 @@ export interface ConversationSearchResult { messageId: string; turnId: string; r
 export interface ConversationSearchResponse { schemaVersion: typeof CANONICAL_CONVERSATION_SCHEMA_VERSION; sessionId: string; results: ConversationSearchResult[] }
 
 export interface CanonicalConversationEventsRequest { after: string; limitRawEvents?: number }
-export interface CanonicalConversationEventsResponse { schemaVersion: typeof CANONICAL_CONVERSATION_SCHEMA_VERSION; sessionId: string; afterCursor: string; cursor: string; events: CanonicalConversationEntityEvent[]; snapshotRequired?: boolean; reason?: string }
+export interface CanonicalConversationTextDelta { messageId: string; turnId?: string; partType: 'text' | 'reasoning'; delta: string; contentLength: number; createdAt: number }
+export interface CanonicalConversationEventsResponse { schemaVersion: typeof CANONICAL_CONVERSATION_SCHEMA_VERSION; sessionId: string; afterCursor: string; cursor: string; events: CanonicalConversationEntityEvent[]; deltas?: CanonicalConversationTextDelta[]; snapshotRequired?: boolean; reason?: string }
 export type CanonicalConversationEventBatch = CanonicalConversationEventsResponse;
 
 export interface CanonicalTurn extends CanonicalEntityMeta { status: string; userMessageId?: string; finalMessageId?: string; startedAt?: number; finishedAt?: number; error?: string }
-export interface CanonicalMessage extends CanonicalEntityMeta { role: string; phase?: CanonicalMessagePhase; assistantStepId?: string; status: string; content?: string; contentLength?: number; contentTruncated?: boolean; clientRequestId?: string; error?: string }
+export interface CanonicalMessage extends CanonicalEntityMeta { role: string; phase?: CanonicalMessagePhase; assistantStepId?: string; status: string; content?: string; contentLength?: number; contentTruncated?: boolean; reasoningContent?: string; reasoningContentLength?: number; reasoningContentTruncated?: boolean; clientRequestId?: string; error?: string }
 export interface CanonicalAssistantStep extends CanonicalEntityMeta { messageId: string; index: number; status: string; startedAt?: number; finishedAt?: number }
 export interface CanonicalToolCall extends CanonicalEntityMeta { messageId?: string; assistantStepId?: string; parentToolCallId?: string; roundId?: string; name: string; source: string; kind?: string; status: string; inputJson?: string; command?: string; targets?: string[]; workingDir?: string; risk?: string; resultIds?: string[]; startedAt?: number; finishedAt?: number; exitCode?: number; error?: string }
 export interface CanonicalToolResult extends CanonicalEntityMeta { toolCallId: string; ordinal: number; status: string; contentPreview?: string; errorPreview?: string; outputRefs?: string[]; artifactRefs?: string[]; diffRefs?: string[]; deliveredToModel?: boolean }

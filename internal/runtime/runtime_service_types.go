@@ -267,6 +267,7 @@ type messageStreamCursor struct {
 	turnID            string
 	lastTextLen       int
 	lastReasoningLen  int
+	lastDeltaEmitted  int64
 	lastUpdateEmitted int64
 	completed         bool
 }
