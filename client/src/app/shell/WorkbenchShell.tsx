@@ -415,9 +415,53 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   };
 
   const removeProject = async (request: ProjectActionRequestViewModel) => {
-    const nextViewModel = await adapter.removeProject({ ...viewModel, mode }, request);
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    const mutationSeq = ++sessionMutationSeqRef.current;
+    const previous = viewModelRef.current;
+    const removedSessionIDs = new Set(previous.sessions.filter((session) => session.projectId === request.projectId).map((session) => session.id));
+    for (const sessionID of removedSessionIDs) canonicalCoordinator?.evict(sessionID);
+    const selectedSessionRemoved = previous.conversationTarget.kind === 'session' && removedSessionIDs.has(previous.conversationTarget.sessionId);
+    const selectedProjectRemoved = previous.conversationTarget.kind === 'draft' && previous.conversationTarget.scope === 'project' && previous.conversationTarget.projectId === request.projectId;
+    const currentProjectRemoved = previous.currentProject.id === request.projectId;
+    const clearsConversation = selectedSessionRemoved || selectedProjectRemoved || currentProjectRemoved;
+    const optimistic: WorkbenchViewModel = {
+      ...previous,
+      mode: clearsConversation ? 'new-chat' : modeRef.current,
+      currentProject: currentProjectRemoved ? { id: '', name: '', path: '', isGitRepository: false } : previous.currentProject,
+      projects: previous.projects.filter((project) => project.id !== request.projectId),
+      sessions: previous.sessions.filter((session) => !removedSessionIDs.has(session.id)),
+      conversationTarget: clearsConversation ? { kind: 'draft', scope: 'standalone' } : previous.conversationTarget,
+      conversation: clearsConversation ? [] : previous.conversation,
+      canonicalConversationStore: clearsConversation ? undefined : previous.canonicalConversationStore,
+      optimisticConversationByClientRequestId: clearsConversation ? undefined : previous.optimisticConversationByClientRequestId,
+      turnDiagnostics: clearsConversation ? undefined : previous.turnDiagnostics,
+      runProjection: clearsConversation ? undefined : previous.runProjection,
+      agentTasks: clearsConversation ? [] : previous.agentTasks,
+      reactCallchain: clearsConversation ? undefined : previous.reactCallchain,
+      contextDiagnostics: clearsConversation ? undefined : previous.contextDiagnostics,
+      pendingPermissions: clearsConversation ? [] : previous.pendingPermissions,
+      composer: clearsConversation ? { ...previous.composer, busy: false, activeTurnId: undefined, contextUsage: undefined } : previous.composer,
+    };
+    viewModelRef.current = optimistic;
+    modeRef.current = optimistic.mode;
+    setSwitchingSessionID('');
+    setMode(optimistic.mode);
+    setViewModel(optimistic);
+    try {
+      const settled = await adapter.removeProject(optimistic, request);
+      if (sessionMutationSeqRef.current !== mutationSeq) return;
+      viewModelRef.current = settled;
+      modeRef.current = settled.mode;
+      setMode(settled.mode);
+      setViewModel(settled);
+    } catch (error) {
+      if (sessionMutationSeqRef.current === mutationSeq) {
+        viewModelRef.current = previous;
+        modeRef.current = previous.mode;
+        setMode(previous.mode);
+        setViewModel(previous);
+      }
+      throw error;
+    }
   };
 
   const selectProjectDirectory = () => adapter.selectProjectDirectory();

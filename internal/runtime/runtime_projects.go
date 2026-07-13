@@ -138,6 +138,30 @@ func (r *runtimeService) RemoveProject(ctx context.Context, req RuntimeProjectAc
 		return RuntimeOpenProjectResponse{}, err
 	}
 
+	// Stop active Turns owned by this project before its Sessions are removed.
+	// Cancellation updates durable Turn state immediately; context cancellation
+	// then unwinds any in-flight provider and tool work.
+	if r.runtime != nil && r.workspace != nil {
+		sessions, listErr := r.runtime.ListSessions(ctx, r.workspace.ID)
+		if listErr != nil {
+			return RuntimeOpenProjectResponse{}, fmt.Errorf("failed to inspect project sessions before removal: %w", listErr)
+		}
+		for _, sess := range sessions {
+			if sess.ProjectID != project.ID {
+				continue
+			}
+			r.mu.Lock()
+			turnID := r.sessionTurns[sess.ID]
+			r.mu.Unlock()
+			if strings.TrimSpace(turnID) == "" {
+				continue
+			}
+			if _, cancelErr := r.CancelTurn(ctx, turnID); cancelErr != nil {
+				return RuntimeOpenProjectResponse{}, fmt.Errorf("failed to stop running session %s before project removal: %w", sess.ID, cancelErr)
+			}
+		}
+	}
+
 	r.mu.Lock()
 	wasActive := r.activeProjectID == project.ID
 	if wasActive {

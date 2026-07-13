@@ -3983,11 +3983,13 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     throw new Error('open project in explorer Wails binding is unavailable');
   },
   async removeProject(current, request) {
-    const nextBase = resetConversationRuntimeState({ ...current, mode: 'project' as const });
     const bridge = await loadRuntimeBridge();
     if (bridge?.RemoveProject) {
       await bridge.RemoveProject(request);
-      return hydrateWorkbench(nextBase, bridge);
+      // The caller already applied the authoritative optimistic removal. Do
+      // not hold the confirmation modal open for a full workbench hydration;
+      // runtime events reconcile sidebar metadata afterward.
+      return current;
     }
     throw new Error('remove project Wails binding is unavailable');
   },

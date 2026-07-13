@@ -389,9 +389,22 @@ export function Sidebar({
                                     return;
                                   }
                                   if (key === 'remove') {
+                                    const runningCount = projectSessions.filter((session) => session.busy).length;
                                     Modal.confirm({
                                       title: '移除项目',
-                                      content: '只会从应用中移除项目记录和相关会话数据，不会物理删除项目文件夹。',
+                                      content: (
+                                        <div>
+                                          {runningCount > 0 ? (
+                                            <Alert
+                                              showIcon
+                                              type="warning"
+                                              message={`该项目中有 ${runningCount} 个正在运行的会话`}
+                                              description="移除项目后，这些任务将被终止，且无法继续恢复。"
+                                            />
+                                          ) : null}
+                                          <p>将从应用中移除项目记录及其关联的会话和消息数据，但不会删除磁盘上的项目文件夹。</p>
+                                        </div>
+                                      ),
                                       okText: '移除',
                                       cancelText: '取消',
                                       okButtonProps: { danger: true },
