@@ -479,20 +479,35 @@ function ProvidersSettings({
                     <Text type="secondary">{provider.remark || `${catalogProvider?.name ?? provider.providerId} · ${providerProtocol}`}</Text>
                     <Text type="secondary">模型：{provider.defaultModel || '未选择'}</Text>
                   </div>
-                  <Flex className={styles.settingsListActions} align="center" gap={8}>
-                    <Button
-                      disabled={!provider.defaultModel || (Boolean(testingProviderID) && testingProviderID !== provider.id)}
-                      icon={<ApiOutlined />}
-                      loading={testingProviderID === provider.id}
-                      onClick={() => void testSavedProvider(provider)}
-                    >
-                      测试连接
-                    </Button>
-                    <Button disabled={isSelected || !provider.defaultModel} onClick={() => selectDefaultProvider(provider)}>
-                      设为默认
-                    </Button>
-                    <Button icon={<EditOutlined />} type="text" onClick={() => openEditProvider(provider)} />
-                    <Button danger icon={<DeleteOutlined />} type="text" onClick={() => deleteProvider(provider.id)} />
+                  <Flex className={styles.settingsListActions} align="center" gap={4}>
+                    <Tooltip title={provider.defaultModel ? '测试连接' : '请先配置默认模型'}>
+                      <Button
+                        aria-label="测试连接"
+                        disabled={!provider.defaultModel || (Boolean(testingProviderID) && testingProviderID !== provider.id)}
+                        icon={<ApiOutlined />}
+                        loading={testingProviderID === provider.id}
+                        size="small"
+                        type="text"
+                        onClick={() => void testSavedProvider(provider)}
+                      />
+                    </Tooltip>
+                    <Tooltip title={isSelected ? '当前默认服务商' : '设为默认服务商'}>
+                      <Button
+                        aria-label={isSelected ? '当前默认服务商' : '设为默认服务商'}
+                        className={isSelected ? styles.defaultModelButtonActive : ''}
+                        disabled={isSelected || !provider.defaultModel}
+                        icon={isSelected ? <StarFilled /> : <StarOutlined />}
+                        size="small"
+                        type="text"
+                        onClick={() => void selectDefaultProvider(provider)}
+                      />
+                    </Tooltip>
+                    <Tooltip title="编辑服务商">
+                      <Button aria-label="编辑服务商" icon={<EditOutlined />} size="small" type="text" onClick={() => openEditProvider(provider)} />
+                    </Tooltip>
+                    <Tooltip title="删除服务商">
+                      <Button danger aria-label="删除服务商" icon={<DeleteOutlined />} size="small" type="text" onClick={() => void deleteProvider(provider.id)} />
+                    </Tooltip>
                   </Flex>
                 </div>
               );
