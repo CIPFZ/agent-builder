@@ -264,7 +264,8 @@
   margin-top: 12px;
 }
 
-.providerModelsTable :global(.ant-input-number) {
+.providerModelsTable :global(.ant-input-number),
+.providerModelsTable :global(.ant-select) {
   width: 100%;
 }
 

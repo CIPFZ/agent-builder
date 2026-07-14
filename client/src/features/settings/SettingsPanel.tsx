@@ -545,6 +545,7 @@ function ProviderEditorModal({
   const defaultProviderID = providers[0]?.id ?? '';
   const [selectedProviderID, setSelectedProviderID] = useState(defaultProviderID);
   const [modelRows, setModelRowsState] = useState<ProviderModelViewModel[]>([]);
+  const [discoveredModels, setDiscoveredModels] = useState<ProviderModelViewModel[]>([]);
   const [actionLoading, setActionLoading] = useState<'models' | 'test' | 'latency' | null>(null);
   const watchedDefaultModel = Form.useWatch('defaultModel', form);
   const hasInvalidModelLimits = hasInvalidProviderModelLimits(modelRows);
@@ -554,9 +555,8 @@ function ProviderEditorModal({
   }));
 
   const setModelRows = (models: ProviderModelViewModel[]) => {
-    const compact = compactProviderModels(models);
-    setModelRowsState(compact);
-    form.setFieldValue('models', compact);
+    setModelRowsState(models);
+    form.setFieldValue('models', models);
   };
 
   const updateModelRow = (index: number, patch: Partial<ProviderModelViewModel>) => {
@@ -575,18 +575,18 @@ function ProviderEditorModal({
   };
 
   const addModelRow = () => {
-    let suffix = modelRows.length + 1;
-    let id = `custom-model-${suffix}`;
-    while (modelRows.some((model) => model.id === id)) id = `custom-model-${++suffix}`;
-    const next = [...modelRows, { id, contextWindow: 200000, source: 'user_override' }];
-    setModelRows(next);
-    if (!form.getFieldValue('defaultModel')) form.setFieldValue('defaultModel', id);
+    if (modelRows.length > 0 && !modelRows[modelRows.length - 1]?.id.trim()) {
+      messageApi.warning('请先完成当前模型配置');
+      return;
+    }
+    setModelRows([...modelRows, { id: '', contextWindow: 200000 }]);
   };
 
   const applyPreset = (providerID: string) => {
     const preset = providers.find((provider) => provider.id === providerID);
     setSelectedProviderID(providerID);
     setModelRowsState([]);
+    setDiscoveredModels([]);
     form.setFieldsValue({
       providerId: providerID,
       name: preset?.name ?? 'Custom',
@@ -631,12 +631,8 @@ function ProviderEditorModal({
               defaultModel: normalizeDefaultModel(values.defaultModel),
               proxy: values.proxy,
             });
-      const nextModels = mergeProviderModelRows(modelRows, result.models).map((model) => ({
-        ...model,
-        contextWindow: model.contextWindow || model.resolvedContextWindow || 200000,
-      }));
-      setModelRows(nextModels);
-      if (nextModels[0] && !nextModels.some((model) => model.id === form.getFieldValue('defaultModel'))) form.setFieldValue('defaultModel', nextModels[0].id);
+      setDiscoveredModels(result.models);
+      if (modelRows.length === 0) setModelRows([{ id: '', contextWindow: 200000 }]);
       if (result.error) {
         messageApi.warning(`模型列表未完整刷新：${result.error}`);
       } else {
@@ -692,7 +688,7 @@ function ProviderEditorModal({
         <Button key="cancel" onClick={onCancel}>
           取消
         </Button>,
-        <Button key="submit" disabled={hasInvalidModelLimits || modelRows.length === 0} loading={saving} type="primary" onClick={() => form.submit()}>{editingProvider ? '保存' : '添加'}</Button>,
+        <Button key="submit" disabled={hasInvalidModelLimits || modelRows.length === 0 || modelRows.some((model) => !model.id.trim())} loading={saving} type="primary" onClick={() => form.submit()}>{editingProvider ? '保存' : '添加'}</Button>,
       ]}
       open={open}
       title={editingProvider ? '编辑服务商' : '添加服务商'}
@@ -705,6 +701,7 @@ function ProviderEditorModal({
         if (editingProvider) {
           setSelectedProviderID(editingProvider.providerId);
           setModelRowsState(compactProviderModels(editingProvider.models ?? []));
+          setDiscoveredModels(compactProviderModels(editingProvider.models ?? []));
           form.setFieldsValue(editingProvider);
           return;
         }
@@ -712,7 +709,7 @@ function ProviderEditorModal({
       }}
     >
       {messageContextHolder}
-      <Form className={styles.providerForm} form={form} layout="vertical" preserve={false} requiredMark={false} onFinish={(values) => onSave({ ...values, models: modelRows })}>
+      <Form className={styles.providerForm} form={form} layout="vertical" preserve={false} requiredMark={false} onFinish={(values) => onSave({ ...values, models: compactProviderModels(modelRows) })}>
         <Form.Item name="providerId" hidden>
           <Input />
         </Form.Item>
@@ -772,7 +769,25 @@ function ProviderEditorModal({
             <Table<ProviderModelViewModel>
               className={styles.providerModelsTable}
               columns={[
-                { title: '模型', dataIndex: 'id', ellipsis: true, render: (_value, model, index) => <Input value={model.id} placeholder="模型 ID" onChange={(event) => updateModelRow(index, { id: event.target.value })} /> },
+                {
+                  title: '模型', dataIndex: 'id', ellipsis: true,
+                  render: (_value, model, index) => (
+                    <Select
+                      showSearch
+                      optionFilterProp="label"
+                      placeholder="选择模型"
+                      value={model.id || undefined}
+                      options={discoveredModels
+                        .filter((candidate) => candidate.id === model.id || !modelRows.some((row) => row.id === candidate.id))
+                        .map((candidate) => ({ value: candidate.id, label: candidate.displayName || candidate.id }))}
+                      onChange={(id) => {
+                        const discovered = discoveredModels.find((candidate) => candidate.id === id);
+                        updateModelRow(index, { ...discovered, id, contextWindow: discovered?.contextWindow || discovered?.resolvedContextWindow || 200000 });
+                        if (!form.getFieldValue('defaultModel')) form.setFieldValue('defaultModel', id);
+                      }}
+                    />
+                  ),
+                },
                 {
                   title: '上下文窗口', width: 160,
                   render: (_value, model) => {
@@ -790,7 +805,7 @@ function ProviderEditorModal({
               dataSource={modelRows}
               locale={{ emptyText: '填写连接信息后获取模型列表' }}
               pagination={false}
-              rowKey="id"
+              rowKey={(model, index) => `${model.id || 'new-model'}-${index}`}
               scroll={{ y: 280 }}
               size="small"
             />
@@ -1102,21 +1117,6 @@ function compactProviderModels(models: ProviderModelViewModel[] = []) {
     compact.push({ ...model, id });
   }
   return compact;
-}
-
-function mergeProviderModelRows(existing: ProviderModelViewModel[], discovered: ProviderModelViewModel[]) {
-  const existingByID = new Map(compactProviderModels(existing).map((model) => [model.id, model]));
-  return compactProviderModels(discovered).map((model) => {
-    const current = existingByID.get(model.id);
-    return {
-      ...model,
-      contextWindow: current?.contextWindow,
-      maxOutputTokens: current?.maxOutputTokens,
-      resolvedContextWindow: model.resolvedContextWindow ?? model.contextWindow,
-      resolvedMaxOutputTokens: model.resolvedMaxOutputTokens ?? model.maxOutputTokens,
-      source: current?.contextWindow ? 'user_override' : model.source,
-    };
-  });
 }
 
 function isInvalidContextWindow(value?: number | null) {
