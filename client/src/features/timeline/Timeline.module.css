@@ -50,7 +50,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  color: rgb(13 13 13 / 45%);
+  color: var(--app-text-tertiary);
   font-size: 12px;
   line-height: 20px;
   /* Copy + timestamp reveal on hover only. Opacity (not display) keeps the
@@ -82,13 +82,13 @@
 .copyButton {
   width: 22px;
   height: 22px;
-  color: rgb(13 13 13 / 45%);
+  color: var(--app-text-tertiary);
 }
 
 .copyButton:hover,
 .copyButton:focus-visible {
-  color: #0d0d0d !important;
-  background: rgb(13 13 13 / 6%) !important;
+  color: var(--app-text-primary) !important;
+  background: var(--app-surface-muted) !important;
 }
 
 .processTrace {
@@ -170,7 +170,7 @@
 
 .processTrace[data-process-status='interrupted'] .processTraceLabel,
 .processTrace[data-process-status='cancelled'] .processTraceLabel {
-  color: var(--ant-color-warning-text, #ad6800);
+  color: var(--app-color-warning);
 }
 
 .streamingBubble {
@@ -180,7 +180,7 @@
 .streamingCursor {
   display: inline-block;
   margin-left: 2px;
-  color: rgb(13 13 13 / 55%);
+  color: var(--app-text-secondary);
   font-weight: 700;
   animation: streamingCursorBlink 1.05s steps(2, end) infinite;
 }
@@ -214,7 +214,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: rgb(13 13 13 / 48%);
+  color: var(--app-text-tertiary);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -223,8 +223,8 @@
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 6px;
-  background: rgb(13 13 13 / 6%);
-  color: rgb(13 13 13 / 68%);
+  background: var(--app-surface-muted);
+  color: var(--app-text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
 }
@@ -240,13 +240,13 @@
   max-width: 100%;
   align-items: center !important;
   padding: 2px 0 !important;
-  color: rgb(13 13 13 / 52%);
+  color: var(--app-text-tertiary);
 }
 
 .processTrace :global(.ant-collapse-expand-icon) {
   height: 24px !important;
   padding-inline-end: 7px !important;
-  color: rgb(13 13 13 / 38%);
+  color: var(--app-text-tertiary);
 }
 
 .processTrace :global(.ant-collapse-content) {
@@ -264,22 +264,22 @@
 .progress {
   width: min(720px, 94%);
   padding: 8px 0;
-  color: rgb(13 13 13 / 42%);
+  color: var(--app-text-tertiary);
   font-size: 13px;
   line-height: 1.6;
 }
 
 .progress[data-progress-status='failed'] {
-  color: #cf1322;
+  color: var(--app-color-error);
 }
 
 .progress[data-progress-status='cancelled'] {
-  color: rgb(13 13 13 / 50%);
+  color: var(--app-text-tertiary);
 }
 
 .progressDetail {
   margin-top: 2px;
-  color: rgb(13 13 13 / 58%);
+  color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -292,13 +292,13 @@
 
 .compactSummaryLabel {
   margin-bottom: 8px;
-  color: rgb(13 13 13 / 45%);
+  color: var(--app-text-tertiary);
   font-size: 12px;
   font-weight: 500;
 }
 
 .compactSummaryText {
-  color: rgb(13 13 13 / 72%);
+  color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;

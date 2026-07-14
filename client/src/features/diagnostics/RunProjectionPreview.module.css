@@ -4,10 +4,10 @@
   gap: 12px;
   width: min(320px, 100%);
   padding: 12px;
-  background: #ffffff;
-  border: 1px solid #ededed;
+  background: var(--app-surface-elevated);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 8px;
-  box-shadow: 0 6px 18px rgb(0 0 0 / 5%);
+  box-shadow: 0 6px 18px var(--app-shadow-color);
 }
 
 .header {
@@ -53,8 +53,8 @@
   gap: 6px;
   min-width: 0;
   padding: 8px;
-  background: #fafafa;
-  border: 1px solid #f0f0f0;
+  background: var(--app-surface-muted);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 6px;
 }
 
@@ -105,8 +105,8 @@
   gap: 8px;
   min-width: 0;
   padding: 8px;
-  background: #fafafa;
-  border: 1px solid #f0f0f0;
+  background: var(--app-surface-muted);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 6px;
 }
 
@@ -144,8 +144,8 @@
   gap: 8px;
   min-width: 0;
   padding: 8px;
-  background: #f6ffed;
-  border: 1px solid #b7eb8f;
+  background: color-mix(in srgb, var(--app-color-success) 12%, var(--app-surface-panel));
+  border: 1px solid color-mix(in srgb, var(--app-color-success) 45%, var(--app-border-default));
   border-radius: 6px;
 }
 

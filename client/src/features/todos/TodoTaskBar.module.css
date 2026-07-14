@@ -17,8 +17,8 @@
   font-size: 12px;
   font-weight: 600;
   line-height: 24px;
-  background: #ffffff;
-  border: 1px solid #e2e2e2;
+  background: var(--app-surface-elevated);
+  border: 1px solid var(--app-border-default);
   border-radius: 999px;
   box-shadow: none;
   cursor: pointer;
@@ -32,8 +32,8 @@
 .taskChip:hover,
 .taskChip:focus-visible {
   color: var(--ant-color-text);
-  background: #f3f3f3;
-  border-color: #d2d2d2;
+  background: var(--app-surface-hover);
+  border-color: var(--app-border-default);
   box-shadow: none;
   outline: none;
 }
@@ -45,8 +45,8 @@
 
 .taskChip[data-state='stopped'] {
   color: var(--ant-color-text-secondary);
-  background: #ffffff;
-  border-color: #e2e2e2;
+  background: var(--app-surface-elevated);
+  border-color: var(--app-border-default);
 }
 
 .taskChip[data-state='completed'] {
@@ -60,8 +60,8 @@
 
 .taskChip[data-state='stopped']:hover,
 .taskChip[data-state='stopped']:focus-visible {
-  background: #f3f3f3;
-  border-color: #d2d2d2;
+  background: var(--app-surface-hover);
+  border-color: var(--app-border-default);
   box-shadow: none;
 }
 
@@ -79,14 +79,14 @@
   width: 24px;
   height: 24px;
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--app-surface-elevated);
   color: var(--ant-color-primary);
   box-shadow: none;
 }
 
 .taskChip[data-state='stopped'] .icon {
   color: var(--ant-color-text-tertiary);
-  background: #f3f3f3;
+  background: var(--app-surface-hover);
 }
 
 .currentText,

@@ -13,7 +13,7 @@
   padding-inline: 7px;
   border: 1px solid transparent !important;
   border-radius: 8px;
-  color: #3f3f46;
+  color: var(--app-text-secondary);
   box-shadow: none;
   transition: background-color 0.16s ease;
 }
@@ -30,8 +30,8 @@
 .trigger:focus-visible,
 .trigger:active,
 .triggerWrap:global(.ant-dropdown-open) .trigger {
-  color: #3f3f46 !important;
-  background: #f2f2f2 !important;
+  color: var(--app-text-secondary) !important;
+  background: var(--app-surface-hover) !important;
   border-color: transparent !important;
   box-shadow: none;
   outline: none;
@@ -39,25 +39,25 @@
 
 .trigger:active,
 .triggerWrap:global(.ant-dropdown-open) .trigger {
-  background: #ececec !important;
+  background: var(--app-surface-active) !important;
 }
 
 .fullAccessTrigger {
-  color: #fa541c !important;
+  color: var(--app-color-warning) !important;
 }
 
 .fullAccessTrigger:hover,
 .fullAccessTrigger:focus,
 .fullAccessTrigger:focus-visible {
-  color: #fa541c !important;
-  background: #f2f2f2 !important;
+  color: var(--app-color-warning) !important;
+  background: var(--app-surface-hover) !important;
   border-color: transparent !important;
 }
 
 .fullAccessTrigger:active,
 .triggerWrap:global(.ant-dropdown-open) .fullAccessTrigger {
-  color: #fa541c !important;
-  background: #ececec !important;
+  color: var(--app-color-warning) !important;
+  background: var(--app-surface-active) !important;
   border-color: transparent !important;
 }
 
@@ -83,7 +83,7 @@
   width: min(360px, calc(100vw - 24px));
   padding: 3px;
   border-radius: 14px;
-  box-shadow: 0 12px 32px rgb(0 0 0 / 14%);
+  box-shadow: 0 12px 32px var(--app-shadow-color);
 }
 
 .dropdown :global(.ant-dropdown-menu-item) {
@@ -93,7 +93,7 @@
 
 .dropdown :global(.ant-dropdown-menu-item-active),
 .dropdown :global(.ant-dropdown-menu-item:hover) {
-  background: #f2f1f2 !important;
+  background: var(--app-surface-hover) !important;
 }
 
 .dropdown :global(.ant-dropdown-menu-item-selected) {
@@ -102,7 +102,7 @@
 
 .dropdown :global(.ant-dropdown-menu-item-selected:hover),
 .dropdown :global(.ant-dropdown-menu-item-selected.ant-dropdown-menu-item-active) {
-  background: #f2f1f2 !important;
+  background: var(--app-surface-hover) !important;
 }
 
 .menuItem {
@@ -112,11 +112,11 @@
   column-gap: 7px;
   min-height: 42px;
   padding: 4px 7px;
-  color: #18181b;
+  color: var(--app-text-primary);
 }
 
 .menuItem > :global(.anticon) {
-  color: #18181b;
+  color: var(--app-text-primary);
   font-size: 15px;
 }
 
@@ -128,20 +128,20 @@
 }
 
 .menuLabel {
-  color: #18181b;
+  color: var(--app-text-primary);
   font-size: 13px;
   line-height: 18px;
 }
 
 .menuDescription {
-  color: #8a8a8a;
+  color: var(--app-text-tertiary);
   font-size: 11px;
   line-height: 15px;
   white-space: normal;
 }
 
 .selectedIcon {
-  color: #0d0d0d;
+  color: var(--app-text-primary);
   font-size: 15px;
 }
 

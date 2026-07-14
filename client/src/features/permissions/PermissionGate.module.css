@@ -4,11 +4,11 @@
   width: min(760px, 94%);
   margin: 0;
   padding: 16px 18px 14px;
-  border: 1px solid rgb(13 13 13 / 10%);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 12px 32px rgb(13 13 13 / 12%);
-  color: rgb(13 13 13 / 88%);
+  background: var(--app-surface-elevated);
+  box-shadow: 0 12px 32px var(--app-shadow-color);
+  color: var(--app-text-primary);
 }
 
 .actionSection,
@@ -27,7 +27,7 @@
 
 .title {
   min-width: 0;
-  color: #111;
+  color: var(--app-text-primary);
   font-size: 15px;
   font-weight: 650;
   line-height: 1.45;
@@ -35,20 +35,20 @@
 
 .expandButton {
   flex: 0 0 auto;
-  color: rgb(13 13 13 / 48%);
+  color: var(--app-text-tertiary);
   padding-inline: 0;
 }
 
 .expandButton:hover,
 .expandButton:focus-visible {
-  color: rgb(13 13 13 / 82%);
+  color: var(--app-text-primary);
 }
 
 .previewCollapsed,
 .previewExpanded {
   margin: 0;
   padding: 0;
-  color: rgb(13 13 13 / 48%);
+  color: var(--app-text-tertiary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 13px;
   line-height: 1.55;
@@ -81,11 +81,11 @@
   margin-inline-end: 0;
   padding: 5px 8px;
   border-radius: 8px;
-  color: rgb(13 13 13 / 82%);
+  color: var(--app-text-primary);
 }
 
 .options :global(.ant-radio-wrapper:hover) {
-  background: rgb(13 13 13 / 5%);
+  background: var(--app-surface-muted);
 }
 
 .tellAgentOption {
@@ -94,7 +94,7 @@
   align-items: center;
   gap: 8px;
   padding: 2px 4px;
-  color: rgb(13 13 13 / 54%);
+  color: var(--app-text-secondary);
   cursor: pointer;
   font-size: 13px;
   line-height: 20px;
@@ -136,7 +136,7 @@
 .meta code {
   max-width: min(100%, 280px);
   overflow: hidden;
-  color: rgb(13 13 13 / 54%);
+  color: var(--app-text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
   text-overflow: ellipsis;
@@ -146,14 +146,14 @@
 .submitButton {
   height: 34px;
   border-radius: 8px;
-  background: #111 !important;
+  background: var(--app-text-primary) !important;
   box-shadow: none;
   font-weight: 650;
 }
 
 .submitButton:hover,
 .submitButton:focus-visible {
-  background: #2a2a2a !important;
+  background: var(--app-surface-active) !important;
 }
 
 .error {
@@ -164,7 +164,7 @@
   gap: 8px;
   width: min(720px, 94%);
   margin: 2px 0;
-  color: rgb(13 13 13 / 52%);
+  color: var(--app-text-tertiary);
   font-size: 13px;
 }
 

@@ -4,7 +4,7 @@
   min-width: 0;
   gap: 12px;
   padding: 12px 0;
-  border-bottom: 1px solid #edf0f3;
+  border-bottom: 1px solid var(--app-border-subtle);
 }
 
 .header,
@@ -55,7 +55,7 @@
   gap: 2px;
   color: rgba(0, 0, 0, 0.68);
   text-align: left;
-  background: #f6f7f9;
+  background: var(--app-surface-muted);
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
@@ -64,8 +64,8 @@
 .taskButton:hover,
 .taskButtonActive {
   color: rgba(0, 0, 0, 0.88);
-  background: #ffffff;
-  border-color: #d9d9d9;
+  background: var(--app-surface-elevated);
+  border-color: var(--app-border-default);
 }
 
 .taskButtonTitle,
@@ -143,7 +143,7 @@
   display: block;
   padding: 3px 6px;
   color: rgba(0, 0, 0, 0.72);
-  background: #f6f7f9;
+  background: var(--app-surface-muted);
   border-radius: 4px;
   white-space: nowrap;
 }
