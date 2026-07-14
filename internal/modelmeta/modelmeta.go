@@ -16,7 +16,7 @@ const (
 
 	MinContextWindow      = 16000
 	MaxContextWindow      = 10000000
-	FallbackContextWindow = 128000
+	FallbackContextWindow = 200000
 	FallbackMaxOutput     = 4096
 )
 

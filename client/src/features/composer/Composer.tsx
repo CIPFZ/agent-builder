@@ -56,7 +56,6 @@ export function Composer({
   const [draft, setDraft] = useState('');
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const composerRef = useRef<HTMLDivElement | null>(null);
-  const selectedProviderID = composer.selectedModel?.configuredProviderId;
   const selectedModelKey = composer.selectedModel
     ? `${composer.selectedModel.configuredProviderId ?? ''}:${composer.selectedModel.name}`
     : undefined;
@@ -69,9 +68,7 @@ export function Composer({
   const draftTargetLabel = activeDraftTarget.scope === 'project'
     ? selectedDraftProject?.name || project.name || 'Project'
     : '不使用项目';
-  const visibleModelOptions = selectedProviderID
-    ? composer.modelOptions.filter((model) => model.configuredProviderId === selectedProviderID)
-    : composer.modelOptions.filter((model) => model.configuredProviderId);
+  const visibleModelOptions = composer.modelOptions.filter((model) => model.configuredProviderId);
   const canSubmit = draft.trim().length > 0;
   const isBusy = Boolean(composer.busy);
   const contextUsage = showContextUsage ? composer.contextUsage : undefined;
@@ -107,13 +104,21 @@ export function Composer({
   const modelMenu = {
     items:
       visibleModelOptions.length > 0
-        ? visibleModelOptions.map((model) => ({
-            key: `${model.configuredProviderId ?? ''}:${model.name}`,
-            label: model.name,
-            disabled: !model.configuredProviderId,
-            extra: `${model.configuredProviderId ?? ''}:${model.name}` === selectedModelKey
-              ? <CheckOutlined className={styles.modelSelectedIcon} />
-              : undefined,
+        ? Array.from(visibleModelOptions.reduce((groups, model) => {
+            const provider = model.configuredProvider || model.provider;
+            groups.set(provider, [...(groups.get(provider) ?? []), model]);
+            return groups;
+          }, new Map<string, typeof visibleModelOptions>()).entries()).map(([provider, models]) => ({
+            key: `provider:${provider}`,
+            type: 'group' as const,
+            label: provider,
+            children: models.map((model) => ({
+              key: `${model.configuredProviderId ?? ''}:${model.name}`,
+              label: model.name,
+              extra: `${model.configuredProviderId ?? ''}:${model.name}` === selectedModelKey
+                ? <CheckOutlined className={styles.modelSelectedIcon} />
+                : undefined,
+            })),
           }))
         : [
             {

@@ -16,6 +16,7 @@ import {
 import {
   Button,
   Card,
+  Checkbox,
   Collapse,
   ConfigProvider,
   Flex,
@@ -23,10 +24,12 @@ import {
   Input,
   InputNumber,
   Layout,
+  List,
   Menu,
   message,
   Modal,
   Select,
+  Steps,
   Switch,
   Table,
   Tag,
@@ -476,7 +479,7 @@ function ProvidersSettings({
                   <div className={styles.settingsListMeta}>
                     <Flex align="center" gap={8} wrap>
                       <Text strong>{provider.name}</Text>
-                      {isSelected && <Tag color="blue">默认</Tag>}
+                      {isSelected && <Tag>默认</Tag>}
                     </Flex>
                     <Text type="secondary">{provider.remark || `${catalogProvider?.name ?? provider.providerId} · ${providerProtocol}`}</Text>
                     <Text type="secondary">模型：{provider.defaultModel || '未选择'}</Text>
@@ -546,6 +549,10 @@ function ProviderEditorModal({
   const [selectedProviderID, setSelectedProviderID] = useState(defaultProviderID);
   const [runtimeModels, setRuntimeModels] = useState<ProviderModelViewModel[]>([]);
   const [actionLoading, setActionLoading] = useState<'models' | 'test' | 'latency' | null>(null);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelSearch, setModelSearch] = useState('');
+  const [pendingModelIDs, setPendingModelIDs] = useState<string[]>([]);
   const watchedModels = Form.useWatch('models', form) ?? [];
   const watchedDefaultContextWindow = Form.useWatch('defaultContextWindow', form);
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderID);
@@ -574,7 +581,20 @@ function ProviderEditorModal({
   };
 
   const removeModelRow = (index: number) => {
-    setModelRows(modelRows.filter((_, rowIndex) => rowIndex !== index));
+    const removed = modelRows[index]?.id;
+    const next = modelRows.filter((_, rowIndex) => rowIndex !== index);
+    setModelRows(next);
+    if (removed && form.getFieldValue('defaultModel') === removed) form.setFieldValue('defaultModel', next[0]?.id);
+  };
+
+  const addSelectedModels = () => {
+    const discoveredByID = new Map(runtimeModels.map((model) => [model.id, model]));
+    const additions = pendingModelIDs.map((id) => discoveredByID.get(id) ?? { id });
+    const next = mergeProviderModelRows(modelRows, additions);
+    setModelRows(next);
+    if (!form.getFieldValue('defaultModel') && next[0]) form.setFieldValue('defaultModel', next[0].id);
+    setPendingModelIDs([]);
+    setModelPickerOpen(false);
   };
 
   const applyPreset = (providerID: string) => {
@@ -587,9 +607,9 @@ function ProviderEditorModal({
       remark: '',
       apiEndpoint: preset?.apiEndpoint || '',
       protocol: form.getFieldValue('protocol') || 'openai-compat',
-      defaultModel: preset?.defaultLargeModel || preset?.defaultSmallModel || '',
-      models: providerModelsFromIDs([preset?.defaultLargeModel, preset?.defaultSmallModel]),
-      defaultContextWindow: undefined,
+      defaultModel: '',
+      models: [],
+      defaultContextWindow: 200000,
       proxy: '',
       token: '',
     });
@@ -625,11 +645,9 @@ function ProviderEditorModal({
               defaultModel: normalizeDefaultModel(values.defaultModel),
               proxy: values.proxy,
             });
-      const nextModels = mergeProviderModelRows(modelRows, result.models);
-      setModelRows(nextModels);
-      if (nextModels.length > 0 && !form.getFieldValue('defaultModel')) {
-        form.setFieldValue('defaultModel', nextModels[0].id);
-      }
+      setRuntimeModels(result.models);
+      setPendingModelIDs([]);
+      setModelPickerOpen(true);
       if (result.error) {
         messageApi.warning(`模型列表未完整刷新：${result.error}`);
       } else {
@@ -676,6 +694,15 @@ function ProviderEditorModal({
     }
   };
 
+  const goToNextStep = async () => {
+    if (currentStep === 0) await form.validateFields(['providerId', 'name', 'apiEndpoint', 'protocol', 'token']);
+    if (currentStep === 1 && modelRows.length === 0) {
+      messageApi.warning('请至少添加一个使用模型');
+      return;
+    }
+    setCurrentStep((step) => Math.min(2, step + 1));
+  };
+
   return (
     <Modal
       className={styles.providerModal}
@@ -684,34 +711,39 @@ function ProviderEditorModal({
         <Button key="cancel" onClick={onCancel}>
           取消
         </Button>,
-        <Button key="submit" disabled={hasInvalidModelLimits} loading={saving} type="primary" onClick={() => form.submit()}>
-          {editingProvider ? '保存' : '添加'}
-        </Button>,
+        currentStep > 0 && <Button key="previous" onClick={() => setCurrentStep((step) => step - 1)}>上一步</Button>,
+        currentStep < 2
+          ? <Button key="next" type="primary" onClick={() => void goToNextStep()}>下一步</Button>
+          : <Button key="submit" disabled={hasInvalidModelLimits || modelRows.length === 0} loading={saving} type="primary" onClick={() => form.submit()}>{editingProvider ? '保存' : '添加'}</Button>,
       ]}
       open={open}
       title={editingProvider ? '编辑服务商' : '添加服务商'}
-      width={880}
+      width={760}
       onCancel={onCancel}
       afterOpenChange={(visible) => {
         if (!visible) {
           return;
         }
         if (editingProvider) {
+          setCurrentStep(0);
           setSelectedProviderID(editingProvider.providerId);
           setRuntimeModels(editingProvider.models ?? []);
           form.setFieldsValue(editingProvider);
           return;
         }
+        setCurrentStep(0);
         applyPreset(defaultProviderID);
       }}
     >
       {messageContextHolder}
+      <Steps className={styles.providerSteps} current={currentStep} items={[{ title: '连接' }, { title: '选择模型' }, { title: '配置确认' }]} size="small" />
       <Form className={styles.providerForm} form={form} layout="vertical" preserve={false} requiredMark={false} onFinish={onSave}>
         <Form.Item name="providerId" hidden>
           <Input />
         </Form.Item>
 
         <Card className={styles.formCard} styles={{ body: { padding: 18 } }}>
+          <div hidden={currentStep !== 0}>
           <Form.Item label="支持的服务商">
             <Select
               showSearch
@@ -744,12 +776,17 @@ function ProviderEditorModal({
               placeholder="sk-..."
             />
           </Form.Item>
+          <Flex gap={8}>
+            <Button icon={<ApiOutlined />} loading={actionLoading === 'test'} onClick={() => void testProvider()}>测试连接</Button>
+            <Button icon={<ThunderboltOutlined />} loading={actionLoading === 'latency'} onClick={() => void measureLatency()}>测试延迟</Button>
+          </Flex>
+          </div>
 
+          <div hidden={currentStep !== 1}>
           <Flex align="flex-end" className={styles.providerModelRow} gap={8}>
             <Form.Item className={styles.providerModelSelect} label="默认模型" name="defaultModel">
               <Select
                 showSearch
-                mode={selectedProviderID === 'custom' ? 'tags' : undefined}
                 optionFilterProp="label"
                 options={modelOptions}
                 placeholder="选择或输入模型"
@@ -762,6 +799,23 @@ function ProviderEditorModal({
             </Flex>
           </Flex>
 
+          <Flex align="center" justify="space-between" className={styles.enabledModelHeader}>
+            <Text type="secondary">已添加 {modelRows.length} 个使用模型</Text>
+            <Button icon={<PlusOutlined />} onClick={() => setModelPickerOpen(true)}>从候选列表添加</Button>
+          </Flex>
+          <List
+            bordered
+            dataSource={modelRows}
+            locale={{ emptyText: '获取模型列表后，从候选模型中添加需要使用的模型' }}
+            renderItem={(row, index) => (
+              <List.Item actions={[<Button key="remove" danger size="small" type="text" onClick={() => removeModelRow(index)}>移除</Button>]}>
+                <List.Item.Meta title={row.displayName || row.id} description={`上下文 ${formatTokenWindow(row.contextWindow || row.resolvedContextWindow || 200000)}`} />
+              </List.Item>
+            )}
+          />
+          </div>
+
+          <div hidden={currentStep !== 2}>
           <Form.Item label="未知模型默认窗口" name="defaultContextWindow">
             <InputNumber
               controls={false}
@@ -779,6 +833,21 @@ function ProviderEditorModal({
               添加模型
             </Button>
           </Flex>
+
+          <div className={styles.modelConfigList}>
+            {modelRows.map((row, index) => (
+              <Card className={styles.modelConfigCard} key={`${row.id || 'model'}-${index}`} size="small">
+                <Flex align="center" justify="space-between" gap={12}>
+                  <Input value={row.id} placeholder="模型 ID" onChange={(event) => updateModelRow(index, { id: event.target.value })} />
+                  <Button danger type="text" onClick={() => removeModelRow(index)}>移除</Button>
+                </Flex>
+                <div className={styles.modelConfigGrid}>
+                  <label><Text type="secondary">上下文窗口</Text><InputNumber controls={false} min={16000} max={10000000} placeholder="200K" status={isInvalidContextWindow(row.contextWindow) ? 'error' : undefined} value={row.contextWindow} onChange={(value) => updateModelRow(index, { contextWindow: value ?? undefined, source: value ? 'user_override' : undefined })} /></label>
+                  <label><Text type="secondary">最大输出</Text><InputNumber controls={false} min={1} placeholder="自动" value={row.maxOutputTokens} onChange={(value) => updateModelRow(index, { maxOutputTokens: value ?? undefined })} /></label>
+                </div>
+              </Card>
+            ))}
+          </div>
 
           <Table<ProviderModelViewModel>
             className={styles.providerModelTable}
@@ -842,11 +911,48 @@ function ProviderEditorModal({
             size="small"
           />
 
-          <Form.Item label="代理" name="proxy">
-            <Input placeholder="http://127.0.0.1:7890" />
-          </Form.Item>
+          <Collapse
+            ghost
+            items={[{
+              key: 'advanced',
+              label: '高级选项',
+              children: (
+                <Form.Item label="代理" name="proxy">
+                  <Input placeholder="http://127.0.0.1:7890" />
+                </Form.Item>
+              ),
+            }]}
+          />
+          </div>
         </Card>
       </Form>
+      <Modal
+        centered
+        open={modelPickerOpen}
+        title="添加使用模型"
+        okText="添加选中模型"
+        okButtonProps={{ disabled: pendingModelIDs.length === 0 }}
+        onCancel={() => setModelPickerOpen(false)}
+        onOk={addSelectedModels}
+      >
+        <Input allowClear placeholder="搜索模型 ID" value={modelSearch} onChange={(event) => setModelSearch(event.target.value)} />
+        <List
+          className={styles.modelPickerList}
+          dataSource={runtimeModels.filter((model) => !modelSearch.trim() || model.id.toLowerCase().includes(modelSearch.trim().toLowerCase()))}
+          locale={{ emptyText: '尚未获取模型，请先点击刷新模型列表' }}
+          renderItem={(model) => (
+            <List.Item>
+              <Checkbox
+                checked={pendingModelIDs.includes(model.id)}
+                disabled={modelRows.some((row) => row.id === model.id)}
+                onChange={(event) => setPendingModelIDs((current) => event.target.checked ? [...new Set([...current, model.id])] : current.filter((id) => id !== model.id))}
+              >
+                {model.displayName || model.id}
+              </Checkbox>
+            </List.Item>
+          )}
+        />
+      </Modal>
     </Modal>
   );
 }
@@ -1135,10 +1241,6 @@ function getProviderModelOptions(provider?: ProviderCatalogItemViewModel, runtim
     label: model,
     value: model,
   }));
-}
-
-function providerModelsFromIDs(models: Array<string | undefined>) {
-  return compactProviderModels(models.map((id) => ({ id: id ?? '' })));
 }
 
 function providerModelIDs(models: ProviderModelViewModel[]) {
