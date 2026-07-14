@@ -4,6 +4,7 @@
 *.dll
 *.so
 *.dylib
+*.syso
 
 # Test binary, built with `go test -c`
 *.test
@@ -47,6 +48,8 @@ Thumbs.db
 .direnv/
 
 **/.agent-builder/**
+!/.agent-builder/
+!/.agent-builder/agent-builder.json
 .codex-run/
 
 /agent-builder
