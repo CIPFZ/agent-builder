@@ -254,6 +254,25 @@
   margin: 14px 0 10px;
 }
 
+.providerModelsSection {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--app-border-subtle);
+}
+
+.providerModelsTable {
+  margin-top: 12px;
+}
+
+.providerModelsTable :global(.ant-input-number) {
+  width: 100%;
+}
+
+.providerAdvanced {
+  margin-top: 12px;
+  border-top: 1px solid var(--app-border-subtle);
+}
+
 .modelPickerList {
   max-height: min(420px, 52vh);
   margin-top: 12px;

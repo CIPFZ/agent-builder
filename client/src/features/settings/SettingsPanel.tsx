@@ -24,12 +24,12 @@ import {
   Input,
   InputNumber,
   Layout,
-  List,
   Menu,
   message,
   Modal,
   Select,
   Switch,
+  Table,
   Tag,
   Typography,
 } from 'antd';
@@ -547,15 +547,11 @@ function ProviderEditorModal({
   const [selectedProviderID, setSelectedProviderID] = useState(defaultProviderID);
   const [runtimeModels, setRuntimeModels] = useState<ProviderModelViewModel[]>([]);
   const [actionLoading, setActionLoading] = useState<'models' | 'test' | 'latency' | null>(null);
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [modelSearch, setModelSearch] = useState('');
-  const [pendingModelIDs, setPendingModelIDs] = useState<string[]>([]);
   const watchedModels = Form.useWatch('models', form) ?? [];
-  const watchedDefaultContextWindow = Form.useWatch('defaultContextWindow', form);
-  const selectedProvider = providers.find((provider) => provider.id === selectedProviderID);
+  const watchedDefaultModel = Form.useWatch('defaultModel', form);
   const modelRows = compactProviderModels(watchedModels);
-  const modelOptions = getProviderModelOptions(selectedProvider, providerModelIDs(modelRows.length > 0 ? modelRows : runtimeModels));
-  const hasInvalidModelLimits = hasInvalidProviderModelLimits(modelRows, watchedDefaultContextWindow);
+  const availableModelRows = mergeProviderModelRows(modelRows, [...runtimeModels, ...modelRows]);
+  const hasInvalidModelLimits = hasInvalidProviderModelLimits(modelRows);
   const providerOptions = providers.map((provider) => ({
     label: provider.id === 'custom' ? 'Custom' : provider.name,
     value: provider.id,
@@ -573,10 +569,6 @@ function ProviderEditorModal({
     setModelRows(next);
   };
 
-  const addModelRow = () => {
-    setModelRows([...modelRows, { id: '' }]);
-  };
-
   const removeModelRow = (index: number) => {
     const removed = modelRows[index]?.id;
     const next = modelRows.filter((_, rowIndex) => rowIndex !== index);
@@ -584,14 +576,20 @@ function ProviderEditorModal({
     if (removed && form.getFieldValue('defaultModel') === removed) form.setFieldValue('defaultModel', next[0]?.id);
   };
 
-  const addSelectedModels = () => {
-    const discoveredByID = new Map(runtimeModels.map((model) => [model.id, model]));
-    const additions = pendingModelIDs.map((id) => discoveredByID.get(id) ?? { id });
-    const next = mergeProviderModelRows(modelRows, additions);
-    setModelRows(next);
-    if (!form.getFieldValue('defaultModel') && next[0]) form.setFieldValue('defaultModel', next[0].id);
-    setPendingModelIDs([]);
-    setModelPickerOpen(false);
+  const toggleModelEnabled = (model: ProviderModelViewModel, enabled: boolean) => {
+    if (enabled) {
+      const next = mergeProviderModelRows(modelRows, [{ ...model, contextWindow: model.contextWindow || model.resolvedContextWindow || 200000 }]);
+      setModelRows(next);
+      if (!form.getFieldValue('defaultModel')) form.setFieldValue('defaultModel', model.id);
+      return;
+    }
+    const index = modelRows.findIndex((row) => row.id === model.id);
+    if (index >= 0) removeModelRow(index);
+  };
+
+  const updateEnabledModel = (modelID: string, patch: Partial<ProviderModelViewModel>) => {
+    const index = modelRows.findIndex((row) => row.id === modelID);
+    if (index >= 0) updateModelRow(index, patch);
   };
 
   const applyPreset = (providerID: string) => {
@@ -643,8 +641,11 @@ function ProviderEditorModal({
               proxy: values.proxy,
             });
       setRuntimeModels(result.models);
-      setPendingModelIDs([]);
-      setModelPickerOpen(true);
+      if (modelRows.length === 0 && result.models[0]) {
+        const first = result.models[0];
+        setModelRows([{ ...first, contextWindow: first.contextWindow || first.resolvedContextWindow || 200000 }]);
+        form.setFieldValue('defaultModel', first.id);
+      }
       if (result.error) {
         messageApi.warning(`模型列表未完整刷新：${result.error}`);
       } else {
@@ -765,111 +766,57 @@ function ProviderEditorModal({
           </div>
 
           <div className={styles.providerModelsSection}>
-          <Flex align="flex-end" className={styles.providerModelRow} gap={8}>
-            <Form.Item className={styles.providerModelSelect} label="默认模型" name="defaultModel">
-              <Select
-                showSearch
-                optionFilterProp="label"
-                options={modelOptions}
-                placeholder="选择或输入模型"
-              />
-            </Form.Item>
-            <Flex className={styles.providerActionRow} gap={8}>
-              <Button icon={<ReloadOutlined />} loading={actionLoading === 'models'} onClick={refreshModels}>获取模型</Button>
+            <Form.Item name="defaultModel" hidden><Input /></Form.Item>
+            <Flex align="center" justify="space-between" className={styles.enabledModelHeader}>
+              <div>
+                <Text strong>模型配置</Text>
+                <div><Text type="secondary">勾选需要使用的模型，第一项自动作为默认模型</Text></div>
+              </div>
+              <Button icon={<ReloadOutlined />} loading={actionLoading === 'models'} onClick={refreshModels}>获取模型列表</Button>
             </Flex>
-          </Flex>
-
-          <Flex align="center" justify="space-between" className={styles.enabledModelHeader}>
-            <Text type="secondary">已添加 {modelRows.length} 个使用模型</Text>
-            <Button icon={<PlusOutlined />} onClick={() => setModelPickerOpen(true)}>从候选列表添加</Button>
-          </Flex>
-          <List
-            bordered
-            dataSource={modelRows}
-            locale={{ emptyText: '获取模型列表后，从候选模型中添加需要使用的模型' }}
-            renderItem={(row, index) => (
-              <List.Item actions={[<Button key="remove" danger size="small" type="text" onClick={() => removeModelRow(index)}>移除</Button>]}>
-                <List.Item.Meta title={row.displayName || row.id} description={`上下文 ${formatTokenWindow(row.contextWindow || row.resolvedContextWindow || 200000)}`} />
-              </List.Item>
-            )}
-          />
+            <Table<ProviderModelViewModel>
+              className={styles.providerModelsTable}
+              columns={[
+                {
+                  title: '使用', width: 64,
+                  render: (_value, model) => <Checkbox checked={modelRows.some((row) => row.id === model.id)} onChange={(event) => toggleModelEnabled(model, event.target.checked)} />,
+                },
+                { title: '模型', dataIndex: 'id', ellipsis: true, render: (_value, model) => model.displayName || model.id },
+                {
+                  title: '上下文窗口', width: 160,
+                  render: (_value, model) => {
+                    const enabled = modelRows.find((row) => row.id === model.id);
+                    return <InputNumber controls={false} disabled={!enabled} min={16000} max={10000000} value={enabled?.contextWindow || enabled?.resolvedContextWindow || 200000} onChange={(value) => updateEnabledModel(model.id, { contextWindow: value ?? 200000, source: 'user_override' })} />;
+                  },
+                },
+                {
+                  title: '默认', width: 64,
+                  render: (_value, model) => {
+                    const enabled = modelRows.some((row) => row.id === model.id);
+                    return <Checkbox checked={watchedDefaultModel === model.id} disabled={!enabled} onChange={(event) => { if (event.target.checked) form.setFieldValue('defaultModel', model.id); }} />;
+                  },
+                },
+              ]}
+              dataSource={availableModelRows}
+              locale={{ emptyText: '填写连接信息后获取模型列表' }}
+              pagination={false}
+              rowKey="id"
+              scroll={{ y: 280 }}
+              size="small"
+            />
           </div>
 
           <Collapse
             className={styles.providerAdvanced}
             ghost
             items={[{
-              key: 'model-settings',
-              label: '模型参数与高级选项',
-              children: <div>
-          <Form.Item label="未知模型默认窗口" name="defaultContextWindow">
-            <InputNumber
-              controls={false}
-              min={16000}
-              max={10000000}
-              placeholder="留空自动解析"
-              status={isInvalidContextWindow(watchedDefaultContextWindow) ? 'error' : undefined}
-              style={{ width: '100%' }}
-            />
-          </Form.Item>
-
-          <Flex align="center" justify="space-between">
-            <Text type="secondary">{formatProviderModelSummary(modelRows, watchedDefaultContextWindow)}</Text>
-            <Button size="small" onClick={addModelRow}>
-              添加模型
-            </Button>
-          </Flex>
-
-          <div className={styles.modelConfigList}>
-            {modelRows.map((row, index) => (
-              <Card className={styles.modelConfigCard} key={`${row.id || 'model'}-${index}`} size="small">
-                <Flex align="center" justify="space-between" gap={12}>
-                  <Input value={row.id} placeholder="模型 ID" onChange={(event) => updateModelRow(index, { id: event.target.value })} />
-                  <Button danger type="text" onClick={() => removeModelRow(index)}>移除</Button>
-                </Flex>
-                <div className={styles.modelConfigGrid}>
-                  <label><Text type="secondary">上下文窗口</Text><InputNumber controls={false} min={16000} max={10000000} placeholder="200K" status={isInvalidContextWindow(row.contextWindow) ? 'error' : undefined} value={row.contextWindow} onChange={(value) => updateModelRow(index, { contextWindow: value ?? undefined, source: value ? 'user_override' : undefined })} /></label>
-                  <label><Text type="secondary">最大输出</Text><InputNumber controls={false} min={1} placeholder="自动" value={row.maxOutputTokens} onChange={(value) => updateModelRow(index, { maxOutputTokens: value ?? undefined })} /></label>
-                </div>
-              </Card>
-            ))}
-          </div>
-
-          <Form.Item label="代理" name="proxy">
-            <Input placeholder="http://127.0.0.1:7890" />
-          </Form.Item>
-          </div>,
+              key: 'advanced',
+              label: '高级选项',
+              children: <Form.Item label="代理" name="proxy"><Input placeholder="http://127.0.0.1:7890" /></Form.Item>,
             }]}
           />
         </Card>
       </Form>
-      <Modal
-        centered
-        open={modelPickerOpen}
-        title="添加使用模型"
-        okText="添加选中模型"
-        okButtonProps={{ disabled: pendingModelIDs.length === 0 }}
-        onCancel={() => setModelPickerOpen(false)}
-        onOk={addSelectedModels}
-      >
-        <Input allowClear placeholder="搜索模型 ID" value={modelSearch} onChange={(event) => setModelSearch(event.target.value)} />
-        <List
-          className={styles.modelPickerList}
-          dataSource={runtimeModels.filter((model) => !modelSearch.trim() || model.id.toLowerCase().includes(modelSearch.trim().toLowerCase()))}
-          locale={{ emptyText: '尚未获取模型，请先点击刷新模型列表' }}
-          renderItem={(model) => (
-            <List.Item>
-              <Checkbox
-                checked={pendingModelIDs.includes(model.id)}
-                disabled={modelRows.some((row) => row.id === model.id)}
-                onChange={(event) => setPendingModelIDs((current) => event.target.checked ? [...new Set([...current, model.id])] : current.filter((id) => id !== model.id))}
-              >
-                {model.displayName || model.id}
-              </Checkbox>
-            </List.Item>
-          )}
-        />
-      </Modal>
     </Modal>
   );
 }
@@ -1153,17 +1100,6 @@ function MemorySettings({ project, onList, onDetail, onCreate, onUpdate, onEnabl
   );
 }
 
-function getProviderModelOptions(provider?: ProviderCatalogItemViewModel, runtimeModels: string[] = []) {
-  return Array.from(new Set([...runtimeModels, provider?.defaultLargeModel, provider?.defaultSmallModel].filter(Boolean))).map((model) => ({
-    label: model,
-    value: model,
-  }));
-}
-
-function providerModelIDs(models: ProviderModelViewModel[]) {
-  return compactProviderModels(models).map((model) => model.id);
-}
-
 function compactProviderModels(models: ProviderModelViewModel[] = []) {
   const seen = new Set<string>();
   const compact: ProviderModelViewModel[] = [];
@@ -1199,27 +1135,6 @@ function isInvalidContextWindow(value?: number | null) {
 
 function hasInvalidProviderModelLimits(models: ProviderModelViewModel[], defaultContextWindow?: number | null) {
   return isInvalidContextWindow(defaultContextWindow) || models.some((model) => isInvalidContextWindow(model.contextWindow));
-}
-
-function formatTokenWindow(value?: number) {
-  if (!value) {
-    return undefined;
-  }
-  if (value >= 1000000) {
-    return `${Math.round(value / 100000) / 10}M`;
-  }
-  if (value >= 1000) {
-    return `${Math.round(value / 1000)}k`;
-  }
-  return `${value}`;
-}
-
-function formatProviderModelSummary(models: ProviderModelViewModel[], defaultContextWindow?: number | null) {
-  const windows = models
-    .map((model) => model.contextWindow || model.resolvedContextWindow)
-    .filter((value): value is number => Boolean(value));
-  const range = windows.length > 0 ? `${formatTokenWindow(Math.min(...windows))}~${formatTokenWindow(Math.max(...windows))}` : '自动解析';
-  return `${models.length} 个模型 · 窗口 ${range} · 兜底 ${formatTokenWindow(defaultContextWindow ?? undefined) ?? '未设置'}`;
 }
 
 function formatDuration(durationMs?: number) {
