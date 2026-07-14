@@ -46,30 +46,30 @@
     "smoke:conversation-cross-surface-polish": "node scripts/conversation-cross-surface-polish-smoke.mjs"
   },
   "dependencies": {
-    "@ant-design/icons": "^6.2.3",
-    "@ant-design/x": "^2.7.0",
-    "@wailsio/runtime": "^3.0.0-alpha.95",
+    "@ant-design/icons": "^6.3.2",
+    "@ant-design/x": "^2.8.0",
+    "@wailsio/runtime": "^3.0.0-alpha.97",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "antd": "^6.4.2",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6",
+    "antd": "^6.5.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.58.2",
-    "@types/node": "^24.12.3",
-    "@types/react": "^19.2.14",
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
-    "eslint": "^10.3.0",
+    "@vitejs/plugin-react": "^6.0.3",
+    "eslint": "^10.7.0",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.2",
-    "globals": "^17.6.0",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.7.0",
     "typescript": "~6.0.2",
-    "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12"
+    "typescript-eslint": "^8.64.0",
+    "vite": "^8.1.4"
   }
 }
