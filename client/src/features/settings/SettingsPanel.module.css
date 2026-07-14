@@ -215,6 +215,10 @@
   margin-bottom: 12px;
 }
 
+.providerSection {
+  margin-top: 0;
+}
+
 .providerSectionTitle {
   font-size: 15px;
 }

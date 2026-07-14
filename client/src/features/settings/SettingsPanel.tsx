@@ -444,18 +444,7 @@ function ProvidersSettings({
   return (
     <>
       {messageContextHolder}
-      <Flex align="flex-start" className={styles.providerHeader} justify="space-between">
-        <Flex vertical gap={2}>
-          <Title className={styles.providerTitle} level={2}>
-            服务商
-          </Title>
-          <Text className={styles.providerSubtitle} type="secondary">
-            管理 API 服务商以访问模型。
-          </Text>
-        </Flex>
-      </Flex>
-
-      <section className={styles.section}>
+      <section className={`${styles.section} ${styles.providerSection}`}>
         <Flex align="center" className={styles.providerSectionHeader} justify="space-between">
           <Text className={styles.providerSectionTitle} strong>
             服务商
