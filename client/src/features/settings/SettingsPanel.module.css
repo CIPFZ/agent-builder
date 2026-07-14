@@ -227,6 +227,19 @@
   box-shadow: none;
 }
 
+.addProviderButton:hover,
+.addProviderButton:focus-visible {
+  color: var(--app-text-primary) !important;
+  background: var(--app-surface-hover) !important;
+  border-color: var(--app-border-default) !important;
+}
+
+.addProviderButton:active {
+  color: var(--app-text-primary) !important;
+  background: var(--app-surface-active) !important;
+  border-color: var(--app-text-tertiary) !important;
+}
+
 .providerModal :global(.ant-modal-content) {
   max-height: min(720px, calc(100vh - 48px));
   overflow: hidden;
