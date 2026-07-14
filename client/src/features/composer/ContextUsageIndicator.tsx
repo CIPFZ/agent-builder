@@ -49,7 +49,7 @@ export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
         <span
           aria-hidden="true"
           className={styles.usageRing}
-          style={{ background: `conic-gradient(currentColor ${usage.percentUsed}%, rgb(0 0 0 / 10%) 0)` }}
+          style={{ background: `conic-gradient(currentColor ${usage.percentUsed}%, var(--app-border-default) 0)` }}
         >
           <span className={styles.usageRingCenter} />
         </span>

@@ -6,4 +6,5 @@ export const defaultLightTokens: AppThemeTokens = {
   surfaceHover: '#f2f2f2', surfaceActive: '#e9e9e9', textPrimary: '#0d0d0d', textSecondary: '#595959',
   textTertiary: '#8c8c8c', borderDefault: '#d9d9d9', borderSubtle: '#eeeeee', focusRing: 'rgb(13 13 13 / 10%)',
   shadowColor: 'rgb(0 0 0 / 14%)',
+  syntaxAdded: '#008f3a', syntaxKeyword: '#781eea', syntaxString: '#a46f00', syntaxLink: '#006adc', syntaxRemoved: '#b42318',
 };

@@ -21,7 +21,7 @@
 
 .icon {
   flex: 0 0 auto;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   line-height: 20px;
 }
 
@@ -54,7 +54,7 @@
 
 .meta,
 .summary {
-  color: rgba(0, 0, 0, 0.55);
+  color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 18px;
 }

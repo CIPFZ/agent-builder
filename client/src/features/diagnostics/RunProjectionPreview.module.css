@@ -23,7 +23,7 @@
   align-items: center;
   min-width: 0;
   gap: 8px;
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   font-size: 13px;
   font-weight: 600;
   line-height: 20px;
@@ -59,19 +59,19 @@
 }
 
 .metricIcon {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   line-height: 18px;
 }
 
 .metricLabel {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   font-size: 12px;
   line-height: 18px;
 }
 
 .metricValue {
   min-width: 0;
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   font-size: 12px;
   line-height: 18px;
   overflow-wrap: anywhere;
@@ -118,7 +118,7 @@
 }
 
 .taskTitle {
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   font-size: 12px;
   font-weight: 600;
   line-height: 18px;
@@ -129,7 +129,7 @@
   display: -webkit-box;
   max-height: 36px;
   overflow: hidden;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 18px;
   overflow-wrap: anywhere;
@@ -157,7 +157,7 @@
 }
 
 .resumeTitle {
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   font-size: 12px;
   font-weight: 600;
   line-height: 18px;
@@ -167,7 +167,7 @@
   display: -webkit-box;
   max-height: 36px;
   overflow: hidden;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 18px;
   overflow-wrap: anywhere;
@@ -186,7 +186,7 @@
   grid-template-columns: auto minmax(0, 1fr);
   gap: 8px;
   min-width: 0;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   font-size: 12px;
   line-height: 18px;
 }

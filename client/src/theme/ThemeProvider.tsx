@@ -23,6 +23,7 @@ export function AppThemeProvider({ appearance, children }: { appearance: Appeara
     document.documentElement.dataset.colorMode = effectiveMode;
     document.documentElement.dataset.theme = selectedTheme.id;
     document.documentElement.style.colorScheme = effectiveMode;
+    window.dispatchEvent(new CustomEvent('app-theme-change'));
   }, [effectiveMode, selectedTheme.id, tokens]);
 
   return <ConfigProvider locale={zhCN} theme={toAntdTheme(tokens, effectiveMode)}>{children}</ConfigProvider>;

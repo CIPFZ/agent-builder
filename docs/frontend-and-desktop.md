@@ -71,6 +71,11 @@ Feature CSS Modules 只消费语义变量；新增主题不应要求修改业务
 新增内置配色方案时，应建立独立主题目录并实现 `AppTheme` 契约，然后在
 Registry 中注册。无法解析的主题 ID 必须回退到 `builtin.default`。
 
+运行 `cd client && npm run lint:theme-colors` 可检查业务代码是否重新引入
+固定的 hex、rgb 或 rgba 颜色。固定颜色只允许出现在主题定义和终端 ANSI
+调色板中；其他视觉表面必须使用 `--app-*` 语义变量。终端背景、前景、
+光标和选区来自当前主题，ANSI 色则分别维护经过可读性校验的浅色和深色表。
+
 ## Wails 桌面壳
 
 `desktop/main.go` 注册 `RuntimeBridge`，嵌入前端产物并创建最小尺寸受控的主窗口。`desktop/scripts/sync-client-dist.mjs` 负责把共享客户端构建到桌面资源目录。

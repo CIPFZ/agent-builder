@@ -4,17 +4,17 @@
   min-height: 100vh;
   place-items: center;
   padding: 24px;
-  color: #1f2328;
-  background: #f6f8fa;
+  color: var(--app-text-primary);
+  background: var(--app-surface-muted);
 }
 
 .panel {
   width: min(560px, 100%);
   padding: 24px;
-  background: #ffffff;
-  border: 1px solid #d0d7de;
+  background: var(--app-surface-elevated);
+  border: 1px solid var(--app-border-default);
   border-radius: 8px;
-  box-shadow: 0 16px 42px rgb(31 35 40 / 10%);
+  box-shadow: 0 16px 42px var(--app-shadow-color);
 }
 
 .panel h1 {
@@ -25,7 +25,7 @@
 
 .panel p {
   margin: 0 0 16px;
-  color: #57606a;
+  color: var(--app-text-secondary);
 }
 
 .panel pre {
@@ -34,5 +34,5 @@
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #cf222e;
+  color: var(--app-color-error);
 }

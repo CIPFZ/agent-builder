@@ -38,7 +38,7 @@
   max-width: min(58vw, 720px);
   margin: 0;
   overflow: hidden;
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   font-size: 15px;
   font-weight: 600;
   line-height: 22px;
@@ -51,7 +51,7 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  color: rgba(0, 0, 0, 0.34);
+  color: var(--app-text-tertiary);
   font-size: 11px;
   line-height: 1;
 }
@@ -67,13 +67,13 @@
 .headerIconButton {
   width: 32px;
   height: 32px;
-  color: rgba(0, 0, 0, 0.55);
+  color: var(--app-text-secondary);
 }
 
 .headerIconButton:hover,
 .headerIconButton:focus-visible {
-  color: rgba(0, 0, 0, 0.88) !important;
-  background: #e6e6e6 !important;
+  color: var(--app-text-primary) !important;
+  background: var(--app-surface-active) !important;
   border-color: transparent !important;
   box-shadow: none !important;
 }
@@ -81,22 +81,22 @@
 .headerIconButtonActive,
 .headerIconButtonActive:hover,
 .headerIconButtonActive:focus-visible {
-  color: rgba(0, 0, 0, 0.88) !important;
-  background: #f3f3f3 !important;
+  color: var(--app-text-primary) !important;
+  background: var(--app-surface-hover) !important;
   border-color: transparent !important;
   box-shadow: none !important;
 }
 
 .headerIconButton:active,
 .headerIconButtonActive:active {
-  color: rgba(0, 0, 0, 0.88) !important;
-  background: #f3f3f3 !important;
+  color: var(--app-text-primary) !important;
+  background: var(--app-surface-hover) !important;
   border-color: transparent !important;
   box-shadow: none !important;
 }
 
 .workspace[data-sidebar-collapsed='true'] .headerIconButton {
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--app-text-tertiary);
 }
 
 .content {
@@ -128,8 +128,8 @@
   width: min(860px, calc(100% - 48px));
   height: 500px;
   background:
-    radial-gradient(circle at 20% 20%, rgb(250 173 20 / 10%), transparent 36%),
-    radial-gradient(circle at 80% 10%, rgb(22 119 255 / 8%), transparent 34%);
+    radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--app-color-warning) 10%, transparent), transparent 36%),
+    radial-gradient(circle at 80% 10%, color-mix(in srgb, var(--app-color-primary) 8%, transparent), transparent 34%);
   border-radius: 50%;
   content: "";
   filter: blur(28px);
@@ -150,15 +150,15 @@
   border: 1px solid var(--ant-color-border-secondary);
   border-radius: 24px;
   box-shadow:
-    0 18px 48px rgb(0 0 0 / 8%),
-    0 2px 8px rgb(0 0 0 / 4%);
+    0 18px 48px var(--app-shadow-color),
+    0 2px 8px color-mix(in srgb, var(--app-shadow-color) 50%, transparent);
   backdrop-filter: blur(16px);
 }
 
 .startContent :global([data-testid='composer'] .ant-sender),
 .startContent :global([data-testid='composer'] .ant-sender:focus-within),
 .startContent :global([data-testid='composer'] .ant-sender-focused) {
-  border: 1px solid rgb(218, 218, 218);
+  border: 1px solid var(--app-border-default);
   box-shadow: none;
 }
 
@@ -173,7 +173,7 @@
   padding: 24px 0 0;
   overflow-y: auto;
   overscroll-behavior: none;
-  scrollbar-color: #ececec transparent;
+  scrollbar-color: var(--app-border-default) transparent;
   scrollbar-gutter: stable;
 }
 
@@ -186,14 +186,14 @@
 }
 
 .chatContent::-webkit-scrollbar-thumb {
-  background: #ececec;
-  border: 2px solid #ffffff;
+  background: var(--app-surface-active);
+  border: 2px solid var(--app-surface-panel);
   border-radius: 999px;
 }
 
 .chatContent::-webkit-scrollbar-thumb:hover,
 .chatContent::-webkit-scrollbar-thumb:active {
-  background: #5a5a5a;
+  background: var(--app-text-tertiary);
 }
 
 .conversation {
@@ -220,7 +220,7 @@
 
 .historyLoading {
   padding: 8px 0 16px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   font-size: 12px;
   text-align: center;
 }
@@ -237,7 +237,7 @@
   width: min(820px, calc(100% - 80px));
   margin: 28px auto 0;
   padding: 0 4px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   font-size: 14px;
   line-height: 22px;
 }
@@ -246,7 +246,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.28);
+  background: color-mix(in srgb, var(--app-text-primary) 28%, transparent);
   animation: session-loading-pulse 1.2s ease-in-out infinite;
 }
 
@@ -281,15 +281,15 @@
 }
 
 .assistantBubble :global(.ant-bubble-content) {
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   white-space: normal;
 }
 
 .userBubble :global(.ant-bubble-content) {
   padding: 10px 14px;
   border-radius: 16px;
-  background: #f2f2f2;
-  color: rgba(0, 0, 0, 0.88);
+  background: var(--app-surface-hover);
+  color: var(--app-text-primary);
   white-space: normal;
 }
 
@@ -298,7 +298,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  color: rgb(13 13 13 / 56%);
+  color: var(--app-text-secondary);
 }
 
 .userMessageActions {
@@ -307,13 +307,13 @@
 
 .assistantMessageActions :global(.ant-btn),
 .userMessageActions :global(.ant-btn) {
-  color: rgb(13 13 13 / 56%);
+  color: var(--app-text-secondary);
 }
 
 .assistantMessageActions :global(.ant-btn:hover),
 .userMessageActions :global(.ant-btn:hover) {
-  color: #0d0d0d;
-  background: rgb(13 13 13 / 6%);
+  color: var(--app-text-primary);
+  background: var(--app-surface-muted);
 }
 
 .messageTime {
@@ -403,9 +403,9 @@
   min-width: 0;
   min-height: 0;
   height: auto;
-  background: #ffffff;
-  border-left: 1px solid #d9d9d9;
-  box-shadow: -12px 0 30px rgb(0 0 0 / 14%);
+  background: var(--app-surface-elevated);
+  border-left: 1px solid var(--app-border-default);
+  box-shadow: -12px 0 30px var(--app-shadow-color);
 }
 
 .rightPanelSplitter {
@@ -424,18 +424,18 @@
   bottom: 0;
   left: 1px;
   width: 1px;
-  background: #d9d9d9;
+  background: var(--app-border-default);
   content: "";
 }
 
 .rightPanelSplitter:hover::before,
 .rightPanelSplitter:focus-visible::before {
-  background: #bdbdbd;
+  background: var(--app-text-tertiary);
 }
 
 .rightPanelNoTabs {
   grid-template-rows: minmax(0, 1fr);
-  background: #ffffff;
+  background: var(--app-surface-panel);
 }
 
 .rightPanelLauncher {
@@ -456,11 +456,11 @@
   min-height: clamp(48px, 6.5vw, 58px);
   padding: 0 14px;
   gap: 12px;
-  color: rgba(0, 0, 0, 0.82);
+  color: var(--app-text-primary);
   font: inherit;
   font-size: 15px;
   text-align: left;
-  background: #f4f4f4;
+  background: var(--app-surface-muted);
   border: 0;
   border-radius: 8px;
   cursor: pointer;
@@ -468,12 +468,12 @@
 
 .rightPanelLauncherItem:hover,
 .rightPanelLauncherItem:focus-visible {
-  background: #ebedf0;
+  background: var(--app-surface-active);
   outline: none;
 }
 
 .rightPanelLauncherItem > :global(.anticon) {
-  color: rgba(0, 0, 0, 0.58);
+  color: var(--app-text-secondary);
   font-size: 17px;
 }
 
@@ -488,11 +488,11 @@
   min-width: 0;
   max-width: min(132px, 36vw);
   padding: 2px 8px;
-  color: rgba(0, 0, 0, 0.58);
+  color: var(--app-text-secondary);
   font: inherit;
   font-size: 12px;
   line-height: 18px;
-  background: #e5e5e5;
+  background: var(--app-border-subtle);
   border: 0;
   border-radius: 999px;
   overflow: hidden;
@@ -507,8 +507,8 @@
   height: 52px;
   padding: 0 10px;
   gap: 6px;
-  background: #ffffff;
-  border-bottom: 1px solid #dfe3e8;
+  background: var(--app-surface-panel);
+  border-bottom: 1px solid var(--app-border-default);
 }
 
 .terminalTabs {
@@ -527,7 +527,7 @@
 .terminalTabsOverflow {
   flex: 1 1 auto;
   max-width: none;
-  mask-image: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, black 12px, black calc(100% - 12px), transparent 100%);
 }
 
 .terminalTabs::-webkit-scrollbar {
@@ -545,15 +545,15 @@
   width: 24px;
   min-width: 24px;
   height: 30px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   border-color: transparent !important;
   box-shadow: none !important;
 }
 
 .terminalScrollButton:hover,
 .terminalScrollButton:focus-visible {
-  color: rgba(0, 0, 0, 0.82) !important;
-  background: #f3f3f3 !important;
+  color: var(--app-text-primary) !important;
+  background: var(--app-surface-hover) !important;
 }
 
 .terminalTab {
@@ -566,7 +566,7 @@
   height: 30px;
   padding: 0 8px 0 10px;
   gap: 8px;
-  color: rgba(0, 0, 0, 0.62);
+  color: var(--app-text-secondary);
   font: inherit;
   font-size: 12px;
   background: transparent;
@@ -588,23 +588,23 @@
 }
 
 .terminalTab:hover {
-  color: rgba(0, 0, 0, 0.88);
-  background: #f3f3f3;
+  color: var(--app-text-primary);
+  background: var(--app-surface-hover);
 }
 
 .terminalTabActive {
-  color: rgba(0, 0, 0, 0.88);
-  background: #f3f3f3;
+  color: var(--app-text-primary);
+  background: var(--app-surface-hover);
 }
 
 .terminalTabClose {
   flex: 0 0 auto;
-  color: rgba(0, 0, 0, 0.42);
+  color: var(--app-text-tertiary);
   font-size: 10px;
 }
 
 .terminalTabClose:hover {
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
 }
 
 .terminalPane {
@@ -613,8 +613,8 @@
   min-height: 0;
   padding: 10px 12px;
   overflow: hidden;
-  color: #111111;
-  background: #ffffff;
+  color: var(--app-text-primary);
+  background: var(--app-surface-panel);
   font-family: "Cascadia Mono", Consolas, "SFMono-Regular", monospace;
   font-size: 13px;
   line-height: 1.45;
@@ -628,7 +628,7 @@
   height: 100%;
   overflow: hidden;
   cursor: text;
-  scrollbar-color: #d8d8d8 transparent;
+  scrollbar-color: var(--app-border-default) transparent;
   scrollbar-width: thin;
 }
 
@@ -639,8 +639,8 @@
 
 .terminalScreen :global(.xterm-viewport) {
   overflow-y: auto;
-  background: #ffffff !important;
-  scrollbar-color: rgba(0, 0, 0, 0.22) transparent;
+  background: var(--app-surface-panel) !important;
+  scrollbar-color: var(--app-border-default) transparent;
   scrollbar-width: thin;
 }
 
@@ -655,17 +655,17 @@
 
 .terminalScreen :global(.xterm-viewport::-webkit-scrollbar-thumb) {
   min-height: 36px;
-  border: 2px solid #ffffff;
+  border: 2px solid var(--app-surface-panel);
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.22);
+  background: color-mix(in srgb, var(--app-text-primary) 22%, transparent);
 }
 
 .terminalScreen :global(.xterm-viewport::-webkit-scrollbar-thumb:hover) {
-  background: rgba(0, 0, 0, 0.36);
+  background: color-mix(in srgb, var(--app-text-primary) 36%, transparent);
 }
 
 .terminalScreen :global(.xterm-screen) {
-  background: #ffffff;
+  background: var(--app-surface-panel);
 }
 
 .terminalPromptMeta,
@@ -685,43 +685,43 @@
 }
 
 .terminalUser {
-  color: #00a038;
+  color: var(--app-syntax-added);
 }
 
 .terminalShell {
-  color: #781eea;
+  color: var(--app-syntax-keyword);
 }
 
 .terminalPath {
-  color: #f2a000;
+  color: var(--app-syntax-string);
 }
 
 .terminalBranch {
-  color: #006adc;
+  color: var(--app-syntax-link);
 }
 
 .terminalHistoryLine {
-  color: #111111;
+  color: var(--app-text-primary);
 }
 
 .terminalHistoryLineCommand {
-  color: #0f172a;
+  color: var(--app-text-primary);
   font-weight: 600;
 }
 
 .terminalHistoryLineError {
-  color: #b42318;
+  color: var(--app-syntax-removed);
 }
 
 .terminalHistoryLineSystem {
-  color: rgba(0, 0, 0, 0.52);
+  color: var(--app-text-tertiary);
 }
 
 .terminalCommandLine {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  color: #111111;
+  color: var(--app-text-primary);
 }
 
 .terminalCommandLine span {
@@ -737,12 +737,12 @@
   background: transparent;
   border: 0;
   outline: none;
-  caret-color: #111111;
+  caret-color: var(--app-text-primary);
 }
 
 .terminalCommandLine input::selection {
-  color: #ffffff;
-  background: #1967d2;
+  color: var(--app-surface-panel);
+  background: var(--app-color-primary);
 }
 
 .sideToolPane {
@@ -750,8 +750,8 @@
   min-height: 0;
   padding: 18px;
   overflow: auto;
-  color: rgba(0, 0, 0, 0.78);
-  background: #ffffff;
+  color: var(--app-text-primary);
+  background: var(--app-surface-elevated);
 }
 
 .reviewStack,
@@ -764,18 +764,18 @@
 
 .sideToolTitle {
   margin-bottom: 10px;
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   font-size: 14px;
   font-weight: 600;
 }
 
 .sideToolEmpty {
   padding: 14px;
-  color: rgba(0, 0, 0, 0.55);
+  color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 1.6;
-  background: #f6f7f9;
-  border: 1px solid #edf0f3;
+  background: var(--app-surface-muted);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 6px;
 }
 

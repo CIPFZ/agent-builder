@@ -25,7 +25,7 @@
   align-items: center;
   min-width: 0;
   gap: 8px;
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   font-size: 13px;
   font-weight: 600;
   line-height: 20px;
@@ -50,19 +50,19 @@
 }
 
 .metricIcon {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   line-height: 18px;
 }
 
 .metricLabel {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   font-size: 12px;
   line-height: 18px;
 }
 
 .metricValue {
   min-width: 0;
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   font-size: 12px;
   line-height: 18px;
   overflow-wrap: anywhere;
@@ -76,7 +76,7 @@
 }
 
 .sectionTitle {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   font-size: 12px;
   line-height: 18px;
 }
@@ -118,7 +118,7 @@
 
 .paths li {
   min-width: 0;
-  color: rgba(0, 0, 0, 0.72);
+  color: var(--app-text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
   line-height: 16px;
@@ -137,7 +137,7 @@
 .truncate {
   min-width: 0;
   overflow: hidden;
-  color: rgba(0, 0, 0, 0.72);
+  color: var(--app-text-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

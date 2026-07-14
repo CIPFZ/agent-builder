@@ -24,6 +24,11 @@ export interface AppThemeTokens {
   borderSubtle: string;
   focusRing: string;
   shadowColor: string;
+  syntaxAdded: string;
+  syntaxKeyword: string;
+  syntaxString: string;
+  syntaxLink: string;
+  syntaxRemoved: string;
 }
 
 export interface AppTheme {

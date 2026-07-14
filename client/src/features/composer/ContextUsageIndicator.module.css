@@ -121,7 +121,7 @@
 .meter::-webkit-meter-bar {
   border: 0;
   border-radius: 999px;
-  background: rgb(0 0 0 / 8%);
+  background: var(--app-surface-active);
 }
 
 .meter::-webkit-meter-optimum-value,

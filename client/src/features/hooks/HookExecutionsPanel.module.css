@@ -86,7 +86,7 @@
 
 .rowMeta {
   flex-wrap: wrap;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   font-size: 11px;
   line-height: 16px;
 }

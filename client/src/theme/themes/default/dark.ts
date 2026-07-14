@@ -6,4 +6,5 @@ export const defaultDarkTokens: AppThemeTokens = {
   surfaceHover: '#303030', surfaceActive: '#3a3a3a', textPrimary: '#f5f5f5', textSecondary: '#bfbfbf',
   textTertiary: '#8c8c8c', borderDefault: '#424242', borderSubtle: '#303030', focusRing: 'rgb(255 255 255 / 14%)',
   shadowColor: 'rgb(0 0 0 / 45%)',
+  syntaxAdded: '#49aa19', syntaxKeyword: '#b37feb', syntaxString: '#d89614', syntaxLink: '#69b1ff', syntaxRemoved: '#ff7875',
 };

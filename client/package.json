@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "build:dev": "tsc -b && vite build --mode development",
     "lint": "eslint .",
+    "lint:theme-colors": "node scripts/theme-color-guard.mjs",
     "preview": "vite preview",
     "smoke:phase07": "node scripts/canonical-conversation-cutover-smoke.mjs",
     "smoke:phase7-packaged": "node scripts/phase7-packaged-canonical-conversation-smoke.mjs",

@@ -147,7 +147,7 @@
   font-size: 14px;
   line-height: 1.5715;
   pointer-events: none;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   white-space: nowrap;
 }
 
@@ -225,14 +225,14 @@
 .projectMainButton :global(.anticon) {
   flex: 0 0 18px;
   margin-inline-end: 10px;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--app-text-secondary);
   text-align: center;
 }
 
 .rowText,
 .sessionTitle {
   min-width: 0;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--app-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -305,7 +305,7 @@
   flex: 0 0 auto;
   align-items: center;
   margin-left: 2px;
-  color: rgba(0, 0, 0, 0.55);
+  color: var(--app-text-secondary);
   font-size: 11px;
   opacity: 0;
   pointer-events: none;
@@ -324,7 +324,7 @@
   height: 24px;
   padding: 0;
   border-radius: 6px;
-  color: rgba(0, 0, 0, 0.62);
+  color: var(--app-text-secondary);
 }
 
 .projectActionButton,
@@ -399,13 +399,13 @@
 .projectSessionRow .projectSessionButton:global(.ant-btn):active {
   background: transparent !important;
   box-shadow: none !important;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--app-text-secondary);
 }
 
 .projectSessionTitle {
   min-width: 0;
   overflow: hidden;
-  color: rgba(0, 0, 0, 0.62);
+  color: var(--app-text-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -413,7 +413,7 @@
 .projectSessionAge {
   flex: 0 0 auto;
   margin-left: 10px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   transition: opacity 120ms ease;
 }
 
@@ -423,7 +423,7 @@
   align-items: center;
   justify-content: center;
   margin-left: 6px;
-  color: rgba(0, 0, 0, 0.32);
+  color: var(--app-text-tertiary);
   font-size: 10px;
   line-height: 1;
 }
@@ -432,7 +432,7 @@
 .projectSessionButton:focus-visible .projectSessionTitle,
 .projectSessionButton:active .projectSessionTitle,
 .projectSessionRow.currentRow .projectSessionTitle {
-  color: rgba(0, 0, 0, 0.62);
+  color: var(--app-text-secondary);
 }
 
 .projectSessionButton:hover .projectSessionAge,
@@ -441,7 +441,7 @@
 .projectSessionRow.currentRow .projectSessionAge,
 .projectSessionRow:hover .projectSessionAge,
 .projectSessionRow:has(.sessionActionsButton[aria-expanded='true']) .projectSessionAge {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   opacity: 1;
 }
 
@@ -490,7 +490,7 @@
 .sessionRow .sessionButton:global(.ant-btn):active {
   background: transparent !important;
   box-shadow: none !important;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--app-text-secondary);
 }
 
 .sessionActionsButton {
@@ -534,7 +534,7 @@
   justify-content: center;
   width: 14px;
   height: 14px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   font-size: 13px;
   pointer-events: none;
   transition: opacity 120ms ease;
@@ -556,21 +556,21 @@
 .sessionAge {
   flex: 0 0 auto;
   margin-left: 10px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .sessionButton:hover .sessionTitle,
 .sessionButton:focus-visible .sessionTitle,
 .sessionButton:active .sessionTitle,
 .sessionRow.currentRow .sessionTitle {
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--app-text-secondary);
 }
 
 .sessionButton:hover .sessionAge,
 .sessionButton:focus-visible .sessionAge,
 .sessionButton:active .sessionAge,
 .sessionRow.currentRow .sessionAge {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .footer {
@@ -607,14 +607,14 @@
 }
 
 .projectNameTitle {
-  color: rgba(0, 0, 0, 0.92);
+  color: var(--app-text-primary);
   font-size: 18px;
   font-weight: 700;
   line-height: 1.25;
 }
 
 .projectNameSubtitle {
-  color: rgba(0, 0, 0, 0.42);
+  color: var(--app-text-tertiary);
   font-size: 14px;
   font-weight: 400;
   line-height: 1.45;
@@ -629,7 +629,7 @@
 
 .projectNameHint {
   margin-top: 8px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -645,7 +645,7 @@
 .projectNameSaveButton,
 .projectNameSaveButton:hover,
 .projectNameSaveButton:focus-visible {
-  border-color: #111111;
-  background: #111111;
-  color: #ffffff;
+  border-color: var(--app-text-primary);
+  background: var(--app-text-primary);
+  color: var(--app-surface-panel);
 }

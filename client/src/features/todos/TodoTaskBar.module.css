@@ -72,7 +72,7 @@
   align-items: center;
   justify-content: center;
   width: 16px;
-  color: rgba(0, 0, 0, 0.48);
+  color: var(--app-text-tertiary);
 }
 
 .taskChip .icon {
@@ -117,7 +117,7 @@
 }
 
 .popoverTitle {
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   font-size: 13px;
   font-weight: 600;
   line-height: 20px;
@@ -125,7 +125,7 @@
 
 .popoverSubtitle {
   max-width: 260px;
-  color: rgba(0, 0, 0, 0.48);
+  color: var(--app-text-tertiary);
   font-size: 12px;
   line-height: 18px;
 }
@@ -133,14 +133,14 @@
 .count,
 .status {
   flex: 0 0 auto;
-  color: rgba(0, 0, 0, 0.48);
+  color: var(--app-text-tertiary);
   font-size: 11px;
   line-height: 18px;
 }
 
 .count {
   padding: 1px 7px;
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--app-surface-muted);
   border-radius: 999px;
 }
 
@@ -151,7 +151,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 4px;
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  scrollbar-color: var(--app-border-default) transparent;
   scrollbar-width: thin;
 }
 
@@ -160,7 +160,7 @@
 }
 
 .list::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.18);
+  background: color-mix(in srgb, var(--app-text-primary) 18%, transparent);
   border-radius: 999px;
 }
 
@@ -172,13 +172,13 @@
   gap: 8px;
   min-height: 26px;
   padding: 2px 0;
-  color: rgba(0, 0, 0, 0.72);
+  color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 18px;
 }
 
 .item[data-status='in_progress'] .itemText {
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   font-weight: 500;
 }
 
@@ -187,13 +187,13 @@
 }
 
 .item[data-status='completed'] .itemText {
-  color: rgba(0, 0, 0, 0.42);
+  color: var(--app-text-tertiary);
   text-decoration: line-through;
 }
 
 .item[data-status='stopped'] .itemIcon,
 .item[data-status='stopped'] .itemText {
-  color: rgba(0, 0, 0, 0.48);
+  color: var(--app-text-tertiary);
 }
 
 @media (max-width: 820px) {

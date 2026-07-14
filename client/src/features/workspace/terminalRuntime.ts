@@ -1,6 +1,6 @@
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal as XtermTerminal } from '@xterm/xterm';
-import type { IDisposable } from '@xterm/xterm';
+import type { IDisposable, ITheme } from '@xterm/xterm';
 import type { TerminalEventViewModel, TerminalViewModel } from '../../runtime/workbenchTypes.ts';
 
 export interface TerminalRuntime {
@@ -23,6 +23,36 @@ export interface TerminalRuntime {
 }
 
 const terminalRuntimes = new Map<string, TerminalRuntime>();
+
+const terminalANSIThemes: Record<'light' | 'dark', ITheme> = {
+  light: {
+    black: '#000000', red: '#b42318', green: '#008f3a', yellow: '#a46f00', blue: '#0057c2', magenta: '#7a2ce0', cyan: '#007a7a', white: '#e8e8e8',
+    brightBlack: '#5f6368', brightRed: '#d92d20', brightGreen: '#079455', brightYellow: '#b7791f', brightBlue: '#1967d2', brightMagenta: '#9333ea', brightCyan: '#0891b2', brightWhite: '#111111',
+  },
+  dark: {
+    black: '#1f1f1f', red: '#ff7875', green: '#73d13d', yellow: '#ffc53d', blue: '#69b1ff', magenta: '#b37feb', cyan: '#5cdbd3', white: '#d9d9d9',
+    brightBlack: '#8c8c8c', brightRed: '#ffa39e', brightGreen: '#95de64', brightYellow: '#ffd666', brightBlue: '#91caff', brightMagenta: '#d3adf7', brightCyan: '#87e8de', brightWhite: '#f5f5f5',
+  },
+};
+
+function terminalTheme(): ITheme {
+  const mode = document.documentElement.dataset.colorMode === 'dark' ? 'dark' : 'light';
+  const style = getComputedStyle(document.documentElement);
+  return {
+    ...terminalANSIThemes[mode],
+    background: style.getPropertyValue('--app-surface-panel').trim(),
+    foreground: style.getPropertyValue('--app-text-primary').trim(),
+    cursor: style.getPropertyValue('--app-text-primary').trim(),
+    selectionBackground: style.getPropertyValue('--app-surface-active').trim(),
+  };
+}
+
+window.addEventListener('app-theme-change', () => {
+  const nextTheme = terminalTheme();
+  for (const runtime of terminalRuntimes.values()) {
+    if (!runtime.disposed) runtime.xterm.options.theme = nextTheme;
+  }
+});
 
 export function terminalRuntimeByID(terminalID: string) {
   return terminalRuntimes.get(terminalID);
@@ -66,28 +96,7 @@ export function getTerminalRuntime(
     fontSize: 13,
     lineHeight: 1.25,
     scrollback: 5000,
-    theme: {
-      background: '#ffffff',
-      foreground: '#111111',
-      cursor: '#111111',
-      selectionBackground: '#cfe3ff',
-      black: '#000000',
-      red: '#b42318',
-      green: '#008f3a',
-      yellow: '#a46f00',
-      blue: '#0057c2',
-      magenta: '#7a2ce0',
-      cyan: '#007a7a',
-      white: '#e8e8e8',
-      brightBlack: '#5f6368',
-      brightRed: '#d92d20',
-      brightGreen: '#079455',
-      brightYellow: '#b7791f',
-      brightBlue: '#1967d2',
-      brightMagenta: '#9333ea',
-      brightCyan: '#0891b2',
-      brightWhite: '#111111',
-    },
+    theme: terminalTheme(),
   });
   const fitAddon = new FitAddon();
   xterm.loadAddon(fitAddon);

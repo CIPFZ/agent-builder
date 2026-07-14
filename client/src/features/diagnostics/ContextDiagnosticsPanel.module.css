@@ -25,7 +25,7 @@
   align-items: center;
   min-width: 0;
   gap: 8px;
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   font-size: 13px;
   font-weight: 600;
   line-height: 20px;
@@ -76,7 +76,7 @@
 }
 
 .metricIcon {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   line-height: 18px;
 }
 
@@ -88,7 +88,7 @@
 }
 
 .sectionTitle {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   font-size: 12px;
   line-height: 18px;
 }
@@ -167,7 +167,7 @@
 }
 
 .compactRow > span {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   line-height: 20px;
 }
 
@@ -190,7 +190,7 @@
 }
 
 .footer > span:first-child {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .truncate {

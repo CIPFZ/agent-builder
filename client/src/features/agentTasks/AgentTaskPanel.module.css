@@ -4,7 +4,7 @@
   min-width: 0;
   gap: 12px;
   padding: 12px 0;
-  border-bottom: 1px solid #edf0f3;
+  border-bottom: 1px solid var(--app-border-subtle);
 }
 
 .header,
@@ -27,7 +27,7 @@
   align-items: center;
   min-width: 0;
   gap: 8px;
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   font-size: 14px;
   font-weight: 600;
 }
@@ -54,7 +54,7 @@
 
 .taskGroupLabel {
   overflow: hidden;
-  color: rgba(0, 0, 0, 0.48);
+  color: var(--app-text-tertiary);
   font-size: 11px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -68,9 +68,9 @@
   min-width: 0;
   padding: 8px;
   gap: 2px;
-  color: rgba(0, 0, 0, 0.68);
+  color: var(--app-text-secondary);
   text-align: left;
-  background: #f6f7f9;
+  background: var(--app-surface-muted);
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
@@ -78,9 +78,9 @@
 
 .taskButton:hover,
 .taskButtonActive {
-  color: rgba(0, 0, 0, 0.88);
-  background: #ffffff;
-  border-color: #d9d9d9;
+  color: var(--app-text-primary);
+  background: var(--app-surface-elevated);
+  border-color: var(--app-border-default);
 }
 
 .taskButtonTitle,
@@ -129,10 +129,10 @@
 
 .roleDescription {
   padding: 7px 8px;
-  color: rgba(0, 0, 0, 0.62);
+  color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 1.5;
-  background: #f6f7f9;
+  background: var(--app-surface-muted);
   border-radius: 6px;
 }
 
@@ -153,12 +153,12 @@
 }
 
 .infoRow dt {
-  color: rgba(0, 0, 0, 0.48);
+  color: var(--app-text-tertiary);
 }
 
 .infoRow dd {
   margin: 0;
-  color: rgba(0, 0, 0, 0.78);
+  color: var(--app-text-primary);
   white-space: nowrap;
 }
 
@@ -174,8 +174,8 @@
 .refs code {
   display: block;
   padding: 3px 6px;
-  color: rgba(0, 0, 0, 0.72);
-  background: #f6f7f9;
+  color: var(--app-text-secondary);
+  background: var(--app-surface-muted);
   border-radius: 4px;
   white-space: nowrap;
 }

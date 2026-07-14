@@ -27,7 +27,7 @@
   align-items: center;
   min-width: 0;
   gap: 8px;
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   font-size: 14px;
   font-weight: 600;
 }
@@ -53,7 +53,7 @@
   min-width: 0;
   padding: 8px;
   gap: 2px;
-  color: rgba(0, 0, 0, 0.68);
+  color: var(--app-text-secondary);
   text-align: left;
   background: var(--app-surface-muted);
   border: 1px solid transparent;
@@ -63,7 +63,7 @@
 
 .taskButton:hover,
 .taskButtonActive {
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text-primary);
   background: var(--app-surface-elevated);
   border-color: var(--app-border-default);
 }
@@ -121,12 +121,12 @@
 }
 
 .infoRow dt {
-  color: rgba(0, 0, 0, 0.48);
+  color: var(--app-text-tertiary);
 }
 
 .infoRow dd {
   margin: 0;
-  color: rgba(0, 0, 0, 0.78);
+  color: var(--app-text-primary);
   white-space: nowrap;
 }
 
@@ -142,7 +142,7 @@
 .refs code {
   display: block;
   padding: 3px 6px;
-  color: rgba(0, 0, 0, 0.72);
+  color: var(--app-text-secondary);
   background: var(--app-surface-muted);
   border-radius: 4px;
   white-space: nowrap;

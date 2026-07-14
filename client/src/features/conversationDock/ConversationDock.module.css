@@ -58,11 +58,11 @@
   height: 32px;
   min-width: 32px;
   padding: 0;
-  color: rgb(13 13 13 / 68%);
+  color: var(--app-text-secondary);
   font: inherit;
   font-size: 16px;
-  background: #ffffff;
-  border: 1px solid #e2e2e2;
+  background: var(--app-surface-elevated);
+  border: 1px solid var(--app-border-default);
   border-radius: 50%;
   box-shadow: none;
   appearance: none;
@@ -73,9 +73,9 @@
 .iconButton:focus-visible,
 .moreButton:hover,
 .moreButton:focus-visible {
-  color: #0d0d0d;
-  background: #f3f3f3;
-  border-color: #d2d2d2;
+  color: var(--app-text-primary);
+  background: var(--app-surface-hover);
+  border-color: var(--app-border-default);
   outline: none;
 }
 

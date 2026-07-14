@@ -8,7 +8,7 @@
   padding: 7px 10px;
   border: 1px solid color-mix(in srgb, var(--ant-color-warning) 42%, transparent);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--ant-color-warning) 10%, #fff);
+  background: color-mix(in srgb, var(--app-color-warning) 10%, var(--app-surface-panel));
   color: var(--ant-color-text-secondary);
   font-size: 12px;
   line-height: 1.35;
@@ -16,13 +16,13 @@
 
 .contextWarningWarn {
   border-color: color-mix(in srgb, var(--ant-color-warning) 55%, transparent);
-  background: color-mix(in srgb, var(--ant-color-warning) 14%, #fff);
+  background: color-mix(in srgb, var(--app-color-warning) 14%, var(--app-surface-panel));
   color: var(--ant-color-warning);
 }
 
 .contextWarningError {
   border-color: color-mix(in srgb, var(--ant-color-error) 42%, transparent);
-  background: color-mix(in srgb, var(--ant-color-error) 9%, #fff);
+  background: color-mix(in srgb, var(--app-color-error) 9%, var(--app-surface-panel));
   color: var(--ant-color-error);
 }
 
@@ -79,9 +79,9 @@
 }
 
 .rightControls .sendButton:disabled {
-  background: #8a8a8a;
-  border-color: #8a8a8a;
-  color: #fff;
+  background: var(--app-text-tertiary);
+  border-color: var(--app-text-tertiary);
+  color: var(--app-surface-panel);
   opacity: 1;
 }
 
@@ -95,22 +95,22 @@
 .rightControls .stopButton,
 .rightControls .stopButton:not(:disabled):hover,
 .rightControls .stopButton:not(:disabled):focus-visible {
-  background: #0d0d0d;
-  border-color: #0d0d0d;
-  box-shadow: 0 0 0 3px rgb(13 13 13 / 12%);
+  background: var(--app-text-primary);
+  border-color: var(--app-text-primary);
+  box-shadow: 0 0 0 3px var(--app-focus-ring);
 }
 
 .senderRoot.senderRootBusy :global(.ant-sender),
 .senderRoot.senderRootBusy :global(.ant-sender:focus-within) {
-  border-color: rgb(13 13 13 / 88%);
-  box-shadow: 0 0 0 2px rgb(13 13 13 / 10%);
+  border-color: var(--app-text-primary);
+  box-shadow: 0 0 0 2px var(--app-focus-ring);
 }
 
 .stopIcon {
   display: block;
   width: 12px;
   height: 12px;
-  background: #fff;
+  background: var(--app-surface-panel);
   border-radius: 3px;
 }
 
@@ -213,13 +213,13 @@
   min-height: 54px;
   margin: 0;
   padding: 9px 16px 10px;
-  background: rgb(243, 243, 243);
+  background: var(--app-surface-muted);
   border-radius: 0 0 24px 24px;
 }
 
 .limitBar .limitButton:hover,
 .limitBar .limitButton:focus-visible {
-  background: rgb(234, 234, 234) !important;
+  background: var(--app-surface-active) !important;
 }
 
 
