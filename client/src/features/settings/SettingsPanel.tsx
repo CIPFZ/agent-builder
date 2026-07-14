@@ -544,10 +544,9 @@ function ProviderEditorModal({
   const [messageApi, messageContextHolder] = message.useMessage();
   const defaultProviderID = providers[0]?.id ?? '';
   const [selectedProviderID, setSelectedProviderID] = useState(defaultProviderID);
+  const [modelRows, setModelRowsState] = useState<ProviderModelViewModel[]>([]);
   const [actionLoading, setActionLoading] = useState<'models' | 'test' | 'latency' | null>(null);
-  const watchedModels = Form.useWatch('models', form) ?? [];
   const watchedDefaultModel = Form.useWatch('defaultModel', form);
-  const modelRows = compactProviderModels(watchedModels);
   const hasInvalidModelLimits = hasInvalidProviderModelLimits(modelRows);
   const providerOptions = providers.map((provider) => ({
     label: provider.id === 'custom' ? 'Custom' : provider.name,
@@ -556,6 +555,7 @@ function ProviderEditorModal({
 
   const setModelRows = (models: ProviderModelViewModel[]) => {
     const compact = compactProviderModels(models);
+    setModelRowsState(compact);
     form.setFieldValue('models', compact);
   };
 
@@ -586,6 +586,7 @@ function ProviderEditorModal({
   const applyPreset = (providerID: string) => {
     const preset = providers.find((provider) => provider.id === providerID);
     setSelectedProviderID(providerID);
+    setModelRowsState([]);
     form.setFieldsValue({
       providerId: providerID,
       name: preset?.name ?? 'Custom',
@@ -703,6 +704,7 @@ function ProviderEditorModal({
         }
         if (editingProvider) {
           setSelectedProviderID(editingProvider.providerId);
+          setModelRowsState(compactProviderModels(editingProvider.models ?? []));
           form.setFieldsValue(editingProvider);
           return;
         }
@@ -710,7 +712,7 @@ function ProviderEditorModal({
       }}
     >
       {messageContextHolder}
-      <Form className={styles.providerForm} form={form} layout="vertical" preserve={false} requiredMark={false} onFinish={onSave}>
+      <Form className={styles.providerForm} form={form} layout="vertical" preserve={false} requiredMark={false} onFinish={(values) => onSave({ ...values, models: modelRows })}>
         <Form.Item name="providerId" hidden>
           <Input />
         </Form.Item>
@@ -783,7 +785,7 @@ function ProviderEditorModal({
                     ? <Tag>默认模型</Tag>
                     : <Button size="small" type="text" onClick={() => form.setFieldValue('defaultModel', model.id)}>设为默认</Button>,
                 },
-                { title: '', width: 64, render: (_value, _model, index) => <Button danger size="small" type="text" onClick={() => removeModelRow(index)}>删除</Button> },
+                { title: '操作', width: 80, render: (_value, _model, index) => <Button danger icon={<DeleteOutlined />} size="small" type="text" onClick={() => removeModelRow(index)}>删除</Button> },
               ]}
               dataSource={modelRows}
               locale={{ emptyText: '填写连接信息后获取模型列表' }}
