@@ -21,10 +21,12 @@ import { Sidebar } from '../../features/sidebar/Sidebar.tsx';
 import { SettingsPanel } from '../../features/settings/SettingsPanel.tsx';
 import { Workspace } from '../../features/workspace/Workspace.tsx';
 import styles from './WorkbenchShell.module.css';
+import type { AppearanceSettings } from '../../theme/contract.ts';
 
 interface WorkbenchShellProps {
   adapter: WorkbenchAdapter;
   viewModel: WorkbenchViewModel;
+  onAppearanceChange?: (appearance: AppearanceSettings) => void;
 }
 
 const SIDEBAR_DEFAULT_WIDTH = 280;
@@ -53,7 +55,7 @@ function clampSidebarWidth(width: number, maxWidth = getSidebarMaxWidth()) {
   return Math.min(maxWidth, Math.max(SIDEBAR_MIN_WIDTH, width));
 }
 
-export function WorkbenchShell({ adapter, viewModel: initialViewModel }: WorkbenchShellProps) {
+export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppearanceChange }: WorkbenchShellProps) {
   const [viewModel, setViewModel] = useState<WorkbenchViewModel>(initialViewModel);
   const [mode, setMode] = useState<WorkbenchMode>(initialViewModel.mode);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadSidebarPreferences().sidebarCollapsed);
@@ -812,6 +814,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const selectAppearance = async (appearance: import('../../theme/contract.ts').AppearanceSettings) => {
     const nextViewModel = await adapter.selectAppearance({ ...viewModelRef.current, mode: modeRef.current }, appearance);
     commitConversationAction(nextViewModel);
+    onAppearanceChange?.(nextViewModel.settings.appearance);
     return nextViewModel.settings;
   };
 
