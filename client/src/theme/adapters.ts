@@ -12,6 +12,22 @@ export function toAntdTheme(tokens: AppThemeTokens, mode: EffectiveColorMode): T
       colorTextTertiary: tokens.textTertiary, colorBorder: tokens.borderDefault, colorBorderSecondary: tokens.borderSubtle,
     },
     components: {
+      Button: {
+        defaultHoverColor: tokens.textPrimary,
+        defaultHoverBorderColor: tokens.borderDefault,
+        defaultActiveColor: tokens.textPrimary,
+        defaultActiveBorderColor: tokens.textTertiary,
+      },
+      Input: {
+        activeBorderColor: tokens.textPrimary,
+        hoverBorderColor: tokens.textSecondary,
+        activeShadow: `0 0 0 2px ${tokens.focusRing}`,
+      },
+      InputNumber: {
+        activeBorderColor: tokens.textPrimary,
+        hoverBorderColor: tokens.textSecondary,
+        activeShadow: `0 0 0 2px ${tokens.focusRing}`,
+      },
       Select: {
         activeBorderColor: tokens.textPrimary,
         activeOutlineColor: tokens.focusRing,

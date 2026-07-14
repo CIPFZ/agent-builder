@@ -291,6 +291,20 @@
   border-top: 1px solid var(--app-border-subtle);
 }
 
+.defaultModelButtonActive,
+.defaultModelButtonActive:hover,
+.defaultModelButtonActive:focus-visible {
+  color: var(--app-text-primary) !important;
+  background: var(--app-surface-active) !important;
+}
+
+.providerProxyField {
+  margin-top: 18px;
+  margin-bottom: 0 !important;
+  padding-top: 18px;
+  border-top: 1px solid var(--app-border-subtle);
+}
+
 .modelPickerList {
   max-height: min(420px, 52vh);
   margin-top: 12px;

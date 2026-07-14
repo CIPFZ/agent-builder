@@ -10,6 +10,8 @@ import {
   PlusOutlined,
   ReloadOutlined,
   SaveOutlined,
+  StarFilled,
+  StarOutlined,
   ThunderboltOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
@@ -30,6 +32,7 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { MenuProps } from 'antd';
@@ -780,16 +783,30 @@ function ProviderEditorModal({
                 {
                   title: '上下文窗口', width: 160,
                   render: (_value, model) => {
-                    return <InputNumber controls={false} min={16000} max={10000000} value={model.contextWindow || model.resolvedContextWindow || 200000} onChange={(value) => updateModelRow(modelRows.findIndex((row) => row.id === model.id), { contextWindow: value ?? 200000, source: 'user_override' })} />;
+                    const windowK = Math.round((model.contextWindow || model.resolvedContextWindow || 200000) / 1000);
+                    return <InputNumber addonAfter="K" controls={false} min={16} max={10000} value={windowK} onChange={(value) => updateModelRow(modelRows.findIndex((row) => row.id === model.id), { contextWindow: Math.round((value ?? 200) * 1000), source: 'user_override' })} />;
                   },
                 },
                 {
-                  title: '默认模型', width: 112,
-                  render: (_value, model) => watchedDefaultModel === model.id
-                    ? <Tag>默认模型</Tag>
-                    : <Button size="small" type="text" onClick={() => form.setFieldValue('defaultModel', model.id)}>设为默认</Button>,
+                  title: '操作', width: 112,
+                  render: (_value, model, index) => (
+                    <Flex align="center" gap={2}>
+                      <Tooltip title={watchedDefaultModel === model.id ? '当前默认模型' : '设为默认模型'}>
+                        <Button
+                          aria-label={watchedDefaultModel === model.id ? '当前默认模型' : '设为默认模型'}
+                          className={watchedDefaultModel === model.id ? styles.defaultModelButtonActive : ''}
+                          icon={watchedDefaultModel === model.id ? <StarFilled /> : <StarOutlined />}
+                          size="small"
+                          type="text"
+                          onClick={() => form.setFieldValue('defaultModel', model.id)}
+                        />
+                      </Tooltip>
+                      <Tooltip title="删除模型">
+                        <Button danger aria-label="删除模型" icon={<DeleteOutlined />} size="small" type="text" onClick={() => removeModelRow(index)} />
+                      </Tooltip>
+                    </Flex>
+                  ),
                 },
-                { title: '操作', width: 80, render: (_value, _model, index) => <Button danger icon={<DeleteOutlined />} size="small" type="text" onClick={() => removeModelRow(index)}>删除</Button> },
               ]}
               dataSource={modelRows}
               locale={{ emptyText: '填写连接信息后获取模型列表' }}
@@ -800,15 +817,9 @@ function ProviderEditorModal({
             />
           </div>
 
-          <Collapse
-            className={styles.providerAdvanced}
-            ghost
-            items={[{
-              key: 'advanced',
-              label: '高级选项',
-              children: <Form.Item label="代理" name="proxy"><Input placeholder="http://127.0.0.1:7890" /></Form.Item>,
-            }]}
-          />
+          <Form.Item className={styles.providerProxyField} label="代理" name="proxy">
+            <Input placeholder="http://127.0.0.1:7890" />
+          </Form.Item>
         </Card>
       </Form>
     </Modal>
