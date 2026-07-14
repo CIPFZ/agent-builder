@@ -88,6 +88,10 @@
   margin-top: 56px;
 }
 
+.commonSection {
+  margin-top: 0;
+}
+
 .providerHeader {
   gap: 24px;
 }

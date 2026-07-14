@@ -1356,6 +1356,13 @@ func (s *recordingRuntimeService) SaveAppearanceSettings(context.Context, Runtim
 	return RuntimeAppearanceSettingsResponse{}, nil
 }
 
+func (s *recordingRuntimeService) OpenTargetSettings(context.Context) (RuntimeOpenTargetSettingsResponse, error) {
+	return RuntimeOpenTargetSettingsResponse{}, nil
+}
+func (s *recordingRuntimeService) SaveOpenTargetSettings(context.Context, RuntimeOpenTargetSettings) (RuntimeOpenTargetSettingsResponse, error) {
+	return RuntimeOpenTargetSettingsResponse{}, nil
+}
+
 func (s *recordingRuntimeService) SaveTerminalSettings(context.Context, RuntimeTerminalSettings) (RuntimeTerminalSettingsResponse, error) {
 	return RuntimeTerminalSettingsResponse{}, nil
 }

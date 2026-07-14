@@ -538,6 +538,18 @@ type RuntimeAppearanceSettingsResponse struct {
 	Settings RuntimeAppearanceSettings `json:"settings"`
 }
 
+type RuntimeOpenTargetOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+type RuntimeOpenTargetSettings struct {
+	TargetID string                    `json:"targetId"`
+	Options  []RuntimeOpenTargetOption `json:"options"`
+}
+type RuntimeOpenTargetSettingsResponse struct {
+	Settings RuntimeOpenTargetSettings `json:"settings"`
+}
+
 type RuntimeTerminalStreamRequest struct {
 	Type      string `json:"type"`
 	Data      string `json:"data,omitempty"`

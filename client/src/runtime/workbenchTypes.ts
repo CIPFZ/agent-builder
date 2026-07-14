@@ -1363,6 +1363,7 @@ export interface WorkbenchAdapter {
   deleteTerminal: (terminalID: string) => Promise<void>;
   selectTerminalProfile: (current: WorkbenchViewModel, profileID: string) => Promise<WorkbenchViewModel>;
   selectAppearance: (current: WorkbenchViewModel, appearance: import('../theme/contract.ts').AppearanceSettings) => Promise<WorkbenchViewModel>;
+  selectOpenTarget: (current: WorkbenchViewModel, targetID: string) => Promise<WorkbenchViewModel>;
   saveConfiguredProvider: (
     current: WorkbenchViewModel,
     provider: ConfiguredProviderViewModel & { token?: string },

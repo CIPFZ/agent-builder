@@ -44,9 +44,9 @@ const settings = {
   ],
   permissions: [],
   permissionOptions: [],
-  defaultEditor: '',
+  defaultEditor: 'system',
   terminalProfile: '',
-  editorOptions: [],
+  editorOptions: [{ value: 'system', label: '系统文件管理器' }],
   terminalOptions: [],
   appearance: { colorMode: 'system' as const, themeId: 'builtin.default' },
   providerTypes: [],
@@ -224,6 +224,9 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
   },
   async selectAppearance(current, appearance) {
     return { ...current, settings: { ...current.settings, appearance } };
+  },
+  async selectOpenTarget(current, targetID) {
+    return { ...current, settings: { ...current.settings, defaultEditor: targetID } };
   },
   async saveConfiguredProvider() {
     return runtimeUnavailable();

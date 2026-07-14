@@ -4934,6 +4934,13 @@ func (s *recordingRuntimeService) SaveTerminalSettings(context.Context, RuntimeT
 	return RuntimeTerminalSettingsResponse{}, nil
 }
 
+func (s *recordingRuntimeService) OpenTargetSettings(context.Context) (RuntimeOpenTargetSettingsResponse, error) {
+	return RuntimeOpenTargetSettingsResponse{}, nil
+}
+func (s *recordingRuntimeService) SaveOpenTargetSettings(context.Context, RuntimeOpenTargetSettings) (RuntimeOpenTargetSettingsResponse, error) {
+	return RuntimeOpenTargetSettingsResponse{}, nil
+}
+
 func (s *recordingRuntimeService) SessionTerminals(_ context.Context, sessionID string) (RuntimeSessionTerminalsResponse, error) {
 	s.sessionTerminalsID = sessionID
 	if s.sessionTerminals.SessionID == "" {

@@ -78,6 +78,8 @@ type RuntimeTerminalSettings = runtime.RuntimeTerminalSettings
 type RuntimeTerminalSettingsResponse = runtime.RuntimeTerminalSettingsResponse
 type RuntimeAppearanceSettings = runtime.RuntimeAppearanceSettings
 type RuntimeAppearanceSettingsResponse = runtime.RuntimeAppearanceSettingsResponse
+type RuntimeOpenTargetSettings = runtime.RuntimeOpenTargetSettings
+type RuntimeOpenTargetSettingsResponse = runtime.RuntimeOpenTargetSettingsResponse
 type RuntimeTurn = runtime.RuntimeTurn
 type RuntimeTurnResponse = runtime.RuntimeTurnResponse
 type RuntimeTurnsResponse = runtime.RuntimeTurnsResponse
@@ -546,6 +548,14 @@ func (r *RuntimeBridge) AppearanceSettings(ctx context.Context) (RuntimeAppearan
 
 func (r *RuntimeBridge) SaveAppearanceSettings(ctx context.Context, req RuntimeAppearanceSettings) (RuntimeAppearanceSettingsResponse, error) {
 	return r.service.SaveAppearanceSettings(ctx, req)
+}
+
+func (r *RuntimeBridge) OpenTargetSettings(ctx context.Context) (RuntimeOpenTargetSettingsResponse, error) {
+	return r.service.OpenTargetSettings(ctx)
+}
+
+func (r *RuntimeBridge) SaveOpenTargetSettings(ctx context.Context, req RuntimeOpenTargetSettings) (RuntimeOpenTargetSettingsResponse, error) {
+	return r.service.SaveOpenTargetSettings(ctx, req)
 }
 
 func (r *RuntimeBridge) WriteTerminalInput(ctx context.Context, terminalID string, req RuntimeTerminalInputRequest) (RuntimeTerminalResponse, error) {

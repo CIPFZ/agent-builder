@@ -110,7 +110,11 @@ func (r *runtimeService) OpenProjectInExplorer(ctx context.Context, req RuntimeP
 	if err := requireRuntimeProjectDirectory(project.Path); err != nil {
 		return RuntimeOpenProjectResponse{}, err
 	}
-	if err := runtimeOpenPathInFileManager(project.Path); err != nil {
+	openTarget, settingsErr := loadRuntimeOpenTargetSettings(ctx)
+	if settingsErr != nil {
+		return RuntimeOpenProjectResponse{}, settingsErr
+	}
+	if err := runtimeOpenPathInTarget(project.Path, openTarget.TargetID); err != nil {
 		return RuntimeOpenProjectResponse{}, err
 	}
 	status, err := r.Status(ctx)

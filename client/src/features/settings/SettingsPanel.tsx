@@ -96,6 +96,7 @@ interface SettingsPanelProps {
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
   onTerminalProfileSelect: (profileID: string) => Promise<SettingsViewModel>;
   onAppearanceSelect: (appearance: AppearanceSettings) => Promise<SettingsViewModel>;
+  onOpenTargetSelect: (targetID: string) => Promise<SettingsViewModel>;
   onContextGovernanceLoad: () => Promise<ContextGovernanceSettingsViewModel>;
   onContextGovernanceSave: (settings: ContextGovernanceSettingsViewModel) => Promise<ContextGovernanceSettingsViewModel>;
   onSkillRefresh: () => Promise<SettingsViewModel>;
@@ -134,6 +135,7 @@ export function SettingsPanel({
   onModelSelect,
   onTerminalProfileSelect,
   onAppearanceSelect,
+  onOpenTargetSelect,
   onContextGovernanceLoad,
   onContextGovernanceSave,
   onSkillRefresh,
@@ -207,7 +209,7 @@ export function SettingsPanel({
           />
         );
       case 'common':
-        return <CommonSettings settings={settings} onTerminalProfileSelect={onTerminalProfileSelect} onAppearanceSelect={onAppearanceSelect} />;
+        return <CommonSettings settings={settings} onTerminalProfileSelect={onTerminalProfileSelect} onAppearanceSelect={onAppearanceSelect} onOpenTargetSelect={onOpenTargetSelect} onSettingsRefresh={onSettingsRefresh} />;
       case 'context':
         return (
           <ContextGovernanceSettings
@@ -1719,16 +1721,22 @@ function CommonSettings({
   settings,
   onTerminalProfileSelect,
   onAppearanceSelect,
+  onSettingsRefresh,
+  onOpenTargetSelect,
 }: {
   settings: SettingsViewModel;
   onTerminalProfileSelect: (profileID: string) => Promise<SettingsViewModel>;
   onAppearanceSelect: (appearance: AppearanceSettings) => Promise<SettingsViewModel>;
+  onSettingsRefresh: () => Promise<SettingsViewModel>;
+  onOpenTargetSelect: (targetID: string) => Promise<SettingsViewModel>;
 }) {
   const [terminalProfile, setTerminalProfile] = useState(settings.terminalProfile);
   const [savingTerminalProfile, setSavingTerminalProfile] = useState(false);
   const [messageApi, messageContextHolder] = message.useMessage();
   const selectedTerminalProfile = savingTerminalProfile ? terminalProfile : settings.terminalProfile || terminalProfile;
   const [savingAppearance, setSavingAppearance] = useState(false);
+  const [refreshingTerminals, setRefreshingTerminals] = useState(false);
+  const [savingOpenTarget, setSavingOpenTarget] = useState(false);
 
   const saveTerminalProfile = async (profileID: string) => {
     setTerminalProfile(profileID);
@@ -1756,11 +1764,34 @@ function CommonSettings({
     }
   };
 
+  const refreshTerminalProfiles = async () => {
+    if (refreshingTerminals) return;
+    setRefreshingTerminals(true);
+    try {
+      await onSettingsRefresh();
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : '终端环境刷新失败');
+    } finally {
+      setRefreshingTerminals(false);
+    }
+  };
+
+  const saveOpenTarget = async (targetID: string) => {
+    setSavingOpenTarget(true);
+    try {
+      await onOpenTargetSelect(targetID);
+      messageApi.success('默认打开目标已保存');
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : '默认打开目标保存失败');
+    } finally {
+      setSavingOpenTarget(false);
+    }
+  };
+
   return (
     <>
       {messageContextHolder}
-      <Title level={2}>通用</Title>
-      <section className={styles.section}>
+      <section className={`${styles.section} ${styles.commonSection}`}>
         <Card styles={{ body: { padding: 0 } }}>
           <Flex vertical>
             <Flex align="center" className={styles.listItem} gap={16} justify="space-between">
@@ -1787,11 +1818,13 @@ function CommonSettings({
                 <Text type="secondary">默认打开文件和文件夹的位置</Text>
               </Flex>
               <Select
-                defaultValue={settings.defaultEditor}
+                loading={savingOpenTarget}
                 options={settings.editorOptions}
                 popupMatchSelectWidth={false}
                 style={{ minWidth: 180 }}
                 variant="filled"
+                value={settings.defaultEditor}
+                onChange={(value) => void saveOpenTarget(value)}
               />
             </Flex>
             <Flex align="center" className={styles.listItem} gap={16} justify="space-between">
@@ -1800,13 +1833,16 @@ function CommonSettings({
                 <Text type="secondary">运行本地命令时使用的默认终端</Text>
               </Flex>
               <Select
-                loading={savingTerminalProfile}
+                loading={savingTerminalProfile || refreshingTerminals}
                 options={settings.terminalOptions}
                 popupMatchSelectWidth={false}
                 style={{ minWidth: 180 }}
                 value={selectedTerminalProfile}
                 variant="filled"
                 onChange={(value) => void saveTerminalProfile(value)}
+                onOpenChange={(open) => {
+                  if (open) void refreshTerminalProfiles();
+                }}
               />
             </Flex>
           </Flex>

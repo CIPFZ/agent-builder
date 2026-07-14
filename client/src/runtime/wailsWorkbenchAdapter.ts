@@ -509,6 +509,8 @@ interface RuntimeAppearanceSettingsResponseDTO {
   settings: RuntimeAppearanceSettingsDTO;
 }
 
+interface RuntimeOpenTargetSettingsResponseDTO { settings: { targetId: string; options: Array<{ id: string; label: string }> } }
+
 interface RuntimeTerminalEventDTO {
   terminalId?: string;
   terminal_id?: string;
@@ -1674,6 +1676,8 @@ interface RuntimeBridgeModule {
   SaveTerminalSettings?: (req: { profileId: string }) => Promise<RuntimeTerminalSettingsResponseDTO>;
   AppearanceSettings?: () => Promise<RuntimeAppearanceSettingsResponseDTO>;
   SaveAppearanceSettings?: (req: RuntimeAppearanceSettingsDTO) => Promise<RuntimeAppearanceSettingsResponseDTO>;
+  OpenTargetSettings?: () => Promise<RuntimeOpenTargetSettingsResponseDTO>;
+  SaveOpenTargetSettings?: (req: { targetId: string; options?: never[] }) => Promise<RuntimeOpenTargetSettingsResponseDTO>;
   WriteTerminalInput?: (terminalID: string, req: { data?: string; binaryBase64?: string }) => Promise<RuntimeTerminalResponseDTO>;
   ResizeTerminal?: (terminalID: string, req: { columns: number; rows: number }) => Promise<RuntimeTerminalResponseDTO>;
   StartTerminalEventStream?: (req: RuntimeTerminalStreamStartRequestDTO) => Promise<RuntimeTerminalStreamResponseDTO>;
@@ -3525,6 +3529,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     mcpServersResponse,
     terminalSettingsResponse,
     appearanceSettingsResponse,
+    openTargetSettingsResponse,
   ] = await Promise.all([
     optionalRuntimeRequest(() => bridge.Status()),
     fullHydration ? optionalRuntimeRequest(() => bridge.SidebarProjection?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
@@ -3542,6 +3547,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     fullHydration ? optionalRuntimeRequest(() => bridge.MCPServers?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
     fullHydration ? optionalRuntimeRequest(() => bridge.TerminalSettings?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
     fullHydration ? optionalRuntimeRequest(() => bridge.AppearanceSettings?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
+    fullHydration ? optionalRuntimeRequest(() => bridge.OpenTargetSettings?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ]);
   const projectedSessionsResponse: RuntimeSessionsResponseDTO | undefined = Array.isArray(sidebarProjection?.sessions)
     ? { sessions: sidebarProjection.sessions }
@@ -3676,6 +3682,8 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       terminalProfile: terminalSettingsResponse?.settings?.profileId ?? current.settings.terminalProfile,
       terminalOptions: mapTerminalProfileOptions(terminalSettingsResponse) ?? current.settings.terminalOptions,
       appearance: appearanceSettingsResponse?.settings ?? current.settings.appearance,
+      defaultEditor: openTargetSettingsResponse?.settings.targetId ?? current.settings.defaultEditor,
+      editorOptions: openTargetSettingsResponse?.settings.options.map((option) => ({ value: option.id, label: option.label })) ?? current.settings.editorOptions,
       plugins,
       skills,
       mcpServers,
@@ -4486,6 +4494,16 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         return { ...current, settings: { ...current.settings, appearance: response.settings } };
       },
       () => staticWorkbenchAdapter.selectAppearance(current, appearance),
+    );
+  },
+  async selectOpenTarget(current, targetID) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.SaveOpenTargetSettings) throw new Error('open target settings Wails binding is unavailable');
+        const response = await bridge.SaveOpenTargetSettings({ targetId: targetID });
+        return { ...current, settings: { ...current.settings, defaultEditor: response.settings.targetId, editorOptions: response.settings.options.map((option) => ({ value: option.id, label: option.label })) } };
+      },
+      () => staticWorkbenchAdapter.selectOpenTarget(current, targetID),
     );
   },
   async saveConfiguredProvider(current, provider) {

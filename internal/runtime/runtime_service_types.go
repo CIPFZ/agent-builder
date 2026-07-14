@@ -56,6 +56,8 @@ type RuntimeService interface {
 	SaveTerminalSettings(context.Context, RuntimeTerminalSettings) (RuntimeTerminalSettingsResponse, error)
 	AppearanceSettings(context.Context) (RuntimeAppearanceSettingsResponse, error)
 	SaveAppearanceSettings(context.Context, RuntimeAppearanceSettings) (RuntimeAppearanceSettingsResponse, error)
+	OpenTargetSettings(context.Context) (RuntimeOpenTargetSettingsResponse, error)
+	SaveOpenTargetSettings(context.Context, RuntimeOpenTargetSettings) (RuntimeOpenTargetSettingsResponse, error)
 	WriteTerminalInput(context.Context, string, RuntimeTerminalInputRequest) (RuntimeTerminalResponse, error)
 	ResizeTerminal(context.Context, string, RuntimeTerminalResizeRequest) (RuntimeTerminalResponse, error)
 	SubscribeTerminalEvents(context.Context, string, ...int64) (<-chan RuntimeTerminalEvent, func())
