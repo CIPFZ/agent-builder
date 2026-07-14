@@ -40,7 +40,7 @@ function getLayoutWidth() {
   if (typeof window === 'undefined') {
     return SHELL_MIN_WIDTH;
   }
-  return Math.max(window.innerWidth, SHELL_MIN_WIDTH);
+  return window.innerWidth;
 }
 
 function preserveCanonicalConversation(nextViewModel: WorkbenchViewModel, current: WorkbenchViewModel): WorkbenchViewModel {

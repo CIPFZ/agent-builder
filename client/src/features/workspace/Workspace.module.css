@@ -116,7 +116,8 @@
 .startContent {
   position: relative;
   justify-content: center;
-  width: min(980px, 100%);
+  width: min(860px, 100%);
+  margin-inline: auto;
   gap: 30px;
 }
 
