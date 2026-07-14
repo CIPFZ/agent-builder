@@ -74,6 +74,11 @@
   line-height: 18px;
 }
 
+/* The control label is self-explanatory; do not show a hover tooltip. */
+.permissionTooltip {
+  display: none !important;
+}
+
 .dropdown :global(.ant-dropdown-menu) {
   width: min(360px, calc(100vw - 24px));
   padding: 3px;

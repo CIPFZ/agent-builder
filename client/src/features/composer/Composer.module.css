@@ -68,6 +68,7 @@
 .senderRoot :global(.ant-input),
 .senderRoot :global(.ant-sender-contenteditable) {
   caret-color: #0d0d0d;
+  outline: none;
 }
 
 .rightControls .sendButton {
