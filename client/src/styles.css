@@ -18,3 +18,21 @@ body {
   background: var(--app-surface-canvas);
   transition: color 160ms ease, background-color 160ms ease;
 }
+
+/* Filled selects communicate pointer interaction through their surface.
+   Outlined and validation states keep Ant Design's regular borders. */
+.ant-select-filled:not(.ant-select-status-error):not(.ant-select-status-warning) .ant-select-selector,
+.ant-select-filled:not(.ant-select-disabled):not(.ant-select-status-error):not(.ant-select-status-warning):hover .ant-select-selector,
+.ant-select-filled.ant-select-focused:not(.ant-select-status-error):not(.ant-select-status-warning) .ant-select-selector,
+.ant-select-filled.ant-select-open:not(.ant-select-status-error):not(.ant-select-status-warning) .ant-select-selector {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.ant-select-filled.ant-select-open:not(.ant-select-disabled) .ant-select-selector {
+  background: var(--app-surface-active) !important;
+}
+
+.ant-select-filled:has(.ant-select-selection-search-input:focus-visible):not(.ant-select-status-error):not(.ant-select-status-warning) .ant-select-selector {
+  box-shadow: 0 0 0 2px var(--app-focus-ring) !important;
+}
