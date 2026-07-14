@@ -29,9 +29,7 @@ import {
   message,
   Modal,
   Select,
-  Steps,
   Switch,
-  Table,
   Tag,
   Typography,
 } from 'antd';
@@ -549,7 +547,6 @@ function ProviderEditorModal({
   const [selectedProviderID, setSelectedProviderID] = useState(defaultProviderID);
   const [runtimeModels, setRuntimeModels] = useState<ProviderModelViewModel[]>([]);
   const [actionLoading, setActionLoading] = useState<'models' | 'test' | 'latency' | null>(null);
-  const [currentStep, setCurrentStep] = useState(0);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState('');
   const [pendingModelIDs, setPendingModelIDs] = useState<string[]>([]);
@@ -694,15 +691,6 @@ function ProviderEditorModal({
     }
   };
 
-  const goToNextStep = async () => {
-    if (currentStep === 0) await form.validateFields(['providerId', 'name', 'apiEndpoint', 'protocol', 'token']);
-    if (currentStep === 1 && modelRows.length === 0) {
-      messageApi.warning('请至少添加一个使用模型');
-      return;
-    }
-    setCurrentStep((step) => Math.min(2, step + 1));
-  };
-
   return (
     <Modal
       className={styles.providerModal}
@@ -711,10 +699,7 @@ function ProviderEditorModal({
         <Button key="cancel" onClick={onCancel}>
           取消
         </Button>,
-        currentStep > 0 && <Button key="previous" onClick={() => setCurrentStep((step) => step - 1)}>上一步</Button>,
-        currentStep < 2
-          ? <Button key="next" type="primary" onClick={() => void goToNextStep()}>下一步</Button>
-          : <Button key="submit" disabled={hasInvalidModelLimits || modelRows.length === 0} loading={saving} type="primary" onClick={() => form.submit()}>{editingProvider ? '保存' : '添加'}</Button>,
+        <Button key="submit" disabled={hasInvalidModelLimits || modelRows.length === 0} loading={saving} type="primary" onClick={() => form.submit()}>{editingProvider ? '保存' : '添加'}</Button>,
       ]}
       open={open}
       title={editingProvider ? '编辑服务商' : '添加服务商'}
@@ -725,25 +710,22 @@ function ProviderEditorModal({
           return;
         }
         if (editingProvider) {
-          setCurrentStep(0);
           setSelectedProviderID(editingProvider.providerId);
           setRuntimeModels(editingProvider.models ?? []);
           form.setFieldsValue(editingProvider);
           return;
         }
-        setCurrentStep(0);
         applyPreset(defaultProviderID);
       }}
     >
       {messageContextHolder}
-      <Steps className={styles.providerSteps} current={currentStep} items={[{ title: '连接' }, { title: '选择模型' }, { title: '配置确认' }]} size="small" />
       <Form className={styles.providerForm} form={form} layout="vertical" preserve={false} requiredMark={false} onFinish={onSave}>
         <Form.Item name="providerId" hidden>
           <Input />
         </Form.Item>
 
         <Card className={styles.formCard} styles={{ body: { padding: 18 } }}>
-          <div hidden={currentStep !== 0}>
+          <div>
           <Form.Item label="支持的服务商">
             <Select
               showSearch
@@ -782,7 +764,7 @@ function ProviderEditorModal({
           </Flex>
           </div>
 
-          <div hidden={currentStep !== 1}>
+          <div className={styles.providerModelsSection}>
           <Flex align="flex-end" className={styles.providerModelRow} gap={8}>
             <Form.Item className={styles.providerModelSelect} label="默认模型" name="defaultModel">
               <Select
@@ -793,9 +775,7 @@ function ProviderEditorModal({
               />
             </Form.Item>
             <Flex className={styles.providerActionRow} gap={8}>
-              <Button aria-label="刷新模型列表" icon={<ReloadOutlined />} loading={actionLoading === 'models'} onClick={refreshModels} />
-              <Button aria-label="测试" icon={<ApiOutlined />} loading={actionLoading === 'test'} onClick={testProvider} />
-              <Button aria-label="测速" icon={<ThunderboltOutlined />} loading={actionLoading === 'latency'} onClick={measureLatency} />
+              <Button icon={<ReloadOutlined />} loading={actionLoading === 'models'} onClick={refreshModels}>获取模型</Button>
             </Flex>
           </Flex>
 
@@ -815,7 +795,13 @@ function ProviderEditorModal({
           />
           </div>
 
-          <div hidden={currentStep !== 2}>
+          <Collapse
+            className={styles.providerAdvanced}
+            ghost
+            items={[{
+              key: 'model-settings',
+              label: '模型参数与高级选项',
+              children: <div>
           <Form.Item label="未知模型默认窗口" name="defaultContextWindow">
             <InputNumber
               controls={false}
@@ -849,81 +835,12 @@ function ProviderEditorModal({
             ))}
           </div>
 
-          <Table<ProviderModelViewModel>
-            className={styles.providerModelTable}
-            columns={[
-              {
-                title: '模型 ID',
-                dataIndex: 'id',
-                render: (_value, row, index) => (
-                  <Input
-                    value={row.id}
-                    onChange={(event) => updateModelRow(index, { id: event.target.value })}
-                  />
-                ),
-              },
-              {
-                title: '上下文窗口',
-                dataIndex: 'contextWindow',
-                render: (_value, row, index) => (
-                  <Flex align="center" gap={8}>
-                    <InputNumber
-                      controls={false}
-                      min={16000}
-                      max={10000000}
-                      placeholder={formatTokenWindow(row.resolvedContextWindow)}
-                      status={isInvalidContextWindow(row.contextWindow) ? 'error' : undefined}
-                      value={row.contextWindow}
-                      onChange={(value) => updateModelRow(index, { contextWindow: value ?? undefined, source: value ? 'user_override' : undefined })}
-                    />
-                    <Tag>{formatModelSource(row.source)}</Tag>
-                  </Flex>
-                ),
-              },
-              {
-                title: '最大输出',
-                dataIndex: 'maxOutputTokens',
-                render: (_value, row, index) => (
-                  <InputNumber
-                    controls={false}
-                    min={1}
-                    placeholder={formatTokenWindow(row.resolvedMaxOutputTokens)}
-                    value={row.maxOutputTokens}
-                    onChange={(value) => updateModelRow(index, { maxOutputTokens: value ?? undefined })}
-                  />
-                ),
-              },
-              {
-                title: '',
-                dataIndex: 'actions',
-                width: 64,
-                render: (_value, _row, index) => (
-                  <Button danger size="small" type="text" onClick={() => removeModelRow(index)}>
-                    删除
-                  </Button>
-                ),
-              },
-            ]}
-            dataSource={modelRows}
-            locale={{ emptyText: '刷新或添加模型后配置窗口' }}
-            pagination={false}
-            rowKey={(row, index) => `${row.id || 'model'}-${index}`}
-            size="small"
-          />
-
-          <Collapse
-            ghost
-            items={[{
-              key: 'advanced',
-              label: '高级选项',
-              children: (
-                <Form.Item label="代理" name="proxy">
-                  <Input placeholder="http://127.0.0.1:7890" />
-                </Form.Item>
-              ),
+          <Form.Item label="代理" name="proxy">
+            <Input placeholder="http://127.0.0.1:7890" />
+          </Form.Item>
+          </div>,
             }]}
           />
-          </div>
         </Card>
       </Form>
       <Modal
@@ -1282,21 +1199,6 @@ function isInvalidContextWindow(value?: number | null) {
 
 function hasInvalidProviderModelLimits(models: ProviderModelViewModel[], defaultContextWindow?: number | null) {
   return isInvalidContextWindow(defaultContextWindow) || models.some((model) => isInvalidContextWindow(model.contextWindow));
-}
-
-function formatModelSource(source?: string) {
-  switch (source) {
-    case 'user_override':
-      return '用户';
-    case 'provider_default':
-      return '兜底';
-    case 'discovered':
-      return '自动获取';
-    case 'builtin':
-      return '内置';
-    default:
-      return '默认';
-  }
 }
 
 function formatTokenWindow(value?: number) {
