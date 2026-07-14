@@ -171,6 +171,12 @@
   font-size: 12px;
 }
 
+.modelDropdown :global(.ant-dropdown-menu) {
+  max-height: min(360px, calc(100vh - 120px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .modelDropdown :global(.ant-dropdown-menu-item) {
   color: var(--ant-color-text) !important;
 }

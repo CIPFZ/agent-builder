@@ -812,7 +812,7 @@ function ProviderEditorModal({
               locale={{ emptyText: '填写连接信息后获取模型列表' }}
               pagination={false}
               rowKey={(model, index) => `${model.id || 'new-model'}-${index}`}
-              scroll={{ y: 280 }}
+              scroll={modelRows.length > 5 ? { y: 280 } : undefined}
               size="small"
             />
           </div>
