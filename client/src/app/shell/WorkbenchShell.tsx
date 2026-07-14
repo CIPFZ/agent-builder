@@ -870,11 +870,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
 
   const testConfiguredProvider = (providerID: string) => adapter.testConfiguredProvider(providerID);
 
-  const measureProviderDraftLatency = (request: Parameters<WorkbenchAdapter['measureProviderDraftLatency']>[0]) =>
-    adapter.measureProviderDraftLatency(request);
-
-  const measureConfiguredProviderLatency = (providerID: string) => adapter.measureConfiguredProviderLatency(providerID);
-
   const refreshSkills = async () => {
     const nextViewModel = await adapter.refreshSkills({ ...viewModel, mode });
     setViewModel(nextViewModel);
@@ -1031,9 +1026,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
           onProviderDelete={deleteConfiguredProvider}
           onProviderDiscoverDraftModels={discoverProviderDraftModels}
           onProviderDiscoverModels={discoverConfiguredProviderModels}
-          onProviderDraftLatency={measureProviderDraftLatency}
           onProviderDraftTest={testProviderDraft}
-          onProviderLatency={measureConfiguredProviderLatency}
           onProviderSave={saveConfiguredProvider}
           onProviderTest={testConfiguredProvider}
           selectedModel={workbenchViewModel.composer.selectedModel}

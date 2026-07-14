@@ -893,6 +893,49 @@ func TestConfiguredProviderAnthropicTestUsesProviderRuntimePath(t *testing.T) {
 	}
 }
 
+func TestAnthropicEndpointsNormalizeSingleV1Segment(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-api-key") != "test-key" {
+			t.Errorf("x-api-key header = %q", r.Header.Get("x-api-key"))
+		}
+		if r.Header.Get("anthropic-version") == "" {
+			t.Error("anthropic-version header missing")
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+			_, _ = w.Write([]byte(`{"data":[{"id":"claude-test"}]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/messages":
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	for _, endpoint := range []string{server.URL, server.URL + "/v1"} {
+		models, err := discoverModels(context.Background(), RuntimeModelConfig{
+			Protocol: "anthropic",
+			URL:      endpoint,
+			APIKey:   "test-key",
+		})
+		if err != nil {
+			t.Fatalf("discover models for %q: %v", endpoint, err)
+		}
+		if !slices.Equal(providerModelIDs(models), []string{"claude-test"}) {
+			t.Fatalf("models for %q = %#v", endpoint, models)
+		}
+		if err := testProviderConnection(context.Background(), RuntimeConfiguredProvider{
+			Protocol:    "anthropic",
+			APIEndpoint: endpoint,
+		}, "test-key", "claude-test"); err != nil {
+			t.Fatalf("test connection for %q: %v", endpoint, err)
+		}
+	}
+}
+
 func TestSaveConfiguredProviderRejectsDuplicateName(t *testing.T) {
 	root := runtimeDevTestRoot(t, "provider-duplicate-name")
 	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)

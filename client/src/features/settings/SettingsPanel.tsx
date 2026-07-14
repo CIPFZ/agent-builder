@@ -12,7 +12,6 @@ import {
   SaveOutlined,
   StarFilled,
   StarOutlined,
-  ThunderboltOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
 import {
@@ -75,8 +74,8 @@ type MCPServerFormValues = Omit<RuntimeMCPServerViewModel, 'args' | 'counts' | '
 };
 
 const protocolOptions = [
-  { label: 'OpenAI 兼容', value: 'openai-compat' },
-  { label: 'Anthropic', value: 'anthropic' },
+  { label: 'OpenAI 兼容接口', value: 'openai-compat' },
+  { label: 'Anthropic 原生接口', value: 'anthropic' },
 ];
 
 interface SettingsPanelProps {
@@ -92,8 +91,6 @@ interface SettingsPanelProps {
   onProviderDiscoverModels: (providerID: string) => Promise<ProviderModelDiscoveryViewModel>;
   onProviderDraftTest: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
   onProviderTest: (providerID: string) => Promise<ProviderTestViewModel>;
-  onProviderDraftLatency: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
-  onProviderLatency: (providerID: string) => Promise<ProviderTestViewModel>;
   selectedModel?: RuntimeModelOptionViewModel;
   contextUsage?: ContextUsageViewModel;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
@@ -131,8 +128,6 @@ export function SettingsPanel({
   onProviderDiscoverModels,
   onProviderDraftTest,
   onProviderTest,
-  onProviderDraftLatency,
-  onProviderLatency,
   selectedModel,
   contextUsage,
   onModelSelect,
@@ -173,9 +168,7 @@ export function SettingsPanel({
             onProviderDelete={onProviderDelete}
             onProviderDiscoverDraftModels={onProviderDiscoverDraftModels}
             onProviderDiscoverModels={onProviderDiscoverModels}
-            onProviderDraftLatency={onProviderDraftLatency}
             onProviderDraftTest={onProviderDraftTest}
-            onProviderLatency={onProviderLatency}
             onProviderSave={onProviderSave}
             onProviderTest={onProviderTest}
             selectedModel={selectedModel}
@@ -344,8 +337,6 @@ function ProvidersSettings({
   onProviderDiscoverModels,
   onProviderDraftTest,
   onProviderTest,
-  onProviderDraftLatency,
-  onProviderLatency,
   selectedModel,
   onModelSelect,
 }: {
@@ -357,8 +348,6 @@ function ProvidersSettings({
   onProviderDiscoverModels: (providerID: string) => Promise<ProviderModelDiscoveryViewModel>;
   onProviderDraftTest: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
   onProviderTest: (providerID: string) => Promise<ProviderTestViewModel>;
-  onProviderDraftLatency: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
-  onProviderLatency: (providerID: string) => Promise<ProviderTestViewModel>;
   selectedModel?: RuntimeModelOptionViewModel;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
 }) {
@@ -366,6 +355,7 @@ function ProvidersSettings({
   const [editingProvider, setEditingProvider] = useState<ConfiguredProviderViewModel | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [testingProviderID, setTestingProviderID] = useState('');
   const [messageApi, messageContextHolder] = message.useMessage();
   const activeSettings = runtimeSettings ?? settings;
   const providers = activeSettings.providers;
@@ -444,6 +434,22 @@ function ProvidersSettings({
     }
   };
 
+  const testSavedProvider = async (provider: ConfiguredProviderViewModel) => {
+    setTestingProviderID(provider.id);
+    try {
+      const result = await onProviderTest(provider.id);
+      if (result.ok) {
+        messageApi.success(`${provider.name} 连接正常${formatDuration(result.durationMs)}`);
+      } else {
+        messageApi.error(result.error || `${provider.name} 连接失败`);
+      }
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : `${provider.name} 连接失败`);
+    } finally {
+      setTestingProviderID('');
+    }
+  };
+
   return (
     <>
       {messageContextHolder}
@@ -474,6 +480,14 @@ function ProvidersSettings({
                     <Text type="secondary">模型：{provider.defaultModel || '未选择'}</Text>
                   </div>
                   <Flex className={styles.settingsListActions} align="center" gap={8}>
+                    <Button
+                      disabled={!provider.defaultModel || (Boolean(testingProviderID) && testingProviderID !== provider.id)}
+                      icon={<ApiOutlined />}
+                      loading={testingProviderID === provider.id}
+                      onClick={() => void testSavedProvider(provider)}
+                    >
+                      测试连接
+                    </Button>
                     <Button disabled={isSelected || !provider.defaultModel} onClick={() => selectDefaultProvider(provider)}>
                       设为默认
                     </Button>
@@ -495,9 +509,7 @@ function ProvidersSettings({
         onCancel={() => setModalOpen(false)}
         onDiscoverDraftModels={onProviderDiscoverDraftModels}
         onDiscoverModels={onProviderDiscoverModels}
-        onDraftLatency={onProviderDraftLatency}
         onDraftTest={onProviderDraftTest}
-        onLatency={onProviderLatency}
         onSave={saveProvider}
         onTest={onProviderTest}
       />
@@ -516,8 +528,6 @@ function ProviderEditorModal({
   onDiscoverModels,
   onDraftTest,
   onTest,
-  onDraftLatency,
-  onLatency,
 }: {
   editingProvider: ConfiguredProviderViewModel | null;
   open: boolean;
@@ -529,8 +539,6 @@ function ProviderEditorModal({
   onDiscoverModels: (providerID: string) => Promise<ProviderModelDiscoveryViewModel>;
   onDraftTest: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
   onTest: (providerID: string) => Promise<ProviderTestViewModel>;
-  onDraftLatency: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
-  onLatency: (providerID: string) => Promise<ProviderTestViewModel>;
 }) {
   const [form] = Form.useForm<ProviderFormValues>();
   const [messageApi, messageContextHolder] = message.useMessage();
@@ -538,7 +546,7 @@ function ProviderEditorModal({
   const [selectedProviderID, setSelectedProviderID] = useState(defaultProviderID);
   const [modelRows, setModelRowsState] = useState<ProviderModelViewModel[]>([]);
   const [discoveredModels, setDiscoveredModels] = useState<ProviderModelViewModel[]>([]);
-  const [actionLoading, setActionLoading] = useState<'models' | 'test' | 'latency' | null>(null);
+  const [actionLoading, setActionLoading] = useState<'models' | 'test' | null>(null);
   const watchedDefaultModel = Form.useWatch('defaultModel', form);
   const hasInvalidModelLimits = hasInvalidProviderModelLimits(modelRows);
   const providerOptions = providers.map((provider) => ({
@@ -654,23 +662,6 @@ function ProviderEditorModal({
     }
   };
 
-  const measureLatency = async () => {
-    setActionLoading('latency');
-    try {
-      const request = await draftProviderRequest();
-      const result = shouldUseSavedProvider(request) ? await onLatency(editingProvider?.id ?? '') : await onDraftLatency(request);
-      if (result.ok) {
-        messageApi.success(`测速 ${result.durationMs ?? 0}ms`);
-      } else {
-        messageApi.error(result.error || '测速失败');
-      }
-    } catch {
-      messageApi.error('测速失败');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   return (
     <Modal
       className={styles.providerModal}
@@ -730,7 +721,12 @@ function ProviderEditorModal({
             <Input placeholder="https://api.example.com/v1" />
           </Form.Item>
 
-          <Form.Item label="协议" name="protocol" rules={[{ required: true, message: '请选择协议' }]}>
+          <Form.Item
+            extra="协议由服务商的接口格式决定，与模型名称无关。第三方 Claude 模型若提供 OpenAI 兼容接口，请选择 OpenAI 兼容接口。"
+            label="接口协议"
+            name="protocol"
+            rules={[{ required: true, message: '请选择接口协议' }]}
+          >
             <Select options={protocolOptions} />
           </Form.Item>
 
@@ -740,10 +736,7 @@ function ProviderEditorModal({
               placeholder="sk-..."
             />
           </Form.Item>
-          <Flex gap={8}>
-            <Button icon={<ApiOutlined />} loading={actionLoading === 'test'} onClick={() => void testProvider()}>测试连接</Button>
-            <Button icon={<ThunderboltOutlined />} loading={actionLoading === 'latency'} onClick={() => void measureLatency()}>测试延迟</Button>
-          </Flex>
+          <Button icon={<ApiOutlined />} loading={actionLoading === 'test'} onClick={() => void testProvider()}>测试连接</Button>
           </div>
 
           <div className={styles.providerModelsSection}>

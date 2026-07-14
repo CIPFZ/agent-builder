@@ -304,7 +304,7 @@ func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig, catal
 
 func normalizeModelBaseURL(protocol, rawURL string) string {
 	trimmed := strings.TrimRight(strings.TrimSpace(rawURL), "/")
-	if protocol == "openai" && !strings.HasSuffix(trimmed, "/v1") {
+	if (protocol == "openai" || protocol == "anthropic") && !strings.HasSuffix(trimmed, "/v1") {
 		return trimmed + "/v1"
 	}
 	return trimmed

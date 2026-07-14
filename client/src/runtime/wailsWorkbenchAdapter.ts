@@ -4567,9 +4567,10 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     return staticWorkbenchAdapter.discoverConfiguredProviderModels(providerID);
   },
   async testProviderDraft(request) {
+    const startedAt = performance.now();
     const bridge = await loadRuntimeBridge();
     if (bridge?.VerifyModelConfig) {
-      return mapDraftProviderTest(await bridge.VerifyModelConfig(toRuntimeModelConfigRequest(request)));
+      return mapDraftProviderTest(await bridge.VerifyModelConfig(toRuntimeModelConfigRequest(request)), Math.round(performance.now() - startedAt));
     }
     return staticWorkbenchAdapter.testProviderDraft(request);
   },

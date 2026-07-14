@@ -827,7 +827,7 @@ func testProviderConnection(ctx context.Context, provider RuntimeConfiguredProvi
 		}
 		return postProviderJSON(requestCtx, endpoint, map[string]string{"Authorization": "Bearer " + apiKey}, payload)
 	case "anthropic":
-		endpoint := strings.TrimRight(baseURL, "/") + "/v1/messages"
+		endpoint := strings.TrimRight(baseURL, "/") + "/messages"
 		payload := map[string]any{
 			"model":      model,
 			"max_tokens": 1,
@@ -871,10 +871,7 @@ func normalizeConfiguredProviderProtocolURL(provider RuntimeConfiguredProvider) 
 	if provider.Protocol == "anthropic" {
 		protocol = "anthropic"
 	}
-	baseURL := strings.TrimRight(strings.TrimSpace(provider.APIEndpoint), "/")
-	if protocol == "openai" && !strings.HasSuffix(baseURL, "/v1") {
-		baseURL += "/v1"
-	}
+	baseURL := normalizeModelBaseURL(protocol, provider.APIEndpoint)
 	return protocol, baseURL
 }
 
