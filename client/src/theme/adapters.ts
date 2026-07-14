@@ -11,6 +11,16 @@ export function toAntdTheme(tokens: AppThemeTokens, mode: EffectiveColorMode): T
       colorBgElevated: tokens.surfaceElevated, colorText: tokens.textPrimary, colorTextSecondary: tokens.textSecondary,
       colorTextTertiary: tokens.textTertiary, colorBorder: tokens.borderDefault, colorBorderSecondary: tokens.borderSubtle,
     },
+    components: {
+      Select: {
+        activeBorderColor: tokens.textPrimary,
+        activeOutlineColor: tokens.focusRing,
+        hoverBorderColor: tokens.textSecondary,
+        optionActiveBg: tokens.surfaceHover,
+        optionSelectedBg: tokens.surfaceActive,
+        optionSelectedColor: tokens.textPrimary,
+      },
+    },
   };
 }
 
