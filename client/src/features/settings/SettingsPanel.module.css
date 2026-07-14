@@ -200,27 +200,6 @@
   width: 116px;
 }
 
-.modeGroup {
-  width: min(100%, 680px);
-}
-
-.modeGroup :global(.ant-segmented-group) {
-  width: 100%;
-}
-
-.modeGroup :global(.ant-segmented-item) {
-  min-height: 56px;
-}
-
-.modeGroup :global(.ant-segmented-item-label) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 56px;
-  padding-inline: 18px;
-  white-space: normal;
-}
-
 .permissionModeGroup {
   margin-bottom: 18px;
 }
@@ -369,7 +348,4 @@
     padding: 40px 20px 72px;
   }
 
-  .modeGroup {
-    grid-template-columns: 1fr;
-  }
 }

@@ -26,7 +26,6 @@ import {
   Menu,
   message,
   Modal,
-  Segmented,
   Select,
   Switch,
   Table,
@@ -215,8 +214,20 @@ export function SettingsPanel({
             onSave={onContextGovernanceSave}
           />
         );
+      case 'im':
+        return <EmptySettingsPage title="IM 接入" />;
+      case 'terminal':
+        return <EmptySettingsPage title="终端" />;
+      case 'agents':
+        return <EmptySettingsPage title="Agents" />;
+      case 'plugins':
+        return <EmptySettingsPage title="插件" />;
+      case 'computer-use':
+        return <EmptySettingsPage title="Computer Use" />;
+      case 'diagnostics':
+        return <EmptySettingsPage title="诊断" />;
       default:
-        return <GeneralSettings />;
+        return <EmptySettingsPage title={settings.navItems.find((item) => item.key === activeKey)?.label ?? '设置'} />;
     }
   };
 
@@ -310,26 +321,9 @@ export function SettingsPanel({
   );
 }
 
-function GeneralSettings() {
+function EmptySettingsPage({ title }: { title: string }) {
   return (
-    <>
-      <Title level={2}>常规</Title>
-
-      <section className={styles.section}>
-        <Title level={4}>工作模式</Title>
-        <Paragraph type="secondary">选择 Agent Builder 显示多少技术细节</Paragraph>
-        <Segmented
-          block
-          className={styles.modeGroup}
-          defaultValue="code"
-          options={[
-            { label: '适用于编程', value: 'code' },
-            { label: '适用于日常工作', value: 'work' },
-          ]}
-          size="large"
-        />
-      </section>
-    </>
+    <Title level={2}>{title}</Title>
   );
 }
 
@@ -1752,6 +1746,13 @@ function CommonSettings({
       <section className={styles.section}>
         <Card styles={{ body: { padding: 0 } }}>
           <Flex vertical>
+            <Flex align="center" className={styles.listItem} gap={16} justify="space-between">
+              <Flex vertical>
+                <Text>外观</Text>
+                <Text type="secondary">主题配色、界面字体等外观设置</Text>
+              </Flex>
+              <Button disabled type="text">即将推出</Button>
+            </Flex>
             <Flex align="center" className={styles.listItem} gap={16} justify="space-between">
               <Flex vertical>
                 <Text>默认打开目标</Text>

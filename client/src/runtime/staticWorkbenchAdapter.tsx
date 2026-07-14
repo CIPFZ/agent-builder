@@ -9,7 +9,6 @@ import {
   DesktopOutlined,
   ExperimentOutlined,
   FolderOutlined,
-  GlobalOutlined,
   HistoryOutlined,
   MessageOutlined,
   PlusSquareOutlined,
@@ -27,12 +26,10 @@ const sidebarActions = [
 ];
 
 const settings = {
-  activeKey: 'general',
+  activeKey: 'common',
   navItems: [
-    { key: 'general', label: '常规', icon: <SettingOutlined /> },
-    { key: 'providers', label: '服务商', icon: <CloudServerOutlined /> },
     { key: 'common', label: '通用', icon: <ControlOutlined /> },
-    { key: 'h5', label: 'H5 访问', icon: <GlobalOutlined /> },
+    { key: 'providers', label: '服务商', icon: <CloudServerOutlined /> },
     { key: 'im', label: 'IM 接入', icon: <MessageOutlined /> },
     { key: 'terminal', label: '终端', icon: <CodeOutlined /> },
     { key: 'mcp', label: 'MCP', icon: <DatabaseOutlined /> },
