@@ -529,6 +529,15 @@ type RuntimeTerminalSettingsResponse struct {
 	Settings RuntimeTerminalSettings `json:"settings"`
 }
 
+type RuntimeAppearanceSettings struct {
+	ColorMode string `json:"colorMode"`
+	ThemeID   string `json:"themeId"`
+}
+
+type RuntimeAppearanceSettingsResponse struct {
+	Settings RuntimeAppearanceSettings `json:"settings"`
+}
+
 type RuntimeTerminalStreamRequest struct {
 	Type      string `json:"type"`
 	Data      string `json:"data,omitempty"`

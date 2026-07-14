@@ -809,6 +809,12 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     return nextViewModel.settings;
   };
 
+  const selectAppearance = async (appearance: import('../../theme/contract.ts').AppearanceSettings) => {
+    const nextViewModel = await adapter.selectAppearance({ ...viewModelRef.current, mode: modeRef.current }, appearance);
+    commitConversationAction(nextViewModel);
+    return nextViewModel.settings;
+  };
+
   const decidePermission = async (permissionID: string, action: 'allow' | 'allow_session' | 'deny', guidance?: string) => {
     const nextViewModel = await adapter.decidePermission({ ...viewModelRef.current, mode: modeRef.current }, permissionID, action, guidance);
     // The canonical permission_decided batch can arrive while the Wails action
@@ -1025,6 +1031,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           contextUsage={workbenchViewModel.composer.contextUsage}
           onModelSelect={selectModel}
           onTerminalProfileSelect={selectTerminalProfile}
+          onAppearanceSelect={selectAppearance}
           onContextGovernanceLoad={getContextGovernanceSettings}
           onContextGovernanceSave={saveContextGovernanceSettings}
           onMCPServerDetailsLoad={loadMCPServerDetails}

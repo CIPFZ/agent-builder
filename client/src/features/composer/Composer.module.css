@@ -1,6 +1,6 @@
 .composerWrap {
   width: min(100%, 820px);
-  background: #ffffff;
+  background: var(--app-surface-panel);
 }
 
 .contextWarningBar {
@@ -29,12 +29,12 @@
 .senderRoot,
 .sender {
   width: 100%;
-  background: #ffffff;
+  background: var(--app-surface-panel);
 }
 
 .composerShellWithContext {
   overflow: hidden;
-  background: rgb(243, 243, 243);
+  background: var(--app-surface-muted);
   border-radius: inherit;
 }
 
@@ -46,11 +46,11 @@
 }
 
 .senderRoot {
-  --ant-color-primary: #0d0d0d;
+  --ant-color-primary: var(--app-text-primary);
 }
 
 .senderRoot :global(.ant-sender) {
-  background: #ffffff;
+  background: var(--app-surface-panel);
 }
 
 .senderRoot :global(.ant-sender-content) {
@@ -60,22 +60,22 @@
 
 .senderRoot :global(.ant-sender-focused),
 .senderRoot :global(.ant-sender:focus-within) {
-  border-color: #0d0d0d;
-  box-shadow: 0 0 0 2px rgb(13 13 13 / 8%);
+  border-color: var(--app-text-primary);
+  box-shadow: 0 0 0 2px var(--app-focus-ring);
 }
 
 .senderRoot :global(textarea),
 .senderRoot :global(.ant-input),
 .senderRoot :global(.ant-sender-contenteditable) {
-  caret-color: #0d0d0d;
+  caret-color: var(--app-text-primary);
   outline: none;
 }
 
 .rightControls .sendButton {
-  background: #0d0d0d;
-  border-color: #0d0d0d;
+  background: var(--app-text-primary);
+  border-color: var(--app-text-primary);
   box-shadow: none;
-  color: #fff;
+  color: var(--app-surface-panel);
 }
 
 .rightControls .sendButton:disabled {
@@ -87,9 +87,9 @@
 
 .rightControls .sendButton:not(:disabled):hover,
 .rightControls .sendButton:not(:disabled):focus-visible {
-  background: #242424;
-  border-color: #242424;
-  color: #fff;
+  background: color-mix(in srgb, var(--app-text-primary) 88%, var(--app-surface-panel));
+  border-color: var(--app-text-primary);
+  color: var(--app-surface-panel);
 }
 
 .rightControls .stopButton,

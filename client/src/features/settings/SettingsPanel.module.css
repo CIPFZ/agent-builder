@@ -1,12 +1,13 @@
 .settings {
   min-width: 0;
   height: 100%;
-  background: transparent;
+  background: var(--app-surface-canvas);
 }
 
 .sider {
   height: 100%;
   padding: 16px 10px 12px;
+  background: var(--app-surface-panel) !important;
 }
 
 .splitter {
@@ -14,7 +15,7 @@
   flex: 0 0 1px;
   width: 1px;
   height: 100%;
-  background: #e5e5e5;
+  background: var(--app-border-subtle);
   cursor: col-resize;
 }
 
@@ -29,7 +30,7 @@
 
 .splitter:hover,
 .splitter:focus-visible {
-  background: #bdbdbd;
+  background: var(--app-text-tertiary);
   outline: none;
 }
 

@@ -500,6 +500,15 @@ interface RuntimeTerminalSettingsResponseDTO {
   settings: RuntimeTerminalSettingsDTO;
 }
 
+interface RuntimeAppearanceSettingsDTO {
+  colorMode: 'system' | 'light' | 'dark';
+  themeId: string;
+}
+
+interface RuntimeAppearanceSettingsResponseDTO {
+  settings: RuntimeAppearanceSettingsDTO;
+}
+
 interface RuntimeTerminalEventDTO {
   terminalId?: string;
   terminal_id?: string;
@@ -1663,6 +1672,8 @@ interface RuntimeBridgeModule {
   CreateTerminal?: (req: { sessionId: string; id?: string; cwd?: string; profileId?: string; columns?: number; rows?: number }) => Promise<RuntimeTerminalResponseDTO>;
   TerminalSettings?: () => Promise<RuntimeTerminalSettingsResponseDTO>;
   SaveTerminalSettings?: (req: { profileId: string }) => Promise<RuntimeTerminalSettingsResponseDTO>;
+  AppearanceSettings?: () => Promise<RuntimeAppearanceSettingsResponseDTO>;
+  SaveAppearanceSettings?: (req: RuntimeAppearanceSettingsDTO) => Promise<RuntimeAppearanceSettingsResponseDTO>;
   WriteTerminalInput?: (terminalID: string, req: { data?: string; binaryBase64?: string }) => Promise<RuntimeTerminalResponseDTO>;
   ResizeTerminal?: (terminalID: string, req: { columns: number; rows: number }) => Promise<RuntimeTerminalResponseDTO>;
   StartTerminalEventStream?: (req: RuntimeTerminalStreamStartRequestDTO) => Promise<RuntimeTerminalStreamResponseDTO>;
@@ -3513,6 +3524,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     pluginsResponse,
     mcpServersResponse,
     terminalSettingsResponse,
+    appearanceSettingsResponse,
   ] = await Promise.all([
     optionalRuntimeRequest(() => bridge.Status()),
     fullHydration ? optionalRuntimeRequest(() => bridge.SidebarProjection?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
@@ -3529,6 +3541,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     fullHydration ? optionalRuntimeRequest(() => bridge.Plugins?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
     fullHydration ? optionalRuntimeRequest(() => bridge.MCPServers?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
     fullHydration ? optionalRuntimeRequest(() => bridge.TerminalSettings?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
+    fullHydration ? optionalRuntimeRequest(() => bridge.AppearanceSettings?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ]);
   const projectedSessionsResponse: RuntimeSessionsResponseDTO | undefined = Array.isArray(sidebarProjection?.sessions)
     ? { sessions: sidebarProjection.sessions }
@@ -3662,6 +3675,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       configuredProviders: mapConfiguredProviders(configuredProvidersResponse) ?? current.settings.configuredProviders,
       terminalProfile: terminalSettingsResponse?.settings?.profileId ?? current.settings.terminalProfile,
       terminalOptions: mapTerminalProfileOptions(terminalSettingsResponse) ?? current.settings.terminalOptions,
+      appearance: appearanceSettingsResponse?.settings ?? current.settings.appearance,
       plugins,
       skills,
       mcpServers,
@@ -4460,6 +4474,18 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         return hydrateWorkbench(current, bridge);
       },
       () => staticWorkbenchAdapter.selectTerminalProfile(current, profileID),
+    );
+  },
+  async selectAppearance(current, appearance) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.SaveAppearanceSettings) {
+          throw new Error('appearance settings Wails binding is unavailable');
+        }
+        const response = await bridge.SaveAppearanceSettings(appearance);
+        return { ...current, settings: { ...current.settings, appearance: response.settings } };
+      },
+      () => staticWorkbenchAdapter.selectAppearance(current, appearance),
     );
   },
   async saveConfiguredProvider(current, provider) {

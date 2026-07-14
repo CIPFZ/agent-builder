@@ -43,7 +43,7 @@
   bottom: 0;
   left: 1px;
   width: 1px;
-  background: #e5e5e5;
+  background: var(--app-border-subtle);
   content: "";
 }
 
@@ -54,7 +54,7 @@
 
 .sidebarSplitter:hover::before,
 .sidebarSplitter:focus-visible::before {
-  background: #bdbdbd;
+  background: var(--app-text-tertiary);
 }
 
 .settingsShell {

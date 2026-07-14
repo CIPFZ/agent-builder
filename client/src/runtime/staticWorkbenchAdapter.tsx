@@ -48,6 +48,7 @@ const settings = {
   terminalProfile: '',
   editorOptions: [],
   terminalOptions: [],
+  appearance: { colorMode: 'system' as const, themeId: 'builtin.default' },
   providerTypes: [],
   providers: [],
   configuredProviders: [],
@@ -220,6 +221,9 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
   },
   async selectTerminalProfile() {
     return runtimeUnavailable();
+  },
+  async selectAppearance(current, appearance) {
+    return { ...current, settings: { ...current.settings, appearance } };
   },
   async saveConfiguredProvider() {
     return runtimeUnavailable();

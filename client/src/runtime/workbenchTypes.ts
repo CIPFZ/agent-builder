@@ -1238,6 +1238,7 @@ export interface SettingsViewModel {
   terminalProfile: string;
   editorOptions: SettingsOptionViewModel[];
   terminalOptions: SettingsOptionViewModel[];
+  appearance: import('../theme/contract.ts').AppearanceSettings;
   providerTypes: ProviderTypeViewModel[];
   providers: ProviderCatalogItemViewModel[];
   configuredProviders: ConfiguredProviderViewModel[];
@@ -1361,6 +1362,7 @@ export interface WorkbenchAdapter {
   subscribeTerminalEvents: (terminalID: string, onEvent: (event: TerminalEventViewModel) => void) => Promise<() => void> | (() => void);
   deleteTerminal: (terminalID: string) => Promise<void>;
   selectTerminalProfile: (current: WorkbenchViewModel, profileID: string) => Promise<WorkbenchViewModel>;
+  selectAppearance: (current: WorkbenchViewModel, appearance: import('../theme/contract.ts').AppearanceSettings) => Promise<WorkbenchViewModel>;
   saveConfiguredProvider: (
     current: WorkbenchViewModel,
     provider: ConfiguredProviderViewModel & { token?: string },

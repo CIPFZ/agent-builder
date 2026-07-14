@@ -19,7 +19,7 @@
   height: 52px;
   padding: 0 18px 0 22px;
   gap: 16px;
-  background: #ffffff;
+  background: var(--app-surface-canvas);
 }
 
 .workspace[data-sidebar-collapsed='true'] .sessionHeader {

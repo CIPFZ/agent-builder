@@ -239,8 +239,8 @@ export function Sidebar({
         theme={{
           components: {
             Button: {
-              textHoverBg: '#f6f6f6',
-              defaultActiveBg: '#f2f2f2',
+              textHoverBg: 'var(--app-surface-hover)',
+              defaultActiveBg: 'var(--app-surface-active)',
             },
           },
         }}
@@ -283,8 +283,8 @@ export function Sidebar({
       theme={{
         components: {
           Button: {
-            textHoverBg: '#f6f6f6',
-            defaultActiveBg: '#f2f2f2',
+            textHoverBg: 'var(--app-surface-hover)',
+            defaultActiveBg: 'var(--app-surface-active)',
           },
         },
       }}

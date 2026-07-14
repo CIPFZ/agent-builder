@@ -57,6 +57,20 @@ entities or replace the active canonical store.
 - `styles.css` 只保留真正的全局基础规则。
 - Runtime DTO 先映射为 UI view model，避免组件直接依赖庞大的后端结构。
 
+## 主题与配色
+
+应用主题由两个正交设置组成：`themeId` 选择配色方案，`colorMode`
+选择 `system`、`light` 或 `dark`。用户选择存入 `application_settings`；
+内置配色方案保存在 `client/src/theme/themes/` 并通过 Theme Registry 按 ID
+解析。业务组件不得根据主题 ID 编写条件分支或主题选择器。
+
+每个主题独立提供浅色和深色语义 Token。统一的 Theme Provider 将同一份
+Token 同时映射为 `--app-*` CSS Variables 和 Ant Design `ThemeConfig`。
+Feature CSS Modules 只消费语义变量；新增主题不应要求修改业务组件。
+
+新增内置配色方案时，应建立独立主题目录并实现 `AppTheme` 契约，然后在
+Registry 中注册。无法解析的主题 ID 必须回退到 `builtin.default`。
+
 ## Wails 桌面壳
 
 `desktop/main.go` 注册 `RuntimeBridge`，嵌入前端产物并创建最小尺寸受控的主窗口。`desktop/scripts/sync-client-dist.mjs` 负责把共享客户端构建到桌面资源目录。

@@ -14,4 +14,7 @@ body,
 
 body {
   cursor: default;
+  color: var(--app-text-primary);
+  background: var(--app-surface-canvas);
+  transition: color 160ms ease, background-color 160ms ease;
 }

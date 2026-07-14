@@ -1348,6 +1348,14 @@ func (s *recordingRuntimeService) TerminalSettings(context.Context) (RuntimeTerm
 	return RuntimeTerminalSettingsResponse{}, nil
 }
 
+func (s *recordingRuntimeService) AppearanceSettings(context.Context) (RuntimeAppearanceSettingsResponse, error) {
+	return RuntimeAppearanceSettingsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SaveAppearanceSettings(context.Context, RuntimeAppearanceSettings) (RuntimeAppearanceSettingsResponse, error) {
+	return RuntimeAppearanceSettingsResponse{}, nil
+}
+
 func (s *recordingRuntimeService) SaveTerminalSettings(context.Context, RuntimeTerminalSettings) (RuntimeTerminalSettingsResponse, error) {
 	return RuntimeTerminalSettingsResponse{}, nil
 }

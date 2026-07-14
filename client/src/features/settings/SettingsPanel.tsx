@@ -56,6 +56,7 @@ import type {
 import { HookSettingsPanel } from '../hooks/HookSettingsPanel.tsx';
 import { nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
 import styles from './SettingsPanel.module.css';
+import type { AppearanceSettings, ColorMode } from '../../theme/contract.ts';
 
 const { Content, Sider } = Layout;
 const { Paragraph, Text, Title } = Typography;
@@ -94,6 +95,7 @@ interface SettingsPanelProps {
   contextUsage?: ContextUsageViewModel;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
   onTerminalProfileSelect: (profileID: string) => Promise<SettingsViewModel>;
+  onAppearanceSelect: (appearance: AppearanceSettings) => Promise<SettingsViewModel>;
   onContextGovernanceLoad: () => Promise<ContextGovernanceSettingsViewModel>;
   onContextGovernanceSave: (settings: ContextGovernanceSettingsViewModel) => Promise<ContextGovernanceSettingsViewModel>;
   onSkillRefresh: () => Promise<SettingsViewModel>;
@@ -131,6 +133,7 @@ export function SettingsPanel({
   contextUsage,
   onModelSelect,
   onTerminalProfileSelect,
+  onAppearanceSelect,
   onContextGovernanceLoad,
   onContextGovernanceSave,
   onSkillRefresh,
@@ -204,7 +207,7 @@ export function SettingsPanel({
           />
         );
       case 'common':
-        return <CommonSettings settings={settings} onTerminalProfileSelect={onTerminalProfileSelect} />;
+        return <CommonSettings settings={settings} onTerminalProfileSelect={onTerminalProfileSelect} onAppearanceSelect={onAppearanceSelect} />;
       case 'context':
         return (
           <ContextGovernanceSettings
@@ -263,19 +266,19 @@ export function SettingsPanel({
       theme={{
         components: {
           Button: {
-            textHoverBg: '#f6f6f6',
+            textHoverBg: 'var(--app-surface-hover)',
           },
           Menu: {
             iconSize: 14,
-            itemActiveBg: '#f2f2f2',
+            itemActiveBg: 'var(--app-surface-hover)',
             itemBg: 'transparent',
             itemHeight: 32,
-            itemHoverBg: '#f6f6f6',
+            itemHoverBg: 'var(--app-surface-hover)',
             itemMarginBlock: 2,
             itemMarginInline: 0,
             itemPaddingInline: 8,
-            itemSelectedBg: '#f2f2f2',
-            itemSelectedColor: 'rgba(0, 0, 0, 0.88)',
+            itemSelectedBg: 'var(--app-surface-active)',
+            itemSelectedColor: 'var(--app-text-primary)',
           },
         },
       }}
@@ -1715,14 +1718,17 @@ function stateTagColor(state?: string) {
 function CommonSettings({
   settings,
   onTerminalProfileSelect,
+  onAppearanceSelect,
 }: {
   settings: SettingsViewModel;
   onTerminalProfileSelect: (profileID: string) => Promise<SettingsViewModel>;
+  onAppearanceSelect: (appearance: AppearanceSettings) => Promise<SettingsViewModel>;
 }) {
   const [terminalProfile, setTerminalProfile] = useState(settings.terminalProfile);
   const [savingTerminalProfile, setSavingTerminalProfile] = useState(false);
   const [messageApi, messageContextHolder] = message.useMessage();
   const selectedTerminalProfile = savingTerminalProfile ? terminalProfile : settings.terminalProfile || terminalProfile;
+  const [savingAppearance, setSavingAppearance] = useState(false);
 
   const saveTerminalProfile = async (profileID: string) => {
     setTerminalProfile(profileID);
@@ -1739,6 +1745,17 @@ function CommonSettings({
     }
   };
 
+  const saveColorMode = async (colorMode: ColorMode) => {
+    setSavingAppearance(true);
+    try {
+      await onAppearanceSelect({ ...settings.appearance, colorMode });
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : '主题设置保存失败');
+    } finally {
+      setSavingAppearance(false);
+    }
+  };
+
   return (
     <>
       {messageContextHolder}
@@ -1751,7 +1768,18 @@ function CommonSettings({
                 <Text>外观</Text>
                 <Text type="secondary">主题配色、界面字体等外观设置</Text>
               </Flex>
-              <Button disabled type="text">即将推出</Button>
+              <Select
+                loading={savingAppearance}
+                value={settings.appearance.colorMode}
+                options={[
+                  { label: '跟随系统', value: 'system' },
+                  { label: '浅色', value: 'light' },
+                  { label: '深色', value: 'dark' },
+                ]}
+                style={{ minWidth: 180 }}
+                variant="filled"
+                onChange={(value: ColorMode) => void saveColorMode(value)}
+              />
             </Flex>
             <Flex align="center" className={styles.listItem} gap={16} justify="space-between">
               <Flex vertical>
