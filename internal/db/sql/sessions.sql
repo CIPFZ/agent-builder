@@ -55,6 +55,7 @@ ORDER BY updated_at DESC;
 UPDATE sessions
 SET
     title = ?,
+    title_source = ?,
     prompt_tokens = ?,
     completion_tokens = ?,
     summary_message_id = ?,
@@ -83,7 +84,8 @@ WHERE id = ?;
 -- name: RenameSession :exec
 UPDATE sessions
 SET
-    title = ?
+    title = ?,
+    title_source = 'user'
 WHERE id = ?;
 
 -- name: DeleteSession :exec

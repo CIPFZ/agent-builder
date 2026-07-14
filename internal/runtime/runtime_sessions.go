@@ -58,6 +58,7 @@ func (r *runtimeService) CreateSession(ctx context.Context, req RuntimeSessionCr
 		return RuntimeSessionResponse{}, err
 	}
 	title := strings.TrimSpace(req.Title)
+	explicitTitle := title != "" && !isDefaultRuntimeSessionTitle(title)
 	if title == "" {
 		title = "New chat"
 	}
@@ -72,6 +73,12 @@ func (r *runtimeService) CreateSession(ctx context.Context, req RuntimeSessionCr
 	sess, err := r.runtime.CreateSessionWithScopeAndWorkdir(ctx, wsID, title, projectID, scope, workdir, canonicalWorkdir, workdirExists)
 	if err != nil {
 		return RuntimeSessionResponse{}, fmt.Errorf("failed to create Agent Builder session: %w", err)
+	}
+	if explicitTitle {
+		sess.TitleSource = session.TitleSourceUser
+		if sess, err = r.runtime.SaveSession(ctx, wsID, sess); err != nil {
+			return RuntimeSessionResponse{}, fmt.Errorf("failed to finalize explicit Agent Builder session title: %w", err)
+		}
 	}
 	r.mu.Lock()
 	r.sessionID = sess.ID
@@ -142,6 +149,7 @@ func (r *runtimeService) RenameSession(ctx context.Context, req RuntimeSessionUp
 		return RuntimeSessionsResponse{}, fmt.Errorf("failed to read Agent Builder session: %w", err)
 	}
 	sess.Title = title
+	sess.TitleSource = session.TitleSourceUser
 	if sess.Scope == "" {
 		sess.Scope = "project"
 	}
@@ -840,14 +848,18 @@ func (r *runtimeService) ensureSessionTitle(ctx context.Context, workspaceID, se
 	if err != nil {
 		return err
 	}
-	if !isDefaultRuntimeSessionTitle(sess.Title) {
+	if sess.TitleSource == session.TitleSourceUser || sess.TitleSource == session.TitleSourceAgent || sess.TitleSource == session.TitleSourceFallbackPending || sess.TitleSource == session.TitleSourceFallback {
 		return nil
 	}
-	title := preview(strings.TrimSpace(prompt), 48)
+	if !isDefaultRuntimeSessionTitle(sess.Title) && sess.TitleSource != "" && sess.TitleSource != session.TitleSourceAuto {
+		return nil
+	}
+	title := agent.FallbackSessionTitle(prompt)
 	if title == "" {
 		return nil
 	}
 	sess.Title = title
+	sess.TitleSource = session.TitleSourceFallbackPending
 	if _, err := r.runtime.SaveSession(ctx, workspaceID, sess); err != nil {
 		return err
 	}
@@ -857,7 +869,9 @@ func (r *runtimeService) ensureSessionTitle(ctx context.Context, workspaceID, se
 		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 		SessionID: sessionID,
 		Payload: map[string]any{
-			"title": title,
+			"title":       title,
+			"titleSource": session.TitleSourceFallbackPending,
+			"titleStatus": "generating",
 		},
 	})
 	return nil
@@ -866,6 +880,23 @@ func (r *runtimeService) ensureSessionTitle(ctx context.Context, workspaceID, se
 func isDefaultRuntimeSessionTitle(title string) bool {
 	title = strings.TrimSpace(title)
 	return title == "" || title == "New chat" || title == agent.DefaultSessionName
+}
+
+func (r *runtimeService) finalizeInterruptedTitleGeneration(ctx context.Context, workspaceID string) error {
+	sessions, err := r.runtime.ListSessions(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	for _, sess := range sessions {
+		if sess.TitleSource != session.TitleSourceFallbackPending {
+			continue
+		}
+		sess.TitleSource = session.TitleSourceFallback
+		if _, err := r.runtime.SaveSession(ctx, workspaceID, sess); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *runtimeService) sessionUsage(ctx context.Context, workspaceID, sessionID string) (RuntimeUsage, error) {
@@ -900,6 +931,8 @@ func toRuntimeSession(sess session.Session, activeID, workspaceID string) Runtim
 	return RuntimeSession{
 		ID:               sess.ID,
 		Title:            firstNonEmpty(sess.Title, "New chat"),
+		TitleSource:      runtimeSessionTitleSource(sess.TitleSource),
+		TitleStatus:      runtimeSessionTitleStatus(sess.TitleSource),
 		ProjectID:        projectID,
 		Scope:            scope,
 		Workdir:          sess.Workdir,
@@ -913,6 +946,29 @@ func toRuntimeSession(sess session.Session, activeID, workspaceID string) Runtim
 		Active:           sess.ID == activeID,
 		Usage:            usage,
 	}
+}
+
+func runtimeSessionTitleSource(source string) string {
+	switch source {
+	case session.TitleSourceFallbackPending, session.TitleSourceFallback:
+		return "fallback"
+	case session.TitleSourceAgent:
+		return "agent"
+	case session.TitleSourceUser:
+		return "user"
+	default:
+		return "default"
+	}
+}
+
+func runtimeSessionTitleStatus(source string) string {
+	if source == session.TitleSourceFallbackPending {
+		return "generating"
+	}
+	if source == "" || source == session.TitleSourceAuto {
+		return "draft"
+	}
+	return "final"
 }
 
 func normalizeRuntimeSessionOwnership(projectID, scope string) (string, string) {

@@ -76,6 +76,10 @@ func (m *mockSessionService) UpdateTitleAndUsage(context.Context, string, string
 	return nil
 }
 
+func (m *mockSessionService) FinalizeGeneratedTitle(context.Context, string, string, string, string, int64, int64, float64) (bool, error) {
+	return true, nil
+}
+
 func (m *mockSessionService) Rename(context.Context, string, string) error {
 	return nil
 }

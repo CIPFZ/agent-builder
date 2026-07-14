@@ -19,6 +19,9 @@ assert.deepEqual(requests, [
 
 const shell = await readFile(new URL('../src/app/shell/WorkbenchShell.tsx', import.meta.url), 'utf8');
 const contextIndicator = await readFile(new URL('../src/features/composer/ContextUsageIndicator.tsx', import.meta.url), 'utf8');
+const adapter = await readFile(new URL('../src/runtime/wailsWorkbenchAdapter.ts', import.meta.url), 'utf8');
+const sidebar = await readFile(new URL('../src/features/sidebar/Sidebar.tsx', import.meta.url), 'utf8');
+const workspace = await readFile(new URL('../src/features/workspace/Workspace.tsx', import.meta.url), 'utf8');
 assert.match(shell, /promptSubmitQueueRef\.current\.enqueue/, 'prompt submission remains serialized');
 assert.match(shell, /optimisticConversationByClientRequestId/, 'draft optimism uses the cutover overlay');
 assert.match(shell, /pruneEchoedOptimisticSubmits/, 'canonical user-message echoes settle optimistic submits');
@@ -30,5 +33,9 @@ assert.match(shell, /contextUsage\?\.sessionId === sessionID/, 'hydrated context
 assert.match(contextIndicator, /上下文估算/, 'context UI describes its composite number as an estimate');
 assert.doesNotMatch(contextIndicator, /手动压缩|CompressOutlined|styles\.ring/, 'composer context popover has no ineffective manual compact action or duplicate ring');
 assert.doesNotMatch(shell, /retargetOutputStore|hydrateOutputStore|applyOutputEvents/, 'draft adoption cannot revive the removed output store');
+assert.match(adapter, /titleSource: 'fallback' as const,[\s\S]*?titleStatus: 'generating' as const/, 'draft adoption immediately exposes a provisional fallback title');
+assert.match(adapter, /Array\.from\(title\)[\s\S]*?characters\.length > 48[\s\S]*?characters\.slice\(0, 47\).*…/, 'optimistic fallback follows the 48-character title contract');
+assert.match(sidebar, /titleStatus === 'generating'[\s\S]*?正在优化标题/, 'sidebar presents background title optimization without replacing the fallback title');
+assert.match(workspace, /activeSession\.titleStatus === 'generating'[\s\S]*?正在优化标题/, 'active Session header presents background title optimization');
 
 console.log('conversation target submit smoke passed');

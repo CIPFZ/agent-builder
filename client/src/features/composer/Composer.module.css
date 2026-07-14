@@ -136,7 +136,64 @@
 }
 
 .modelButton {
+  display: inline-flex;
+  align-items: center;
   max-width: 220px;
+  padding-inline: 10px;
+  gap: 6px;
+  transform: translateY(1px);
+  transition: color 160ms ease, background-color 160ms ease;
+}
+
+.modelButtonOpen,
+.modelButtonOpen:hover,
+.modelButtonOpen:focus-visible {
+  color: var(--ant-color-text) !important;
+  background: var(--ant-color-fill-tertiary) !important;
+}
+
+.modelChevron {
+  flex: 0 0 auto;
+  color: var(--ant-color-text-tertiary);
+  font-size: 10px;
+  transform: rotate(0deg);
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.modelChevronOpen {
+  color: var(--ant-color-text-secondary);
+  transform: rotate(180deg);
+}
+
+.modelSelectedIcon {
+  color: var(--ant-color-text);
+  font-size: 12px;
+}
+
+.modelDropdown :global(.ant-dropdown-menu-item) {
+  color: var(--ant-color-text) !important;
+}
+
+.modelDropdown :global(.ant-dropdown-menu-item:hover),
+.modelDropdown :global(.ant-dropdown-menu-item-active) {
+  color: var(--ant-color-text) !important;
+  background: var(--ant-color-fill-tertiary) !important;
+}
+
+.modelDropdown :global(.ant-dropdown-menu-item-selected) {
+  color: var(--ant-color-text) !important;
+  background: var(--ant-color-fill-secondary) !important;
+}
+
+.modelDropdown :global(.ant-dropdown-menu-item-selected:hover),
+.modelDropdown :global(.ant-dropdown-menu-item-selected.ant-dropdown-menu-item-active) {
+  color: var(--ant-color-text) !important;
+  background: var(--ant-color-fill) !important;
+}
+
+.modelDropdown :global(.ant-dropdown-menu-title-content),
+.modelDropdown :global(.ant-dropdown-menu-item-extra) {
+  color: inherit !important;
 }
 
 .truncatedLabel,

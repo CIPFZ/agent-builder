@@ -8,6 +8,7 @@ import {
   FolderOpenOutlined,
   LayoutOutlined,
   LeftOutlined,
+  LoadingOutlined,
   MoreOutlined,
   PlusOutlined,
   RightOutlined,
@@ -565,6 +566,11 @@ export function Workspace({
         {activeSession ? (
           <div className={styles.sessionTitleWrap}>
             <h2 className={styles.sessionTitle}>{sessionTitle}</h2>
+            {activeSession.titleStatus === 'generating' && (
+              <Tooltip title="正在优化标题">
+                <span className={styles.titleOptimizer} aria-label="正在优化标题"><LoadingOutlined spin /></span>
+              </Tooltip>
+            )}
             <Dropdown
               menu={{
                 items: [{ key: 'rename', icon: <EditOutlined />, label: '重命名' }],

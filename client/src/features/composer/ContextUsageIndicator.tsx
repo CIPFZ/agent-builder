@@ -46,6 +46,13 @@ export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
       }
     >
       <button className={`${styles.trigger} ${levelClass} ${usage.estimated ? styles.estimated : ''}`} type="button" aria-label={`上下文估算已用 ${usage.percentUsed}%`}>
+        <span
+          aria-hidden="true"
+          className={styles.usageRing}
+          style={{ background: `conic-gradient(currentColor ${usage.percentUsed}%, rgb(0 0 0 / 10%) 0)` }}
+        >
+          <span className={styles.usageRingCenter} />
+        </span>
         <span className={styles.percent}>{usage.percentUsed}%</span>
       </button>
     </Popover>

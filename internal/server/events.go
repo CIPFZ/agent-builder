@@ -136,6 +136,7 @@ func sessionToAPIType(s session.Session) apitypes.Session {
 		ID:               s.ID,
 		ParentSessionID:  s.ParentSessionID,
 		Title:            s.Title,
+		TitleSource:      s.TitleSource,
 		SummaryMessageID: s.SummaryMessageID,
 		MessageCount:     s.MessageCount,
 		PromptTokens:     s.PromptTokens,

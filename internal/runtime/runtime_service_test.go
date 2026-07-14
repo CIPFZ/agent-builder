@@ -2883,7 +2883,7 @@ func TestRuntimeCreateSessionPersistsAndSelectsSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Session.ID == "" || created.Session.Title != "Pinned chat" || !created.Session.Active {
+	if created.Session.ID == "" || created.Session.Title != "Pinned chat" || created.Session.TitleSource != "user" || created.Session.TitleStatus != "final" || !created.Session.Active {
 		t.Fatalf("created session = %#v", created.Session)
 	}
 	status, err := service.Status(context.Background())
@@ -3016,6 +3016,40 @@ func TestRuntimeChatRenamesDefaultSessionTitle(t *testing.T) {
 	}
 	if renamed.Title != "Summarize runtime session behavior in one line." {
 		t.Fatalf("title = %q", renamed.Title)
+	}
+	if renamed.TitleSource != session.TitleSourceFallbackPending {
+		t.Fatalf("title source = %q", renamed.TitleSource)
+	}
+	projected := toRuntimeSession(renamed, renamed.ID, workspace.ID)
+	if projected.TitleSource != "fallback" || projected.TitleStatus != "generating" {
+		t.Fatalf("runtime title state = %#v", projected)
+	}
+}
+
+func TestRuntimeRenameSessionLocksOutGeneratedTitle(t *testing.T) {
+	service := newRuntimeService()
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "fallback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.TitleSource = session.TitleSourceFallbackPending
+	if _, err := runtimeWorkbench.SaveSession(context.Background(), workspace.ID, sess); err != nil {
+		t.Fatal(err)
+	}
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID}
+	service.sessionID = sess.ID
+
+	if _, err := service.RenameSession(context.Background(), RuntimeSessionUpdateRequest{SessionID: sess.ID, Title: "user title"}); err != nil {
+		t.Fatal(err)
+	}
+	renamed, err := runtimeWorkbench.GetSession(context.Background(), workspace.ID, sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Title != "user title" || renamed.TitleSource != session.TitleSourceUser {
+		t.Fatalf("renamed session = %#v", renamed)
 	}
 }
 

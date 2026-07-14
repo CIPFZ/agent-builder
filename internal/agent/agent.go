@@ -58,7 +58,12 @@ const maxReactiveCompactAttempts = 3
 const errContextTooLongAfterCompact = "上下文超出模型限制且自动压缩未能恢复，请手动 /compact 或新建会话"
 
 const (
-	DefaultSessionName = "Untitled Session"
+	DefaultSessionName            = "Untitled Session"
+	titleAgentMaxChars            = 48
+	titleAgentMaxTokens     int64 = 40
+	titleAgentTimeout             = 10 * time.Second
+	titlePersistenceTimeout       = 2 * time.Second
+	titleAgentConcurrency         = 2
 )
 
 var userAgent = fmt.Sprintf("Agent-Builder/%s (https://github.com/CIPFZ/agent-builder)", version.Version)
@@ -133,6 +138,7 @@ type sessionAgent struct {
 
 	messageQueue   *csync.Map[string, []SessionAgentCall]
 	activeRequests *csync.Map[string, context.CancelFunc]
+	titleSlots     chan struct{}
 
 	guardConfig         config.ToolResultGuardConfig
 	modelInputBuilder   ModelInputBuilder
@@ -179,6 +185,7 @@ func NewSessionAgent(
 		notify:               opts.Notify,
 		messageQueue:         csync.NewMap[string, []SessionAgentCall](),
 		activeRequests:       csync.NewMap[string, context.CancelFunc](),
+		titleSlots:           make(chan struct{}, titleAgentConcurrency),
 		guardConfig:          opts.GuardConfig,
 		modelInputBuilder:    opts.ModelInputBuilder,
 		assemblyRecorder:     opts.AssemblyRecorder,
@@ -270,15 +277,23 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		return nil, fmt.Errorf("failed to get session messages: %w", err)
 	}
 
-	var wg sync.WaitGroup
-	// Generate title if first message.
-	if len(msgs) == 0 {
-		titleCtx := ctx // Copy to avoid race with ctx reassignment below.
-		wg.Go(func() {
-			a.generateTitle(titleCtx, call.SessionID, call.Prompt)
-		})
+	// A dedicated, tool-free Title Agent may improve the provisional title,
+	// but it never participates in the conversation request lifecycle.
+	if len(msgs) == 0 && !a.isSubAgent {
+		fallback := FallbackSessionTitle(call.Prompt)
+		if currentSession.TitleSource == "" || currentSession.TitleSource == session.TitleSourceAuto {
+			currentSession.Title = fallback
+			currentSession.TitleSource = session.TitleSourceFallbackPending
+			if saved, saveErr := a.sessions.Save(ctx, currentSession); saveErr != nil {
+				slog.Warn("Failed to persist provisional session title", "session_id", call.SessionID, "error", saveErr)
+			} else {
+				currentSession = saved
+			}
+		}
+		if currentSession.TitleSource == session.TitleSourceFallbackPending {
+			a.startTitleGeneration(ctx, call.SessionID, call.Prompt, currentSession.Title)
+		}
 	}
-	defer wg.Wait()
 
 	// Add the user message to the session.
 	_, err = a.createUserMessage(ctx, call)
@@ -1405,98 +1420,54 @@ func (a *sessionAgent) getSessionMessages(ctx context.Context, session session.S
 }
 
 // generateTitle generates a session titled based on the initial prompt.
-func (a *sessionAgent) generateTitle(ctx context.Context, sessionID string, userPrompt string) {
+func (a *sessionAgent) startTitleGeneration(parent context.Context, sessionID, userPrompt, expectedTitle string) {
+	select {
+	case a.titleSlots <- struct{}{}:
+		go func() {
+			defer func() { <-a.titleSlots }()
+			modelCtx, cancel := context.WithTimeout(parent, titleAgentTimeout)
+			a.generateTitle(modelCtx, parent, sessionID, userPrompt, expectedTitle)
+			cancel()
+		}()
+	default:
+		// Admission is deliberately bounded. The deterministic fallback is
+		// already visible, so saturation only skips the optional enhancement.
+		a.finalizeFallbackTitle(parent, sessionID, expectedTitle)
+	}
+}
+
+func (a *sessionAgent) generateTitle(modelCtx, persistCtx context.Context, sessionID, userPrompt, expectedTitle string) {
 	if userPrompt == "" {
+		a.finalizeFallbackTitle(persistCtx, sessionID, expectedTitle)
 		return
 	}
 
 	smallModel := a.smallModel.Get()
-	largeModel := a.largeModel.Get()
-	systemPromptPrefix := a.systemPromptPrefix.Get()
-
-	var maxOutputTokens int64 = 40
-	if smallModel.CatwalkCfg.CanReason {
-		maxOutputTokens = smallModel.CatwalkCfg.DefaultMaxTokens
-	}
-
-	newAgent := func(m fantasy.LanguageModel, p []byte, tok int64) fantasy.Agent {
-		return fantasy.NewAgent(m,
-			fantasy.WithSystemPrompt(string(p)+"\n /no_think"),
-			fantasy.WithMaxOutputTokens(tok),
-			fantasy.WithUserAgent(userAgent),
-		)
-	}
-
 	model := smallModel
-	streamCall := fantasy.AgentStreamCall{
-		Prompt: fmt.Sprintf("Generate a concise title for the following content:\n\n%s\n <think>\n\n</think>", userPrompt),
-		PrepareStep: func(callCtx context.Context, opts fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
-			prepared.Messages = opts.Messages
-			if systemPromptPrefix != "" {
-				prepared.Messages = append([]fantasy.Message{
-					fantasy.NewSystemMessage(systemPromptPrefix),
-				}, prepared.Messages...)
-			}
-			prepared.Messages, _, err = a.buildModelInput(callCtx, ModelInputSnapshot{
-				SessionID: sessionID,
-				TurnID:    "title_" + sessionID,
-				Step:      stepNumber(prepared.Messages),
-				Provider:  model.ModelCfg.Provider,
-				Model:     model.ModelCfg.Model,
-				Source:    "title",
-				Messages:  prepared.Messages,
-			})
-			return callCtx, prepared, err
-		},
-	}
-
-	// Use the small model to generate the title.
-	agent := newAgent(model.Model, titlePrompt, maxOutputTokens)
-	resp, err := agent.Stream(ctx, streamCall)
-	if err == nil {
-		// We successfully generated a title with the small model.
-		slog.Debug("Generated title with small model")
-	} else {
-		// It didn't work. Let's try with the big model.
-		slog.Error("Error generating title with small model; trying big model", "err", err)
-		model = largeModel
-		agent = newAgent(model.Model, titlePrompt, maxOutputTokens)
-		resp, err = agent.Stream(ctx, streamCall)
-		if err == nil {
-			slog.Debug("Generated title with large model")
-		} else {
-			// Welp, the large model didn't work either. Use the default
-			// session name and return.
-			slog.Error("Error generating title with large model", "err", err)
-			saveErr := a.sessions.Rename(ctx, sessionID, DefaultSessionName)
-			if saveErr != nil {
-				slog.Error("Failed to save session title", "error", saveErr)
-			}
-			return
-		}
-	}
-
-	if resp == nil {
-		// Actually, we didn't get a response so we can't. Use the default
-		// session name and return.
-		slog.Error("Response is nil; can't generate title")
-		saveErr := a.sessions.Rename(ctx, sessionID, DefaultSessionName)
-		if saveErr != nil {
-			slog.Error("Failed to save session title", "error", saveErr)
-		}
+	titleAgent := fantasy.NewAgent(model.Model,
+		fantasy.WithSystemPrompt(string(titlePrompt)+"\nDo not reason aloud. Return only the title."),
+		fantasy.WithMaxOutputTokens(titleAgentMaxTokens),
+		fantasy.WithUserAgent(userAgent),
+	)
+	resp, err := titleAgent.Stream(modelCtx, fantasy.AgentStreamCall{
+		Prompt: fmt.Sprintf("Generate a concise title for the following content:\n\n%s", userPrompt),
+	})
+	if err != nil {
+		slog.Debug("Title Agent failed; keeping fallback", "session_id", sessionID, "error", err)
+		a.finalizeFallbackTitle(persistCtx, sessionID, expectedTitle)
 		return
 	}
 
-	// Clean up title.
-	var title string
-	title = strings.ReplaceAll(resp.Response.Content.Text(), "\n", " ")
+	if resp == nil {
+		a.finalizeFallbackTitle(persistCtx, sessionID, expectedTitle)
+		return
+	}
 
-	// Remove thinking tags if present.
-	title = thinkTagRegex.ReplaceAllString(title, "")
-	title = orphanThinkTagRegex.ReplaceAllString(title, "")
-
-	title = strings.TrimSpace(title)
-	title = cmp.Or(title, DefaultSessionName)
+	title := NormalizeSessionTitle(resp.Response.Content.Text())
+	if title == "" {
+		a.finalizeFallbackTitle(persistCtx, sessionID, expectedTitle)
+		return
+	}
 
 	// Calculate usage and cost.
 	var openrouterCost *float64
@@ -1511,7 +1482,7 @@ func (a *sessionAgent) generateTitle(ctx context.Context, sessionID string, user
 		}
 	}
 
-	modelConfig := model.CatwalkCfg
+	modelConfig := smallModel.CatwalkCfg
 	cost := modelConfig.CostPer1MInCached/1e6*float64(resp.TotalUsage.CacheCreationTokens) +
 		modelConfig.CostPer1MOutCached/1e6*float64(resp.TotalUsage.CacheReadTokens) +
 		modelConfig.CostPer1MIn/1e6*float64(resp.TotalUsage.InputTokens) +
@@ -1532,11 +1503,47 @@ func (a *sessionAgent) generateTitle(ctx context.Context, sessionID string, user
 
 	// Atomically update only title and usage fields to avoid overriding other
 	// concurrent session updates.
-	saveErr := a.sessions.UpdateTitleAndUsage(ctx, sessionID, title, promptTokens, completionTokens, cost)
+	writeCtx, cancelWrite := context.WithTimeout(persistCtx, titlePersistenceTimeout)
+	applied, saveErr := a.sessions.FinalizeGeneratedTitle(writeCtx, sessionID, expectedTitle, title, session.TitleSourceAgent, promptTokens, completionTokens, cost)
+	cancelWrite()
 	if saveErr != nil {
 		slog.Error("Failed to save session title and usage", "error", saveErr)
 		return
 	}
+	if applied {
+		slog.Debug("Title Agent updated session title", "session_id", sessionID)
+	}
+}
+
+func (a *sessionAgent) finalizeFallbackTitle(ctx context.Context, sessionID, expectedTitle string) {
+	writeCtx, cancel := context.WithTimeout(ctx, titlePersistenceTimeout)
+	defer cancel()
+	if _, err := a.sessions.FinalizeGeneratedTitle(writeCtx, sessionID, expectedTitle, expectedTitle, session.TitleSourceFallback, 0, 0, 0); err != nil && ctx.Err() == nil {
+		slog.Warn("Failed to finalize fallback session title", "session_id", sessionID, "error", err)
+	}
+}
+
+// FallbackSessionTitle produces the immediately visible deterministic title.
+func FallbackSessionTitle(prompt string) string {
+	title := NormalizeSessionTitle(prompt)
+	if title == "" {
+		return DefaultSessionName
+	}
+	return title
+}
+
+// NormalizeSessionTitle enforces the product title contract independently of
+// model compliance: one plain-text line and at most 48 Unicode code points.
+func NormalizeSessionTitle(value string) string {
+	value = thinkTagRegex.ReplaceAllString(value, "")
+	value = orphanThinkTagRegex.ReplaceAllString(value, "")
+	value = strings.Join(strings.Fields(value), " ")
+	value = strings.TrimSpace(strings.Trim(value, "#*`\"'“”‘’"))
+	runes := []rune(value)
+	if len(runes) > titleAgentMaxChars {
+		value = string(runes[:titleAgentMaxChars-1]) + "…"
+	}
+	return strings.TrimSpace(value)
 }
 
 func (a *sessionAgent) openrouterCost(metadata fantasy.ProviderMetadata) *float64 {

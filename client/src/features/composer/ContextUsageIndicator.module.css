@@ -1,12 +1,31 @@
 .trigger {
   display: inline-flex;
   align-items: center;
-  height: 28px;
-  padding: 0 4px;
+  justify-content: center;
+  height: 32px;
+  padding: 0 6px;
+  gap: 6px;
   border: 0;
   background: transparent;
   color: var(--ant-color-text-secondary);
   cursor: pointer;
+}
+
+.usageRing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+.usageRingCenter {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ant-color-bg-container);
 }
 
 .trigger:hover,
@@ -16,10 +35,13 @@
 }
 
 .percent {
-  min-width: 34px;
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  min-width: 28px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
-  line-height: 1;
+  line-height: 20px;
   text-align: right;
 }
 

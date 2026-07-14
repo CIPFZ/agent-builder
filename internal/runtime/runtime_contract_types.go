@@ -1665,6 +1665,8 @@ type RuntimeMessagePart struct {
 type RuntimeSession struct {
 	ID               string       `json:"id"`
 	Title            string       `json:"title"`
+	TitleSource      string       `json:"titleSource"`
+	TitleStatus      string       `json:"titleStatus"`
 	ProjectID        string       `json:"projectId,omitempty"`
 	Scope            string       `json:"scope,omitempty"`
 	Workdir          string       `json:"workdir,omitempty"`

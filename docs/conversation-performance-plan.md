@@ -221,6 +221,21 @@ refreshes and per-token React/Wails traffic. Reasoning is shown in the process
 disclosure while the Turn is active; final text moves to the final response
 when the durable Turn reaches its terminal phase.
 
+### Background Session title invariant
+
+The first user message immediately persists a deterministic, at-most-48-character
+fallback title. A dedicated Title Agent may improve it in the background, but
+it has no tools, MCP servers, skills, conversation history, Turn, Run, or
+AgentTask ownership. It uses the configured small model for one request, has a
+10-second deadline and bounded concurrency, and never delays Turn completion.
+
+The persisted title source moves through `fallback_pending` to either `agent`
+or final `fallback`. Generated results use an expected-title/source conditional
+update, so a `user` rename always wins. The frontend renders the fallback
+immediately, shows only a lightweight optimization indicator, and applies the
+later `session.updated` revision in place without polling or reordering the
+Session list.
+
 Frontend deterministic gate:
 
 ```text

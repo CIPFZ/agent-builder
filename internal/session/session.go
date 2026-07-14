@@ -73,6 +73,14 @@ type Session struct {
 	UpdatedAt        int64
 }
 
+const (
+	TitleSourceAuto            = "auto"
+	TitleSourceFallbackPending = "fallback_pending"
+	TitleSourceFallback        = "fallback"
+	TitleSourceAgent           = "agent"
+	TitleSourceUser            = "user"
+)
+
 type Service interface {
 	pubsub.Subscriber[Session]
 	Create(ctx context.Context, title string) (Session, error)
@@ -85,6 +93,7 @@ type Service interface {
 	List(ctx context.Context) ([]Session, error)
 	Save(ctx context.Context, session Session) (Session, error)
 	UpdateTitleAndUsage(ctx context.Context, sessionID, title string, promptTokens, completionTokens int64, cost float64) error
+	FinalizeGeneratedTitle(ctx context.Context, sessionID, expectedTitle, title, source string, promptTokens, completionTokens int64, cost float64) (bool, error)
 	Rename(ctx context.Context, id string, title string) error
 	Delete(ctx context.Context, id string) error
 
@@ -251,6 +260,7 @@ func (s *service) Save(ctx context.Context, session Session) (Session, error) {
 	dbSession, err := s.q.UpdateSession(ctx, db.UpdateSessionParams{
 		ID:               session.ID,
 		Title:            session.Title,
+		TitleSource:      normalizeTitleSource(session.TitleSource),
 		PromptTokens:     session.PromptTokens,
 		CompletionTokens: session.CompletionTokens,
 		SummaryMessageID: sql.NullString{
@@ -293,6 +303,40 @@ func (s *service) UpdateTitleAndUsage(ctx context.Context, sessionID, title stri
 	})
 }
 
+// FinalizeGeneratedTitle atomically replaces only the provisional fallback
+// title. A user rename or another completed title wins the race and leaves the
+// late background result unapplied.
+func (s *service) FinalizeGeneratedTitle(ctx context.Context, sessionID, expectedTitle, title, source string, promptTokens, completionTokens int64, cost float64) (bool, error) {
+	if source != TitleSourceAgent && source != TitleSourceFallback {
+		return false, fmt.Errorf("invalid generated title source %q", source)
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE sessions
+SET title = ?,
+    title_source = ?,
+    prompt_tokens = prompt_tokens + ?,
+    completion_tokens = completion_tokens + ?,
+    cost = cost + ?,
+    updated_at = strftime('%s', 'now')
+WHERE id = ?
+  AND deleted_at IS NULL
+  AND title = ?
+  AND title_source = ?`, title, source, promptTokens, completionTokens, cost, sessionID, expectedTitle, TitleSourceFallbackPending)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil || rows == 0 {
+		return false, err
+	}
+	updated, err := s.Get(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
+	s.Publish(pubsub.UpdatedEvent, updated)
+	return true, nil
+}
+
 // Rename updates only the title of a session without touching updated_at or
 // usage fields.
 func (s *service) Rename(ctx context.Context, id string, title string) error {
@@ -300,6 +344,15 @@ func (s *service) Rename(ctx context.Context, id string, title string) error {
 		ID:    id,
 		Title: title,
 	})
+}
+
+func normalizeTitleSource(source string) string {
+	switch strings.TrimSpace(source) {
+	case TitleSourceAuto, TitleSourceFallbackPending, TitleSourceFallback, TitleSourceAgent, TitleSourceUser:
+		return strings.TrimSpace(source)
+	default:
+		return TitleSourceAuto
+	}
 }
 
 func (s *service) List(ctx context.Context) ([]Session, error) {

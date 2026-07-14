@@ -240,7 +240,8 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 const renameSession = `-- name: RenameSession :exec
 UPDATE sessions
 SET
-    title = ?
+    title = ?,
+    title_source = 'user'
 WHERE id = ?
 `
 
@@ -258,6 +259,7 @@ const updateSession = `-- name: UpdateSession :one
 UPDATE sessions
 SET
     title = ?,
+    title_source = ?,
     prompt_tokens = ?,
     completion_tokens = ?,
     summary_message_id = ?,
@@ -275,6 +277,7 @@ RETURNING id, parent_session_id, title, scope, project_id, workdir, canonical_wo
 
 type UpdateSessionParams struct {
 	Title            string         `json:"title"`
+	TitleSource      string         `json:"title_source"`
 	PromptTokens     int64          `json:"prompt_tokens"`
 	CompletionTokens int64          `json:"completion_tokens"`
 	SummaryMessageID sql.NullString `json:"summary_message_id"`
@@ -291,6 +294,7 @@ type UpdateSessionParams struct {
 func (q *Queries) UpdateSession(ctx context.Context, arg UpdateSessionParams) (Session, error) {
 	row := q.queryRow(ctx, q.updateSessionStmt, updateSession,
 		arg.Title,
+		arg.TitleSource,
 		arg.PromptTokens,
 		arg.CompletionTokens,
 		arg.SummaryMessageID,

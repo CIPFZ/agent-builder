@@ -289,6 +289,9 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 	r.workspace = &ws
 	r.runtimeConfigured = workspaceConfigured
 	r.runtimeConfigKnown = true
+	if err := r.finalizeInterruptedTitleGeneration(ctx, ws.ID); err != nil {
+		return fmt.Errorf("failed to recover session titles: %w", err)
+	}
 	go r.consumeRuntimeEvents(runtimeCtx, ws.ID)
 	go r.consumeDesktopPermissions(runtimeCtx, ws.ID, wsRuntime.Permissions)
 	go r.consumePermissionPolicyApplications(runtimeCtx, ws.ID, wsRuntime.Permissions)

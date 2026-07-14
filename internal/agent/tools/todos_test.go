@@ -68,6 +68,10 @@ func (m *mockTodoSessionService) UpdateTitleAndUsage(context.Context, string, st
 	return nil
 }
 
+func (m *mockTodoSessionService) FinalizeGeneratedTitle(context.Context, string, string, string, string, int64, int64, float64) (bool, error) {
+	return true, nil
+}
+
 func (m *mockTodoSessionService) Rename(context.Context, string, string) error {
 	return nil
 }

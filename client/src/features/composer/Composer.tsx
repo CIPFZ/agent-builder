@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpOutlined,
   BranchesOutlined,
+  CaretDownOutlined,
+  CheckOutlined,
   DownOutlined,
   FolderOpenOutlined,
   PlusOutlined,
@@ -50,8 +52,12 @@ export function Composer({
 }: ComposerProps) {
   const [messageApi, messageContextHolder] = message.useMessage();
   const [draft, setDraft] = useState('');
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const composerRef = useRef<HTMLDivElement | null>(null);
   const selectedProviderID = composer.selectedModel?.configuredProviderId;
+  const selectedModelKey = composer.selectedModel
+    ? `${composer.selectedModel.configuredProviderId ?? ''}:${composer.selectedModel.name}`
+    : undefined;
   const projectOptions = projects.length > 0 ? projects : project.id ? [project] : [];
   const activeDraftTarget =
     draftTarget ?? (project.id ? { active: true, scope: 'project' as const, projectId: project.id } : { active: true, scope: 'standalone' as const });
@@ -103,6 +109,9 @@ export function Composer({
             key: `${model.configuredProviderId ?? ''}:${model.name}`,
             label: model.name,
             disabled: !model.configuredProviderId,
+            extra: `${model.configuredProviderId ?? ''}:${model.name}` === selectedModelKey
+              ? <CheckOutlined className={styles.modelSelectedIcon} />
+              : undefined,
           }))
         : [
             {
@@ -111,6 +120,8 @@ export function Composer({
               disabled: true,
             },
           ],
+    selectable: true,
+    selectedKeys: selectedModelKey ? [selectedModelKey] : [],
     onClick: ({ key }: { key: string }) => {
       const option = visibleModelOptions.find((model) => `${model.configuredProviderId ?? ''}:${model.name}` === key);
       if (!option?.configuredProviderId) {
@@ -154,10 +165,21 @@ export function Composer({
 
       <div className={styles.rightControls}>
         <ContextUsageIndicator usage={contextUsage} />
-        <Dropdown menu={modelMenu} trigger={['click']}>
-          <Button className={styles.modelButton} type="text">
+        <Dropdown
+          menu={modelMenu}
+          open={modelMenuOpen}
+          rootClassName={styles.modelDropdown}
+          trigger={['click']}
+          onOpenChange={setModelMenuOpen}
+        >
+          <Button
+            aria-expanded={modelMenuOpen}
+            aria-haspopup="menu"
+            className={`${styles.modelButton} ${modelMenuOpen ? styles.modelButtonOpen : ''}`}
+            type="text"
+          >
             <span className={styles.truncatedLabel}>{composer.modelLabel}</span>
-            <DownOutlined className={styles.chevron} />
+            <CaretDownOutlined className={`${styles.modelChevron} ${modelMenuOpen ? styles.modelChevronOpen : ''}`} />
           </Button>
         </Dropdown>
         <Button

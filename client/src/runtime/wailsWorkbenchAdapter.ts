@@ -146,6 +146,8 @@ interface RuntimeOpenProjectResponseDTO {
 interface RuntimeSessionDTO {
   id: string;
   title: string;
+  titleSource?: 'default' | 'fallback' | 'agent' | 'user';
+  titleStatus?: 'draft' | 'generating' | 'final';
   projectId?: string;
   scope?: 'project' | 'standalone' | string;
   updatedAt?: number;
@@ -1829,6 +1831,8 @@ function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: st
 
   return sessions.map((session) => ({
     id: session.id,
+    titleSource: session.titleSource,
+    titleStatus: session.titleStatus,
     title: session.title || '新对话',
     projectId: session.scope === 'standalone' ? undefined : session.projectId,
     scope: session.scope === 'standalone' ? 'standalone' as const : 'project' as const,
@@ -1884,7 +1888,8 @@ function mapProjectFromStatus(status?: RuntimeStatusDTO, current?: WorkbenchView
 
 function optimisticDraftSessionTitle(prompt: string) {
   const title = prompt.trim().replace(/\s+/g, ' ');
-  return title.length > 32 ? `${title.slice(0, 32)}...` : title || 'New chat';
+  const characters = Array.from(title);
+  return characters.length > 48 ? `${characters.slice(0, 47).join('')}…` : title || 'New chat';
 }
 
 function sessionsAfterDraftSubmit(
@@ -1913,6 +1918,8 @@ function sessionsAfterDraftSubmit(
     {
       id: sessionID,
       title: optimisticDraftSessionTitle(prompt),
+      titleSource: 'fallback' as const,
+      titleStatus: 'generating' as const,
       updatedLabel: '刚刚',
       scope,
       projectId,

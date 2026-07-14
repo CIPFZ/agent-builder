@@ -96,6 +96,8 @@ export interface ProjectMemoryIndexViewModel {
 export interface SessionViewModel {
   id: string;
   title: string;
+  titleSource?: 'default' | 'fallback' | 'agent' | 'user';
+  titleStatus?: 'draft' | 'generating' | 'final';
   updatedLabel: string;
   projectId?: string;
   scope: 'project' | 'standalone';

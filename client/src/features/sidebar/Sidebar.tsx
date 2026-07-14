@@ -481,9 +481,15 @@ export function Sidebar({
                                 className={`${styles.projectSessionRow} ${session.active ? styles.currentRow : ''}`}
                                 data-session-id={session.id}
                                 data-session-busy={session.busy ? 'true' : 'false'}
+                                data-title-status={session.titleStatus}
                               >
                                 <Button className={styles.projectSessionButton} block type="text" onClick={() => onSessionSelect(session.id)}>
                                   <span className={styles.projectSessionTitle}>{session.title}</span>
+                                  {session.titleStatus === 'generating' && (
+                                    <Tooltip title="正在优化标题">
+                                      <span className={styles.titleOptimizer} aria-label="正在优化标题"><LoadingOutlined spin /></span>
+                                    </Tooltip>
+                                  )}
                                   <span className={styles.projectSessionAge}>{session.updatedLabel}</span>
                                 </Button>
                                 {session.busy && (
@@ -547,9 +553,15 @@ export function Sidebar({
                       className={`${styles.sessionRow} ${session.active ? styles.currentRow : ''}`}
                       data-session-id={session.id}
                       data-session-busy={session.busy ? 'true' : 'false'}
+                      data-title-status={session.titleStatus}
                     >
                       <Button className={styles.sessionButton} block type="text" onClick={() => onSessionSelect(session.id)}>
                         <span className={styles.sessionTitle}>{session.title}</span>
+                        {session.titleStatus === 'generating' && (
+                          <Tooltip title="正在优化标题">
+                            <span className={styles.titleOptimizer} aria-label="正在优化标题"><LoadingOutlined spin /></span>
+                          </Tooltip>
+                        )}
                         <span className={styles.sessionAge}>{session.updatedLabel}</span>
                       </Button>
                       {session.busy && (
