@@ -16,7 +16,6 @@ import {
 import {
   Button,
   Card,
-  Checkbox,
   Collapse,
   ConfigProvider,
   Flex,
@@ -545,12 +544,10 @@ function ProviderEditorModal({
   const [messageApi, messageContextHolder] = message.useMessage();
   const defaultProviderID = providers[0]?.id ?? '';
   const [selectedProviderID, setSelectedProviderID] = useState(defaultProviderID);
-  const [runtimeModels, setRuntimeModels] = useState<ProviderModelViewModel[]>([]);
   const [actionLoading, setActionLoading] = useState<'models' | 'test' | 'latency' | null>(null);
   const watchedModels = Form.useWatch('models', form) ?? [];
   const watchedDefaultModel = Form.useWatch('defaultModel', form);
   const modelRows = compactProviderModels(watchedModels);
-  const availableModelRows = mergeProviderModelRows(modelRows, [...runtimeModels, ...modelRows]);
   const hasInvalidModelLimits = hasInvalidProviderModelLimits(modelRows);
   const providerOptions = providers.map((provider) => ({
     label: provider.id === 'custom' ? 'Custom' : provider.name,
@@ -560,13 +557,14 @@ function ProviderEditorModal({
   const setModelRows = (models: ProviderModelViewModel[]) => {
     const compact = compactProviderModels(models);
     form.setFieldValue('models', compact);
-    setRuntimeModels(compact);
   };
 
   const updateModelRow = (index: number, patch: Partial<ProviderModelViewModel>) => {
     const next = [...modelRows];
+    const previousID = next[index]?.id;
     next[index] = { ...next[index], ...patch };
     setModelRows(next);
+    if (patch.id && previousID && form.getFieldValue('defaultModel') === previousID) form.setFieldValue('defaultModel', patch.id);
   };
 
   const removeModelRow = (index: number) => {
@@ -576,26 +574,18 @@ function ProviderEditorModal({
     if (removed && form.getFieldValue('defaultModel') === removed) form.setFieldValue('defaultModel', next[0]?.id);
   };
 
-  const toggleModelEnabled = (model: ProviderModelViewModel, enabled: boolean) => {
-    if (enabled) {
-      const next = mergeProviderModelRows(modelRows, [{ ...model, contextWindow: model.contextWindow || model.resolvedContextWindow || 200000 }]);
-      setModelRows(next);
-      if (!form.getFieldValue('defaultModel')) form.setFieldValue('defaultModel', model.id);
-      return;
-    }
-    const index = modelRows.findIndex((row) => row.id === model.id);
-    if (index >= 0) removeModelRow(index);
-  };
-
-  const updateEnabledModel = (modelID: string, patch: Partial<ProviderModelViewModel>) => {
-    const index = modelRows.findIndex((row) => row.id === modelID);
-    if (index >= 0) updateModelRow(index, patch);
+  const addModelRow = () => {
+    let suffix = modelRows.length + 1;
+    let id = `custom-model-${suffix}`;
+    while (modelRows.some((model) => model.id === id)) id = `custom-model-${++suffix}`;
+    const next = [...modelRows, { id, contextWindow: 200000, source: 'user_override' }];
+    setModelRows(next);
+    if (!form.getFieldValue('defaultModel')) form.setFieldValue('defaultModel', id);
   };
 
   const applyPreset = (providerID: string) => {
     const preset = providers.find((provider) => provider.id === providerID);
     setSelectedProviderID(providerID);
-    setRuntimeModels([]);
     form.setFieldsValue({
       providerId: providerID,
       name: preset?.name ?? 'Custom',
@@ -640,12 +630,12 @@ function ProviderEditorModal({
               defaultModel: normalizeDefaultModel(values.defaultModel),
               proxy: values.proxy,
             });
-      setRuntimeModels(result.models);
-      if (modelRows.length === 0 && result.models[0]) {
-        const first = result.models[0];
-        setModelRows([{ ...first, contextWindow: first.contextWindow || first.resolvedContextWindow || 200000 }]);
-        form.setFieldValue('defaultModel', first.id);
-      }
+      const nextModels = mergeProviderModelRows(modelRows, result.models).map((model) => ({
+        ...model,
+        contextWindow: model.contextWindow || model.resolvedContextWindow || 200000,
+      }));
+      setModelRows(nextModels);
+      if (nextModels[0] && !nextModels.some((model) => model.id === form.getFieldValue('defaultModel'))) form.setFieldValue('defaultModel', nextModels[0].id);
       if (result.error) {
         messageApi.warning(`模型列表未完整刷新：${result.error}`);
       } else {
@@ -695,6 +685,7 @@ function ProviderEditorModal({
   return (
     <Modal
       className={styles.providerModal}
+      centered
       destroyOnHidden
       footer={[
         <Button key="cancel" onClick={onCancel}>
@@ -712,7 +703,6 @@ function ProviderEditorModal({
         }
         if (editingProvider) {
           setSelectedProviderID(editingProvider.providerId);
-          setRuntimeModels(editingProvider.models ?? []);
           form.setFieldsValue(editingProvider);
           return;
         }
@@ -770,34 +760,32 @@ function ProviderEditorModal({
             <Flex align="center" justify="space-between" className={styles.enabledModelHeader}>
               <div>
                 <Text strong>模型配置</Text>
-                <div><Text type="secondary">勾选需要使用的模型，第一项自动作为默认模型</Text></div>
+                <div><Text type="secondary">获取后直接配置，可删除不需要的模型或手动添加</Text></div>
               </div>
-              <Button icon={<ReloadOutlined />} loading={actionLoading === 'models'} onClick={refreshModels}>获取模型列表</Button>
+              <Flex gap={8}>
+                <Button icon={<PlusOutlined />} onClick={addModelRow}>添加模型</Button>
+                <Button icon={<ReloadOutlined />} loading={actionLoading === 'models'} onClick={refreshModels}>获取模型列表</Button>
+              </Flex>
             </Flex>
             <Table<ProviderModelViewModel>
               className={styles.providerModelsTable}
               columns={[
-                {
-                  title: '使用', width: 64,
-                  render: (_value, model) => <Checkbox checked={modelRows.some((row) => row.id === model.id)} onChange={(event) => toggleModelEnabled(model, event.target.checked)} />,
-                },
-                { title: '模型', dataIndex: 'id', ellipsis: true, render: (_value, model) => model.displayName || model.id },
+                { title: '模型', dataIndex: 'id', ellipsis: true, render: (_value, model, index) => <Input value={model.id} placeholder="模型 ID" onChange={(event) => updateModelRow(index, { id: event.target.value })} /> },
                 {
                   title: '上下文窗口', width: 160,
                   render: (_value, model) => {
-                    const enabled = modelRows.find((row) => row.id === model.id);
-                    return <InputNumber controls={false} disabled={!enabled} min={16000} max={10000000} value={enabled?.contextWindow || enabled?.resolvedContextWindow || 200000} onChange={(value) => updateEnabledModel(model.id, { contextWindow: value ?? 200000, source: 'user_override' })} />;
+                    return <InputNumber controls={false} min={16000} max={10000000} value={model.contextWindow || model.resolvedContextWindow || 200000} onChange={(value) => updateModelRow(modelRows.findIndex((row) => row.id === model.id), { contextWindow: value ?? 200000, source: 'user_override' })} />;
                   },
                 },
                 {
-                  title: '默认', width: 64,
-                  render: (_value, model) => {
-                    const enabled = modelRows.some((row) => row.id === model.id);
-                    return <Checkbox checked={watchedDefaultModel === model.id} disabled={!enabled} onChange={(event) => { if (event.target.checked) form.setFieldValue('defaultModel', model.id); }} />;
-                  },
+                  title: '默认模型', width: 112,
+                  render: (_value, model) => watchedDefaultModel === model.id
+                    ? <Tag>默认模型</Tag>
+                    : <Button size="small" type="text" onClick={() => form.setFieldValue('defaultModel', model.id)}>设为默认</Button>,
                 },
+                { title: '', width: 64, render: (_value, _model, index) => <Button danger size="small" type="text" onClick={() => removeModelRow(index)}>删除</Button> },
               ]}
-              dataSource={availableModelRows}
+              dataSource={modelRows}
               locale={{ emptyText: '填写连接信息后获取模型列表' }}
               pagination={false}
               rowKey="id"
