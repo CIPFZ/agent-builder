@@ -814,6 +814,7 @@ func (r *runtimeService) cacheDiscoveredProviderModels(ctx context.Context, prov
 
 func testProviderConnection(ctx context.Context, provider RuntimeConfiguredProvider, apiKey string, model string) error {
 	protocol, baseURL := normalizeConfiguredProviderProtocolURL(provider)
+	baseURL = normalizeProviderAPIV1BaseURL(protocol, baseURL)
 	requestCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 

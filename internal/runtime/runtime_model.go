@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/CIPFZ/agent-builder/internal/config"
-	"github.com/CIPFZ/agent-builder/internal/csync"
 )
 
 const localProviderID = "local-model"
@@ -199,17 +198,11 @@ func (r *runtimeService) VerifyModelConfig(ctx context.Context, req RuntimeModel
 	if err := validateModelConfig(cfg, true); err != nil {
 		return RuntimeModelVerifyResponse{}, err
 	}
-	store := config.NewTestStore(&config.Config{
-		Providers: csync.NewMap[string, config.ProviderConfig](),
-		Models:    map[config.SelectedModelType]config.SelectedModel{},
-		Options:   &config.Options{},
-	})
-	applyModelConfig(store, cfg, embeddedCatalogAllModels(), nil)
-	provider, ok := store.Config().Providers.Get(localProviderID)
-	if !ok {
-		return RuntimeModelVerifyResponse{}, errors.New("model provider was not configured")
-	}
-	if err := provider.TestConnection(store.Resolver()); err != nil {
+	if err := testProviderConnection(ctx, RuntimeConfiguredProvider{
+		Protocol:    cfg.Protocol,
+		APIEndpoint: cfg.URL,
+		Proxy:       cfg.Proxy,
+	}, cfg.APIKey, cfg.Model); err != nil {
 		return RuntimeModelVerifyResponse{
 			OK:       false,
 			Protocol: cfg.Protocol,

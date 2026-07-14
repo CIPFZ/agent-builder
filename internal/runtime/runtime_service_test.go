@@ -916,6 +916,13 @@ func TestAnthropicEndpointsNormalizeSingleV1Segment(t *testing.T) {
 	defer server.Close()
 
 	for _, endpoint := range []string{server.URL, server.URL + "/v1"} {
+		protocol, sdkBaseURL := normalizeConfiguredProviderProtocolURL(RuntimeConfiguredProvider{
+			Protocol:    "anthropic",
+			APIEndpoint: endpoint,
+		})
+		if protocol != "anthropic" || sdkBaseURL != server.URL {
+			t.Fatalf("SDK base URL for %q = protocol %q url %q", endpoint, protocol, sdkBaseURL)
+		}
 		models, err := discoverModels(context.Background(), RuntimeModelConfig{
 			Protocol: "anthropic",
 			URL:      endpoint,
@@ -932,6 +939,18 @@ func TestAnthropicEndpointsNormalizeSingleV1Segment(t *testing.T) {
 			APIEndpoint: endpoint,
 		}, "test-key", "claude-test"); err != nil {
 			t.Fatalf("test connection for %q: %v", endpoint, err)
+		}
+		verified, err := newRuntimeService().VerifyModelConfig(context.Background(), RuntimeModelConfig{
+			Protocol: "anthropic",
+			URL:      endpoint,
+			APIKey:   "test-key",
+			Model:    "claude-test",
+		})
+		if err != nil {
+			t.Fatalf("verify model config for %q: %v", endpoint, err)
+		}
+		if !verified.OK {
+			t.Fatalf("verify model config for %q = %#v", endpoint, verified)
 		}
 	}
 }

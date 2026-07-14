@@ -185,7 +185,7 @@ func intFromAny(value any) int {
 }
 
 func modelDiscoveryRequest(local RuntimeModelConfig) (string, map[string]string, error) {
-	baseURL := normalizeModelBaseURL(local.Protocol, local.URL)
+	baseURL := normalizeProviderAPIV1BaseURL(local.Protocol, local.URL)
 	if _, err := url.ParseRequestURI(baseURL); err != nil {
 		return "", nil, fmt.Errorf("invalid model base url: %w", err)
 	}
@@ -303,6 +303,20 @@ func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig, catal
 }
 
 func normalizeModelBaseURL(protocol, rawURL string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(rawURL), "/")
+	if protocol == "openai" && !strings.HasSuffix(trimmed, "/v1") {
+		return trimmed + "/v1"
+	}
+	if protocol == "anthropic" {
+		return strings.TrimSuffix(trimmed, "/v1")
+	}
+	return trimmed
+}
+
+// normalizeProviderAPIV1BaseURL returns the base used by direct REST calls.
+// Anthropic SDKs expect the service root and append /v1 themselves, while
+// discovery and connection probes address /v1 endpoints directly.
+func normalizeProviderAPIV1BaseURL(protocol, rawURL string) string {
 	trimmed := strings.TrimRight(strings.TrimSpace(rawURL), "/")
 	if (protocol == "openai" || protocol == "anthropic") && !strings.HasSuffix(trimmed, "/v1") {
 		return trimmed + "/v1"
