@@ -18,6 +18,13 @@
   color: var(--app-text-primary) !important;
 }
 
+:global(.ant-select-dropdown .ant-select-item-option) {
+  min-height: 38px;
+  margin-block: 2px;
+  padding: 8px 12px;
+  border-radius: 7px;
+}
+
 .sider {
   height: 100%;
   padding: 16px 10px 12px;
@@ -90,6 +97,105 @@
 
 .commonSection {
   margin-top: 0;
+}
+
+.appearanceItem {
+  align-items: stretch;
+}
+
+.appearancePicker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: min(100%, 680px);
+  gap: 16px;
+}
+
+.appearanceOption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  padding: 0 0 2px;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  font: inherit;
+}
+
+.appearanceOption:hover,
+.appearanceOptionSelected {
+  color: var(--app-text-primary);
+}
+
+.appearanceOption:focus-visible {
+  outline: none;
+}
+
+.themePreview {
+  display: block;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1.48;
+  overflow: hidden;
+  border: 1px solid var(--app-border-default);
+  border-radius: 12px;
+  background: var(--preview-canvas);
+  box-shadow: 0 0 0 0 transparent;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.appearanceOption:hover .themePreview {
+  transform: translateY(-1px);
+  border-color: var(--app-text-tertiary);
+}
+
+.appearanceOptionSelected .themePreview,
+.appearanceOption:focus-visible .themePreview {
+  border-color: var(--app-text-primary);
+  box-shadow: 0 0 0 2px var(--app-focus-ring);
+}
+
+.themePreviewLight { --preview-canvas: var(--app-surface-elevated); --preview-panel: var(--app-surface-muted); --preview-line: var(--app-border-default); }
+.themePreviewDark { --preview-canvas: var(--app-text-secondary); --preview-panel: var(--app-surface-elevated); --preview-line: var(--app-text-tertiary); }
+.themePreviewSystem { --preview-canvas: linear-gradient(90deg, var(--app-surface-muted) 50%, var(--app-text-secondary) 50%); --preview-panel: var(--app-surface-elevated); --preview-line: var(--app-border-default); }
+
+.themePreviewHeader {
+  display: block;
+  width: 46%;
+  height: 7px;
+  margin: 15% auto 7%;
+  border-radius: 999px;
+  background: var(--preview-line);
+}
+
+.themePreviewPanel {
+  display: flex;
+  position: absolute;
+  right: 7%;
+  bottom: 0;
+  left: 7%;
+  flex-direction: column;
+  height: 55%;
+  padding: 10% 8%;
+  gap: 9%;
+  border-radius: 9px 9px 0 0;
+  background: var(--preview-panel);
+}
+
+.themePreviewPanel span {
+  width: 54%;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--preview-line);
+}
+
+.themePreviewPanel span:nth-child(2) { width: 72%; }
+.themePreviewPanel span:nth-child(3) { width: 42%; }
+
+@media (max-width: 760px) {
+  .appearancePicker { grid-template-columns: 1fr; }
 }
 
 .providerHeader {

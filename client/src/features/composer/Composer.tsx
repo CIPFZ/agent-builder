@@ -22,6 +22,7 @@ interface ComposerProps {
   projects: ProjectViewModel[];
   draftTarget?: NewConversationDraftViewModel;
   showProjectContext: boolean;
+  showContextUsage: boolean;
   onNewConversationDraftChange: (target: NewConversationDraftViewModel) => void;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
   onPermissionModeSelect: (mode: string) => Promise<void>;
@@ -44,6 +45,7 @@ export function Composer({
   projects,
   draftTarget,
   showProjectContext,
+  showContextUsage,
   onNewConversationDraftChange,
   onModelSelect,
   onPermissionModeSelect,
@@ -72,7 +74,7 @@ export function Composer({
     : composer.modelOptions.filter((model) => model.configuredProviderId);
   const canSubmit = draft.trim().length > 0;
   const isBusy = Boolean(composer.busy);
-  const contextUsage = composer.contextUsage;
+  const contextUsage = showContextUsage ? composer.contextUsage : undefined;
   const showContextWarning = contextUsage && contextUsage.level !== 'ok';
   const requiresSelectedModel = (prompt: string) => !prompt.trim().startsWith('/');
   const warnMissingModel = () => {

@@ -1794,22 +1794,15 @@ function CommonSettings({
       <section className={`${styles.section} ${styles.commonSection}`}>
         <Card styles={{ body: { padding: 0 } }}>
           <Flex vertical>
-            <Flex align="center" className={styles.listItem} gap={16} justify="space-between">
+            <Flex className={`${styles.listItem} ${styles.appearanceItem}`} vertical gap={16}>
               <Flex vertical>
                 <Text>外观</Text>
                 <Text type="secondary">主题配色、界面字体等外观设置</Text>
               </Flex>
-              <Select
-                loading={savingAppearance}
+              <AppearanceModePicker
+                disabled={savingAppearance}
                 value={settings.appearance.colorMode}
-                options={[
-                  { label: '跟随系统', value: 'system' },
-                  { label: '浅色', value: 'light' },
-                  { label: '深色', value: 'dark' },
-                ]}
-                style={{ minWidth: 180 }}
-                variant="filled"
-                onChange={(value: ColorMode) => void saveColorMode(value)}
+                onChange={(value) => void saveColorMode(value)}
               />
             </Flex>
             <Flex align="center" className={styles.listItem} gap={16} justify="space-between">
@@ -1849,6 +1842,37 @@ function CommonSettings({
         </Card>
       </section>
     </>
+  );
+}
+
+function AppearanceModePicker({ disabled, value, onChange }: { disabled: boolean; value: ColorMode; onChange: (value: ColorMode) => void }) {
+  const options: Array<{ label: string; value: ColorMode }> = [
+    { label: '系统', value: 'system' },
+    { label: '浅色', value: 'light' },
+    { label: '深色', value: 'dark' },
+  ];
+  return (
+    <div aria-label="主题" className={styles.appearancePicker} role="radiogroup">
+      {options.map((option) => (
+        <button
+          aria-checked={value === option.value}
+          className={`${styles.appearanceOption} ${value === option.value ? styles.appearanceOptionSelected : ''}`}
+          disabled={disabled}
+          key={option.value}
+          role="radio"
+          type="button"
+          onClick={() => onChange(option.value)}
+        >
+          <span className={`${styles.themePreview} ${styles[`themePreview${option.value[0].toUpperCase()}${option.value.slice(1)}`]}`}>
+            <span className={styles.themePreviewHeader} />
+            <span className={styles.themePreviewPanel}>
+              <span /><span /><span />
+            </span>
+          </span>
+          <span>{option.label}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 

@@ -697,6 +697,7 @@ export function Workspace({
                 projects={viewModel.projects}
                 draftTarget={composerDraftTarget}
                 showProjectContext={Boolean(composerDraftTarget)}
+                showContextUsage={viewModel.conversationTarget.kind === 'session'}
                 onNewConversationDraftChange={onNewConversationDraftChange}
                 onModelSelect={onModelSelect}
                 onPermissionModeSelect={onPermissionModeSelect}
