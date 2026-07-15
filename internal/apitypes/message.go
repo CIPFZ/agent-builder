@@ -31,6 +31,7 @@ type Message struct {
 	Metadata  map[string]string `json:"metadata,omitempty"`
 	CreatedAt int64             `json:"created_at"`
 	UpdatedAt int64             `json:"updated_at"`
+	Usage     message.Usage     `json:"usage,omitempty"`
 }
 
 // MessageRole represents the role of a message sender.

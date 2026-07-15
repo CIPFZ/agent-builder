@@ -95,6 +95,15 @@
   margin-top: 56px;
 }
 
+.tokenUsageInner {
+  width: min(100%, 1180px);
+  padding-top: 40px;
+}
+
+.tokenUsageSection {
+  margin-top: 0;
+}
+
 .commonSection {
   margin-top: 0;
 }
@@ -432,6 +441,178 @@
   padding: 18px 20px;
 }
 
+.statisticsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.statisticsCards {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.statisticValue, .cumulativeValue {
+  margin-top: 6px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.heatmap {
+  display: grid;
+  grid-auto-flow: column;
+  gap: 3px;
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  padding: 0 2px;
+}
+
+.heatmapPanel {
+  overflow: hidden;
+}
+
+.heatmapHeading,
+.heatmapFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.heatmapHeading {
+  margin-bottom: 18px;
+}
+
+.heatmapHeading :global(.ant-typography) {
+  margin: 0;
+}
+
+.heatmapMonthLabels {
+  display: grid;
+  gap: 3px;
+  width: calc(100% - 46px);
+  min-width: 0;
+  margin-left: 46px;
+  margin-bottom: 7px;
+  color: var(--app-text-tertiary);
+  font-size: 11px;
+}
+
+.heatmapMonthLabels span {
+  white-space: nowrap;
+}
+
+.heatmapBody {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.heatmapWeekLabels {
+  display: grid;
+  grid-template-rows: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+  width: 36px;
+  color: var(--app-text-tertiary);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.heatmapWeekLabels span {
+  display: flex;
+  align-items: center;
+}
+
+.heatmapWeekLabels span:nth-child(1) { grid-row: 2; }
+.heatmapWeekLabels span:nth-child(2) { grid-row: 4; }
+.heatmapWeekLabels span:nth-child(3) { grid-row: 6; }
+
+.heatmapCell {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  aspect-ratio: 1;
+  border: 1px solid var(--app-border-default);
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.heatmapCellMissing {
+  border-style: dashed;
+}
+
+.heatmapCellMissing {
+  background: var(--app-surface-muted);
+}
+
+.heatmapCellZero {
+  background: color-mix(in srgb, var(--app-text-tertiary) 12%, var(--app-surface-muted));
+}
+
+.heatmapCell:focus-visible {
+  outline: 2px solid var(--app-focus-ring);
+  outline-offset: 2px;
+}
+
+.heatmapFooter {
+  align-items: flex-start;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.heatmapLegend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--app-text-tertiary);
+  font-size: 11px;
+}
+
+.legendCell {
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--app-border-default);
+  border-radius: 3px;
+  background: var(--app-surface-muted);
+}
+
+.heatmapTooltipContent {
+  min-width: 156px;
+  padding: 0;
+}
+
+.heatmapTooltipDate {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.heatmapTooltipPrimary {
+  margin-top: 3px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.heatmapTooltipDetail {
+  margin-top: 2px;
+  color: inherit;
+  font-size: 10px;
+  white-space: nowrap;
+  opacity: .72;
+}
+
+.cumulativeGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+}
+
 .monoText {
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 12px;
@@ -519,6 +700,9 @@
 }
 
 @media (max-width: 960px) {
+
+  .statisticsCards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cumulativeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .inner {
     padding: 72px 32px 96px;
   }

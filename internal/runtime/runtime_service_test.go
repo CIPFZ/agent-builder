@@ -260,6 +260,32 @@ func TestOutputTextDeltasEmitFirstImmediatelyAndCoalesceSuffixes(t *testing.T) {
 	}
 }
 
+func TestFinishedOutputDeltaDoesNotSuppressMessageCompleted(t *testing.T) {
+	service := newRuntimeService()
+	now := time.Now()
+	msg := apitypes.Message{
+		ID:        "message-1",
+		SessionID: "session-1",
+		Role:      apitypes.Assistant,
+		Parts: []apitypes.ContentPart{
+			apitypes.TextContent{Text: "done"},
+			apitypes.Finish{Reason: apitypes.FinishReasonEndTurn, Time: now.UnixMilli()},
+		},
+	}
+	if deltas := service.deriveOutputTextDeltasLocked(msg, "turn-1", now); len(deltas) != 1 {
+		t.Fatalf("final output delta count = %d, want 1", len(deltas))
+	}
+	event := newMessageRuntimeEvent(now, msg)
+	event.TurnID = "turn-1"
+	kept := service.recordMessageEventWithCoalesceLocked(event, now)
+	if kept == nil || kept.Type != runtimeapi.EventMessageCompleted {
+		t.Fatalf("completed event was suppressed: %#v", kept)
+	}
+	if duplicate := service.recordMessageEventWithCoalesceLocked(event, now.Add(time.Millisecond)); duplicate != nil {
+		t.Fatalf("duplicate completed event was retained: %#v", duplicate)
+	}
+}
+
 func TestContextUsageDebounceTimerRemovesRegistryEntry(t *testing.T) {
 	service := newRuntimeService()
 	service.scheduleContextUsageUpdate("session-1", "turn-1")

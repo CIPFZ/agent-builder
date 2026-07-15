@@ -1787,6 +1787,10 @@ func (s *recordingRuntimeService) ContextGovernanceSettings(context.Context) (Ru
 	return RuntimeContextGovernanceSettingsResponse{Settings: s.contextGovernanceSettings}, nil
 }
 
+func (s *recordingRuntimeService) ContextStatistics(context.Context, RuntimeContextStatisticsRequest) (RuntimeContextStatistics, error) {
+	return RuntimeContextStatistics{}, nil
+}
+
 func (s *recordingRuntimeService) SaveContextGovernanceSettings(_ context.Context, req RuntimeContextGovernanceSettings) (RuntimeContextGovernanceSettingsResponse, error) {
 	s.contextGovernanceSaveCalls++
 	s.contextGovernanceSaveReq = req

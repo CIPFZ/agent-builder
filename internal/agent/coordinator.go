@@ -1134,6 +1134,7 @@ func (c *coordinator) buildAgentModels(ctx context.Context, isSubAgent bool) (Mo
 
 func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
 	var opts []anthropic.Option
+	httpClient := http.DefaultClient
 
 	switch {
 	case strings.HasPrefix(apiKey, "Bearer "):
@@ -1158,10 +1159,14 @@ func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map
 	}
 
 	if c.cfg.Config().Options.Debug {
-		httpClient := log.NewHTTPClient()
-		opts = append(opts, anthropic.WithHTTPClient(httpClient))
+		httpClient = log.NewHTTPClient()
 	}
-	return anthropic.New(opts...)
+	opts = append(opts, anthropic.WithHTTPClient(newAnthropicUsageHTTPClient(httpClient)))
+	provider, err := anthropic.New(opts...)
+	if err != nil {
+		return nil, err
+	}
+	return anthropicUsageProvider{Provider: provider}, nil
 }
 
 func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[string]string) (fantasy.Provider, error) {
@@ -1169,17 +1174,22 @@ func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[st
 		openai.WithAPIKey(apiKey),
 		openai.WithUseResponsesAPI(),
 	}
+	httpClient := http.DefaultClient
 	if c.cfg.Config().Options.Debug {
-		httpClient := log.NewHTTPClient()
-		opts = append(opts, openai.WithHTTPClient(httpClient))
+		httpClient = log.NewHTTPClient()
 	}
+	opts = append(opts, openai.WithHTTPClient(newOpenAIUsageHTTPClient(httpClient)))
 	if len(headers) > 0 {
 		opts = append(opts, openai.WithHeaders(headers))
 	}
 	if baseURL != "" {
 		opts = append(opts, openai.WithBaseURL(baseURL))
 	}
-	return openai.New(opts...)
+	provider, err := openai.New(opts...)
+	if err != nil {
+		return nil, err
+	}
+	return openAIUsageProvider{Provider: provider}, nil
 }
 
 func (c *coordinator) buildOpenrouterProvider(_, apiKey string, headers map[string]string) (fantasy.Provider, error) {
@@ -1229,9 +1239,7 @@ func (c *coordinator) buildOpenaiCompatProvider(baseURL, apiKey string, headers 
 	} else if c.cfg.Config().Options.Debug {
 		httpClient = log.NewHTTPClient()
 	}
-	if httpClient != nil {
-		opts = append(opts, openaicompat.WithHTTPClient(httpClient))
-	}
+	opts = append(opts, openaicompat.WithHTTPClient(newOpenAIUsageHTTPClient(httpClient)))
 
 	if len(headers) > 0 {
 		opts = append(opts, openaicompat.WithHeaders(headers))
@@ -1241,7 +1249,11 @@ func (c *coordinator) buildOpenaiCompatProvider(baseURL, apiKey string, headers 
 		opts = append(opts, openaicompat.WithSDKOptions(openaisdk.WithJSONSet(extraKey, extraValue)))
 	}
 
-	return openaicompat.New(opts...)
+	provider, err := openaicompat.New(opts...)
+	if err != nil {
+		return nil, err
+	}
+	return openAIUsageProvider{Provider: provider}, nil
 }
 
 func (c *coordinator) buildAzureProvider(baseURL, apiKey string, headers map[string]string, options map[string]string) (fantasy.Provider, error) {

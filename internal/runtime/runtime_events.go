@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -609,9 +610,18 @@ func newMessageRuntimeEvent(createdAt time.Time, msg apitypes.Message) RuntimeEv
 	event := runtimeapi.NewEvent(newRuntimeEventID(), eventType, createdAt)
 	event.SessionID = msg.SessionID
 	event.MessageID = msg.ID
-	event.Payload = map[string]any{
-		"role":    string(msg.Role),
-		"summary": preview(msg.Content().Text, 160),
+	event.Payload = map[string]any{"role": string(msg.Role)}
+	if eventType != runtimeapi.EventMessageCompleted {
+		event.Payload["summary"] = preview(msg.Content().Text, 160)
+	}
+	if eventType == runtimeapi.EventMessageCompleted && msg.Role == apitypes.Assistant && !msg.Usage.IsZero() {
+		event.Payload["usage"] = map[string]string{
+			"input":         strconv.FormatInt(msg.Usage.InputTokens, 10),
+			"output":        strconv.FormatInt(msg.Usage.OutputTokens, 10),
+			"cacheRead":     strconv.FormatInt(msg.Usage.CacheReadTokens, 10),
+			"cacheCreation": strconv.FormatInt(msg.Usage.CacheCreationTokens, 10),
+			"reasoning":     strconv.FormatInt(msg.Usage.ReasoningTokens, 10),
+		}
 	}
 	return event
 }

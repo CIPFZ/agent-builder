@@ -2,8 +2,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -44,7 +42,7 @@ func TestSchemaIncludesCanonicalConversationV2Tables(t *testing.T) {
 	}
 }
 
-func TestConnect_BackupAndRecreateOnSchemaGenerationMismatch(t *testing.T) {
+func TestConnect_MigratesSchemaGenerationMismatchWithoutDroppingData(t *testing.T) {
 	t.Cleanup(ResetPool)
 
 	dataDir := t.TempDir()
@@ -65,12 +63,9 @@ CREATE TABLE legacy_data (value TEXT);`)
 	require.Equal(t, expectedSchemaGeneration, generation)
 	var legacyName string
 	err = recreated.QueryRowContext(context.Background(), `SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'legacy_data'`).Scan(&legacyName)
-	require.ErrorIs(t, err, sql.ErrNoRows)
-
-	matches, err := filepath.Glob(filepath.Join(dataDir, "backups", "schema-reset-*", "agent-builder.db"))
 	require.NoError(t, err)
-	require.Len(t, matches, 1)
-	_, err = os.Stat(matches[0])
+	require.Equal(t, "legacy_data", legacyName)
+	_, err = filepath.Abs(dataDir)
 	require.NoError(t, err)
 }
 

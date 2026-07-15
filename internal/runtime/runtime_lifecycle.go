@@ -141,6 +141,7 @@ func (r *runtimeService) restart() {
 	r.turns = runtimeTurnStore{}
 	r.userInputs = runtimeUserInputStore{}
 	r.eventStore = runtimeEventStore{}
+	r.tokenStatistics = nil
 	r.permissionStore = runtimePermissionStore{}
 	r.mcpRequestStore = runtimeMCPRequestStore{}
 	r.runs = runtimeRunStore{}
@@ -319,6 +320,9 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 	r.agentTasks = newRuntimeAgentTaskStore(conn)
 	r.hookExecutions = newRuntimeHookExecutionStore(conn)
 	r.eventStore = newRuntimeEventStore(conn)
+	if err := r.startTokenStatistics(runtimeCtx, conn); err != nil {
+		return err
+	}
 	r.permissionStore = newRuntimePermissionStore(conn)
 	r.mcpRequestStore = newRuntimeMCPRequestStore(conn)
 	r.runs = newRuntimeRunStore(conn)

@@ -8,6 +8,7 @@ import type {
   ContextDiagnosticsViewModel,
   ContextGovernanceProviderOverrideViewModel,
   ContextGovernanceSettingsViewModel,
+  ContextStatisticsViewModel,
   ContextUsageViewModel,
   ConversationMessageViewModel,
   CreateProjectRequestViewModel,
@@ -881,6 +882,11 @@ interface RuntimeContextGovernanceSettingsResponseDTO {
   settings: RuntimeContextGovernanceSettingsDTO;
 }
 
+interface RuntimeContextStatisticsPointDTO { day:string;timezone:string;inputTokens:string;outputTokens:string;cacheReadTokens:string;cacheCreationTokens:string;reasoningTokens:string;totalTokens:string;sessionCount:string;turnCount:string;modelCallCount:string }
+interface RuntimeContextStatisticsDTO { totalTokens:string;inputTokens:string;outputTokens:string;cacheReadTokens:string;cacheCreationTokens:string;reasoningTokens:string;modelCallCount:string;peakTokens:string;peakAt?:string;longestTurnMillis:string;longestTurnId?:string;currentStreakDays:string;longestStreakDays:string;activeDays:string;lastUpdatedAt?:string;points?:RuntimeContextStatisticsPointDTO[] }
+const decimalBigInt=(value?:string)=>BigInt(value||'0');
+function mapContextStatistics(dto:RuntimeContextStatisticsDTO):ContextStatisticsViewModel{return{totalTokens:decimalBigInt(dto.totalTokens),inputTokens:decimalBigInt(dto.inputTokens),outputTokens:decimalBigInt(dto.outputTokens),cacheReadTokens:decimalBigInt(dto.cacheReadTokens),cacheCreationTokens:decimalBigInt(dto.cacheCreationTokens),reasoningTokens:decimalBigInt(dto.reasoningTokens),modelCallCount:decimalBigInt(dto.modelCallCount),peakTokens:decimalBigInt(dto.peakTokens),peakAt:dto.peakAt,longestTurnMillis:decimalBigInt(dto.longestTurnMillis),longestTurnId:dto.longestTurnId,currentStreakDays:decimalBigInt(dto.currentStreakDays),longestStreakDays:decimalBigInt(dto.longestStreakDays),activeDays:decimalBigInt(dto.activeDays),lastUpdatedAt:dto.lastUpdatedAt,points:(dto.points??[]).map(p=>({...p,inputTokens:decimalBigInt(p.inputTokens),outputTokens:decimalBigInt(p.outputTokens),cacheReadTokens:decimalBigInt(p.cacheReadTokens),cacheCreationTokens:decimalBigInt(p.cacheCreationTokens),reasoningTokens:decimalBigInt(p.reasoningTokens),totalTokens:decimalBigInt(p.totalTokens),sessionCount:decimalBigInt(p.sessionCount),turnCount:decimalBigInt(p.turnCount),modelCallCount:decimalBigInt(p.modelCallCount)}))}}
+
 function mapContextGovernanceProviderOverride(
   override: RuntimeContextGovernanceProviderOverrideDTO,
 ): ContextGovernanceProviderOverrideViewModel {
@@ -1729,6 +1735,7 @@ interface RuntimeBridgeModule {
   GetPolicy?: () => Promise<RuntimePolicyResponseDTO>;
   UpdatePolicy?: (req: { mode: string }) => Promise<RuntimePolicyResponseDTO>;
   ContextGovernanceSettings?: () => Promise<RuntimeContextGovernanceSettingsResponseDTO>;
+  ContextStatistics?: (req:{from?:string;to?:string;view:string;timezone:string})=>Promise<RuntimeContextStatisticsDTO>;
   SaveContextGovernanceSettings?: (req: RuntimeContextGovernanceSettingsDTO) => Promise<RuntimeContextGovernanceSettingsResponseDTO>;
   DecidePermission?: (req: { permissionId: string; action: string; guidance?: string }) => Promise<RuntimeStatusDTO>;
   Skills?: () => Promise<RuntimeSkillsResponseDTO>;
@@ -4798,6 +4805,9 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       throw new Error('context governance runtime binding is unavailable');
     }
     return mapContextGovernanceSettings((await bridge.ContextGovernanceSettings()).settings);
+  },
+  async getContextStatistics(request) {
+    const bridge=await loadRuntimeBridge();if(!bridge?.ContextStatistics)throw new Error('token statistics runtime binding is unavailable');return mapContextStatistics(await bridge.ContextStatistics(request));
   },
   async saveContextGovernanceSettings(settings) {
     const bridge = await loadRuntimeBridge();

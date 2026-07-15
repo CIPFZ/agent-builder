@@ -15,9 +15,9 @@ import {
   ToolOutlined,
 } from '@ant-design/icons';
 import {
+  Alert,
   Button,
   Card,
-  Collapse,
   ConfigProvider,
   Flex,
   Form,
@@ -28,17 +28,18 @@ import {
   message,
   Modal,
   Select,
+  Empty,
   Switch,
   Table,
   Tag,
   Tooltip,
   Typography,
+  theme,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import type {
   ConfiguredProviderViewModel,
-  ContextGovernanceSettingsViewModel,
-  ContextUsageViewModel,
+  ContextStatisticsViewModel,
   HookExecutionSummaryViewModel,
   HookViewModel,
   ProjectMemoryCreateViewModel,
@@ -92,12 +93,10 @@ interface SettingsPanelProps {
   onProviderDraftTest: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
   onProviderTest: (providerID: string) => Promise<ProviderTestViewModel>;
   selectedModel?: RuntimeModelOptionViewModel;
-  contextUsage?: ContextUsageViewModel;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
   onAppearanceSelect: (appearance: AppearanceSettings) => Promise<SettingsViewModel>;
   onOpenTargetSelect: (targetID: string) => Promise<SettingsViewModel>;
-  onContextGovernanceLoad: () => Promise<ContextGovernanceSettingsViewModel>;
-  onContextGovernanceSave: (settings: ContextGovernanceSettingsViewModel) => Promise<ContextGovernanceSettingsViewModel>;
+  onContextStatisticsLoad: (request: { from?: string; to?: string; view: 'daily' | 'cumulative'; timezone: string }) => Promise<ContextStatisticsViewModel>;
   onSkillRefresh: () => Promise<SettingsViewModel>;
   onSkillToggle: (name: string, enabled: boolean) => Promise<SettingsViewModel>;
   onMCPServerRefresh: (name: string) => Promise<SettingsViewModel>;
@@ -128,12 +127,10 @@ export function SettingsPanel({
   onProviderDraftTest,
   onProviderTest,
   selectedModel,
-  contextUsage,
   onModelSelect,
   onAppearanceSelect,
   onOpenTargetSelect,
-  onContextGovernanceLoad,
-  onContextGovernanceSave,
+  onContextStatisticsLoad,
   onSkillRefresh,
   onSkillToggle,
   onMCPServerRefresh,
@@ -206,11 +203,8 @@ export function SettingsPanel({
         return <CommonSettings settings={settings} onAppearanceSelect={onAppearanceSelect} onOpenTargetSelect={onOpenTargetSelect} />;
       case 'context':
         return (
-          <ContextGovernanceSettings
-            contextUsage={contextUsage}
-            selectedModel={selectedModel}
-            onLoad={onContextGovernanceLoad}
-            onSave={onContextGovernanceSave}
+          <TokenUsageSettings
+            onStatisticsLoad={onContextStatisticsLoad}
           />
         );
       case 'im':
@@ -311,7 +305,7 @@ export function SettingsPanel({
         />
 
         <Content className={styles.content}>
-          <div className={styles.inner}>{renderContent()}</div>
+          <div className={`${styles.inner} ${activeKey === 'context' ? styles.tokenUsageInner : ''}`}>{renderContent()}</div>
         </Content>
       </Layout>
     </ConfigProvider>
@@ -1736,167 +1730,123 @@ function AppearanceModePicker({ disabled, value, onChange }: { disabled: boolean
   );
 }
 
-function formatContextTokens(tokens: number) {
-  if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(tokens >= 100000 ? 0 : 1)}k`;
-  }
-  return `${tokens}`;
+function formatBigInt(value: bigint): string {
+  return new Intl.NumberFormat('zh-CN').format(value);
 }
 
-const summaryModelOptions = [
-  { label: '跟随会话模型', value: 'session' },
-  { label: '小模型', value: 'small' },
-];
+function formatCompactBigInt(value: bigint): string {
+  if (value > -10_000n && value < 10_000n) {
+    return formatBigInt(value);
+  }
+  const negative = value < 0n;
+  const absolute = negative ? -value : value;
+  const units: Array<[bigint, string]> = [
+    [1_000_000_000_000_000_000n, 'Qi'],
+    [1_000_000_000_000_000n, 'Q'],
+    [1_000_000_000_000n, 'T'],
+    [1_000_000_000n, 'B'],
+    [1_000_000n, 'M'],
+    [1_000n, 'K'],
+  ];
+  const [divisor, suffix] = units.find(([candidate]) => absolute >= candidate) ?? units[units.length - 1];
+  const tenths = (absolute * 10n + divisor / 2n) / divisor;
+  const whole = tenths / 10n;
+  const decimal = tenths % 10n;
+  return `${negative ? '-' : ''}${whole}${decimal === 0n ? '' : `.${decimal}`}${suffix}`;
+}
 
-function ContextGovernanceSettings({
-  contextUsage,
-  selectedModel,
-  onLoad,
-  onSave,
+function localDayKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function TokenHeatmap({ points, color }: { points: ContextStatisticsViewModel['points']; color: string }) {
+  const byDay = new Map(points.map((point) => [point.day, point]));
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  const start = new Date(today);
+  start.setDate(start.getDate() - 364 - start.getDay());
+  const days = Array.from({ length: 371 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return { key: localDayKey(date), date };
+  });
+  const columns = Math.ceil(days.length / 7);
+  const max = points.reduce((highest, point) => point.totalTokens > highest ? point.totalTokens : highest, 0n);
+  const monthLabels = days.filter(({ date }, index) => date.getDate() <= 7 && (index === 0 || date.getMonth() !== days[index - 1].date.getMonth()));
+  return <div className={styles.heatmapPanel}>
+    <div className={styles.heatmapHeading}><Title level={4}>Token 活动</Title><Text type="secondary">最近一年</Text></div>
+    <div className={styles.heatmapMonthLabels} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{monthLabels.map(({ date }) => { const column = Math.floor(days.findIndex((day) => day.date.getTime() === date.getTime()) / 7) + 1; return <span key={localDayKey(date)} style={{ gridColumn: `${column} / span 4` }}>{date.toLocaleDateString('zh-CN', { month: 'numeric' })}月</span>; })}</div>
+    <div className={styles.heatmapBody}>
+      <div className={styles.heatmapWeekLabels}><span>周一</span><span>周三</span><span>周五</span></div>
+      <div className={styles.heatmap} role="grid" aria-label="最近 365 天 Token 使用热力图" style={{ gridTemplateRows: 'repeat(7, minmax(0, 1fr))', gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{days.map(({ key: day, date }) => {
+    const point = byDay.get(day);
+    const total = point?.totalTokens ?? 0n;
+    const level = max === 0n ? 0 : Number((total * 4n) / max);
+    const background = total === 0n ? 'transparent' : `color-mix(in srgb, ${color} ${25 + level * 18}%, transparent)`;
+    const calls = point?.modelCallCount ?? 0n;
+    const input = point?.inputTokens ?? 0n;
+    const output = point?.outputTokens ?? 0n;
+    const cache = (point?.cacheReadTokens ?? 0n) + (point?.cacheCreationTokens ?? 0n);
+    const tooltip = <div className={styles.heatmapTooltipContent}><div className={styles.heatmapTooltipDate}>{date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}</div><div className={styles.heatmapTooltipPrimary} style={{ color }}>{formatCompactBigInt(total)} Token · {formatCompactBigInt(calls)} 次调用</div><div className={styles.heatmapTooltipDetail}>输入 {formatCompactBigInt(input)} · 输出 {formatCompactBigInt(output)} · 缓存 {formatCompactBigInt(cache)}</div></div>;
+    return <Tooltip key={day} placement="top" title={tooltip} trigger={['hover', 'focus']}><button type="button" role="gridcell" className={`${styles.heatmapCell} ${!point ? styles.heatmapCellMissing : total === 0n ? styles.heatmapCellZero : ''}`} tabIndex={0} aria-label={`${day}，${formatBigInt(total)} Token，${formatBigInt(calls)} 次调用，输入 ${formatBigInt(input)}，输出 ${formatBigInt(output)}，缓存 ${formatBigInt(cache)}`} style={{ background: total > 0n ? background : undefined }} /></Tooltip>;
+  })}</div>
+    </div>
+    <div className={styles.heatmapFooter}>
+      <div className={styles.heatmapLegend}><span>少</span>{[0, 1, 2, 3, 4].map((level) => <span key={level} className={styles.legendCell} style={{ background: level === 0 ? undefined : `color-mix(in srgb, ${color} ${25 + level * 18}%, transparent)` }} />)}<span>多</span></div>
+    </div>
+  </div>;
+}
+
+function TokenUsageSettings({
+  onStatisticsLoad,
 }: {
-  contextUsage?: ContextUsageViewModel;
-  selectedModel?: RuntimeModelOptionViewModel;
-  onLoad: () => Promise<ContextGovernanceSettingsViewModel>;
-  onSave: (settings: ContextGovernanceSettingsViewModel) => Promise<ContextGovernanceSettingsViewModel>;
+  onStatisticsLoad: (request: { from?: string; to?: string; view: 'daily' | 'cumulative'; timezone: string }) => Promise<ContextStatisticsViewModel>;
 }) {
-  const [settings, setSettings] = useState<ContextGovernanceSettingsViewModel>({});
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [percentInput, setPercentInput] = useState<number | null>(null);
-  const [messageApi, messageContextHolder] = message.useMessage();
+  const [statistics, setStatistics] = useState<ContextStatisticsViewModel>();
+  const [statisticsLoading, setStatisticsLoading] = useState(true);
+  const [statisticsError, setStatisticsError] = useState<string>();
+  const { token } = theme.useToken();
 
-  useEffect(() => {
-    let cancelled = false;
-    onLoad()
-      .then((loaded) => {
-        if (cancelled) return;
-        setSettings(loaded);
-        setPercentInput(loaded.autoCompactPercent != null ? Math.round(loaded.autoCompactPercent * 100) : null);
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          messageApi.error(error instanceof Error ? error.message : '加载上下文设置失败');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const autoCompactEnabled = settings.autoCompactEnabled ?? true;
-  const microcompactEnabled = settings.microcompactEnabled ?? true;
-  const microcompactKeepRecent = settings.microcompactKeepRecent ?? 5;
-  const summaryModel = settings.summaryModel || 'session';
-
-  const persist = async (next: ContextGovernanceSettingsViewModel) => {
-    setSaving(true);
+  const loadStatistics = async () => {
+    setStatisticsLoading(true);
     try {
-      const saved = await onSave(next);
-      setSettings(saved);
-      setPercentInput(saved.autoCompactPercent != null ? Math.round(saved.autoCompactPercent * 100) : null);
-      messageApi.success('上下文设置已保存');
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      setStatistics(await onStatisticsLoad({ view: 'daily', timezone }));
+      setStatisticsError(undefined);
     } catch (error) {
-      messageApi.error(error instanceof Error ? error.message : '上下文设置保存失败');
+      setStatisticsError(error instanceof Error ? error.message : 'Token 统计加载失败');
     } finally {
-      setSaving(false);
+      setStatisticsLoading(false);
     }
   };
 
-  const triggerDescription = contextUsage
-    ? `当前模型${selectedModel?.name ? `「${selectedModel.name}」` : ''}窗口 ${formatContextTokens(contextUsage.contextWindow)} tokens，触发点约 ${formatContextTokens(contextUsage.autoCompactAt)} tokens（剩余 ${contextUsage.percentLeft}%）`
-    : '上下文接近上限时自动生成摘要并压缩较早的历史消息，让对话可以无限延续下去';
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadStatistics(), 0);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <>
-      {messageContextHolder}
-      <Title level={2}>上下文</Title>
-      <section className={styles.section}>
-        <Card loading={loading} styles={{ body: { padding: 0 } }}>
-          <Flex vertical>
-            <Flex align="center" className={styles.listItem} gap={16} justify="space-between">
-              <Flex vertical style={{ maxWidth: 480 }}>
-                <Text>自动压缩</Text>
-                <Text type="secondary">{triggerDescription}</Text>
-              </Flex>
-              <Switch
-                checked={autoCompactEnabled}
-                loading={saving}
-                onChange={(checked) => void persist({ ...settings, autoCompactEnabled: checked })}
-              />
-            </Flex>
-          </Flex>
+      <section className={`${styles.section} ${styles.tokenUsageSection}`}>
+        {statisticsError ? <Alert showIcon type="warning" message={statistics ? '统计数据可能已过期' : 'Token 统计加载失败'} description={statisticsError} /> : null}
+        <div className={styles.statisticsHeader}>
+          <Flex align="center" gap={10} wrap><Text type="secondary">最后更新于 {statistics?.lastUpdatedAt ? new Date(statistics.lastUpdatedAt).toLocaleString() : '—'}</Text><Button icon={<ReloadOutlined />} loading={statisticsLoading} onClick={() => void loadStatistics()}>刷新</Button></Flex>
+        </div>
+        <div className={styles.statisticsCards}>
+          {[
+            { compact: true, label: '累计 Token', value: statistics?.totalTokens },
+            { compact: true, label: '峰值 Token', value: statistics?.peakTokens },
+            { compact: false, label: '最长任务', value: statistics ? `${Number(statistics.longestTurnMillis) / 1000}s` : undefined },
+            { compact: false, label: '当前连续天数', value: statistics?.currentStreakDays },
+            { compact: false, label: '最长连续天数', value: statistics?.longestStreakDays },
+          ].map(({ compact, label, value }) => (
+            <Card key={label} loading={statisticsLoading && !statistics} size="small"><Text type="secondary">{label}</Text><div className={styles.statisticValue}>{typeof value === 'bigint' ? (compact ? formatCompactBigInt(value) : formatBigInt(value)) : value ?? '—'}</div></Card>
+          ))}
+        </div>
+        <Card loading={statisticsLoading && !statistics}>
+          {!statistics ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="统计数据暂不可用" /> : <TokenHeatmap points={statistics.points} color={token.colorWarning} />}
         </Card>
-      </section>
-      <section className={styles.section}>
-        <Collapse
-          items={[
-            {
-              key: 'advanced',
-              label: '高级设置',
-              children: (
-                <Flex vertical gap={16}>
-                  <Flex align="center" gap={16} justify="space-between">
-                    <Flex vertical>
-                      <Text>触发百分比覆盖</Text>
-                      <Text type="secondary">留空为自动计算；范围 5% ~ 95%，数值越小触发越早</Text>
-                    </Flex>
-                    <InputNumber
-                      max={95}
-                      min={5}
-                      style={{ minWidth: 120 }}
-                      suffix="%"
-                      value={percentInput ?? undefined}
-                      onBlur={() => void persist({ ...settings, autoCompactPercent: percentInput == null ? undefined : percentInput / 100 })}
-                      onChange={(value) => setPercentInput(value == null ? null : Number(value))}
-                    />
-                  </Flex>
-                  <Flex align="center" justify="space-between">
-                    <Flex vertical>
-                      <Text>Microcompact</Text>
-                      <Text type="secondary">单个 step 内自动裁剪较早的工具结果，减少无谓的上下文占用</Text>
-                    </Flex>
-                    <Switch
-                      checked={microcompactEnabled}
-                      loading={saving}
-                      onChange={(checked) => void persist({ ...settings, microcompactEnabled: checked })}
-                    />
-                  </Flex>
-                  <Flex align="center" justify="space-between">
-                    <Flex vertical>
-                      <Text>保留最近消息数</Text>
-                      <Text type="secondary">microcompact 始终保留的最近消息条数</Text>
-                    </Flex>
-                    <InputNumber
-                      max={50}
-                      min={0}
-                      style={{ minWidth: 120 }}
-                      value={microcompactKeepRecent}
-                      onChange={(value) => void persist({ ...settings, microcompactKeepRecent: value ?? 5 })}
-                    />
-                  </Flex>
-                  <Flex align="center" justify="space-between">
-                    <Flex vertical>
-                      <Text>摘要模型</Text>
-                      <Text type="secondary">手动/自动压缩时用于生成摘要的模型</Text>
-                    </Flex>
-                    <Select
-                      options={summaryModelOptions}
-                      style={{ minWidth: 160 }}
-                      value={summaryModel}
-                      onChange={(value) => void persist({ ...settings, summaryModel: value })}
-                    />
-                  </Flex>
-                </Flex>
-              ),
-            },
-          ]}
-        />
       </section>
     </>
   );

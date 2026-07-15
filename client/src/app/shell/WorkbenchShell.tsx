@@ -906,18 +906,9 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
     return nextViewModel.settings;
   };
 
-  const getContextGovernanceSettings = () => {
-    if (!adapter.getContextGovernanceSettings) {
-      throw new Error('Context governance settings are unavailable');
-    }
-    return adapter.getContextGovernanceSettings();
-  };
-
-  const saveContextGovernanceSettings = (settings: Parameters<NonNullable<WorkbenchAdapter['saveContextGovernanceSettings']>>[0]) => {
-    if (!adapter.saveContextGovernanceSettings) {
-      throw new Error('Context governance settings are unavailable');
-    }
-    return adapter.saveContextGovernanceSettings(settings);
+  const getContextStatistics = (request: Parameters<NonNullable<WorkbenchAdapter['getContextStatistics']>>[0]) => {
+    if (!adapter.getContextStatistics) throw new Error('Token statistics are unavailable');
+    return adapter.getContextStatistics(request);
   };
 
   const listProjectMemories = (projectID: string) => {
@@ -1024,12 +1015,10 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
           onProviderSave={saveConfiguredProvider}
           onProviderTest={testConfiguredProvider}
           selectedModel={workbenchViewModel.composer.selectedModel}
-          contextUsage={workbenchViewModel.composer.contextUsage}
           onModelSelect={selectModel}
           onAppearanceSelect={selectAppearance}
           onOpenTargetSelect={selectOpenTarget}
-          onContextGovernanceLoad={getContextGovernanceSettings}
-          onContextGovernanceSave={saveContextGovernanceSettings}
+          onContextStatisticsLoad={getContextStatistics}
           onMCPServerDetailsLoad={loadMCPServerDetails}
           onMCPServerRefresh={refreshMCPServer}
           onMCPServerSave={saveMCPServer}

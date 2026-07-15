@@ -26,6 +26,7 @@ func toAPITypeMessage(msg message.Message) apitypes.Message {
 		CreatedAt: msg.CreatedAt,
 
 		UpdatedAt: msg.UpdatedAt,
+		Usage:     msg.Usage,
 	}
 
 	for _, part := range msg.Parts {

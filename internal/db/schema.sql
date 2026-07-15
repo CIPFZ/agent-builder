@@ -665,6 +665,58 @@ CREATE TABLE runtime_settings (
     updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    checksum TEXT NOT NULL,
+    app_version TEXT NOT NULL,
+    applied_at INTEGER NOT NULL
+);
+
+INSERT INTO schema_migrations(version,name,kind,checksum,app_version,applied_at)
+VALUES(1,'v0.1.0-baseline','baseline','embedded-schema','development',strftime('%s','now') * 1000);
+INSERT INTO schema_migrations(version,name,kind,checksum,app_version,applied_at)
+VALUES(2,'token-statistics','migration','20260715000000','development',strftime('%s','now') * 1000);
+
+CREATE TABLE runtime_token_usage_daily (
+    day TEXT PRIMARY KEY,
+    timezone TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+    session_count INTEGER NOT NULL DEFAULT 0,
+    turn_count INTEGER NOT NULL DEFAULT 0,
+    model_call_count INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE runtime_token_usage_lifetime (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0,
+    model_call_count INTEGER NOT NULL DEFAULT 0,
+    peak_tokens INTEGER NOT NULL DEFAULT 0,
+    peak_at INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE token_statistics_cursor (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    sequence INTEGER NOT NULL DEFAULT 0,
+    backfilled INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
+);
+
+INSERT INTO runtime_token_usage_lifetime (id, updated_at) VALUES (1, strftime('%s','now') * 1000);
+INSERT INTO token_statistics_cursor (id, updated_at) VALUES (1, strftime('%s','now') * 1000);
+
 CREATE TABLE runtime_tool_calls (
     id TEXT PRIMARY KEY,
     turn_id TEXT NOT NULL,
@@ -900,6 +952,10 @@ CREATE INDEX idx_runtime_events_turn_sequence
 
 CREATE INDEX idx_runtime_events_type_sequence
     ON runtime_events (type, sequence);
+
+CREATE UNIQUE INDEX idx_runtime_events_message_completed_once
+    ON runtime_events (message_id)
+    WHERE type = 'message.completed' AND message_id IS NOT NULL;
 
 CREATE INDEX idx_runtime_hook_executions_event_started_at
     ON runtime_hook_executions (event, started_at);

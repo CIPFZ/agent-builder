@@ -91,27 +91,68 @@ func Connect(ctx context.Context, dataDir string) (*sql.DB, error) {
 			slog.Error("Failed to initialize database schema", "error", err)
 			return nil, fmt.Errorf("failed to initialize database schema: %w", err)
 		}
-		conn.Close()
-		if err := backupAndRecreateDatabase(ctx, dbPath); err != nil {
-			return nil, err
-		}
-		conn, err = openDB(dbPath)
-		if err != nil {
-			return nil, err
-		}
-		conn.SetMaxOpenConns(1)
-		if err = conn.PingContext(ctx); err != nil {
+		if err := migrateLegacySchema(ctx, conn); err != nil {
 			conn.Close()
-			return nil, fmt.Errorf("failed to connect to recreated database: %w", err)
-		}
-		if err := initializeSchema(ctx, conn); err != nil {
-			conn.Close()
-			return nil, fmt.Errorf("failed to initialize recreated database schema: %w", err)
+			return nil, fmt.Errorf("failed to migrate database schema: %w", err)
 		}
 	}
 
 	pool[absPath] = &connEntry{db: conn, refCount: 1}
 	return conn, nil
+}
+
+func migrateLegacySchema(ctx context.Context, conn *sql.DB) error {
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err = tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, checksum TEXT NOT NULL, app_version TEXT NOT NULL, applied_at INTEGER NOT NULL)`); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO schema_migrations(version,name,kind,checksum,app_version,applied_at) VALUES(1,'legacy-baseline','baseline','legacy-schema-generation-2','development',?)`, time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO schema_migrations(version,name,kind,checksum,app_version,applied_at) VALUES(2,'token-statistics','migration','20260715000000','development',?)`, time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS runtime_token_usage_daily (day TEXT PRIMARY KEY, timezone TEXT NOT NULL, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, reasoning_tokens INTEGER NOT NULL DEFAULT 0, session_count INTEGER NOT NULL DEFAULT 0, turn_count INTEGER NOT NULL DEFAULT 0, model_call_count INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS runtime_token_usage_lifetime (id INTEGER PRIMARY KEY CHECK (id = 1), input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, reasoning_tokens INTEGER NOT NULL DEFAULT 0, total_tokens INTEGER NOT NULL DEFAULT 0, model_call_count INTEGER NOT NULL DEFAULT 0, peak_tokens INTEGER NOT NULL DEFAULT 0, peak_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS token_statistics_cursor (id INTEGER PRIMARY KEY CHECK (id = 1), sequence INTEGER NOT NULL DEFAULT 0, backfilled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)`,
+		`INSERT OR IGNORE INTO runtime_token_usage_lifetime(id,updated_at) VALUES(1,?)`,
+		`INSERT OR IGNORE INTO token_statistics_cursor(id,updated_at) VALUES(1,?)`,
+	}
+	for i, statement := range statements {
+		if i < 3 {
+			_, err = tx.ExecContext(ctx, statement)
+		} else {
+			_, err = tx.ExecContext(ctx, statement, time.Now().UnixMilli())
+		}
+		if err != nil {
+			return err
+		}
+	}
+	var hasRuntimeEvents int
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name='runtime_events'`).Scan(&hasRuntimeEvents); err != nil {
+		return err
+	}
+	if hasRuntimeEvents > 0 {
+		if _, err = tx.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_events_message_completed_once ON runtime_events(message_id) WHERE type='message.completed' AND message_id IS NOT NULL`); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE runtime_settings SET value=?,updated_at=? WHERE key='schema_generation'`, expectedSchemaGeneration, time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Release decrements the reference count for the database at the given
@@ -180,6 +221,13 @@ func ensureSchema(ctx context.Context, conn *sql.DB) error {
 	}
 	if generation != expectedSchemaGeneration {
 		return incompatibleSchemaError{reason: fmt.Sprintf("schema_generation=%q, expected %q", generation, expectedSchemaGeneration)}
+	}
+	var tokenTables int
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name IN ('runtime_token_usage_daily','runtime_token_usage_lifetime','token_statistics_cursor')`).Scan(&tokenTables); err != nil {
+		return err
+	}
+	if tokenTables < 3 {
+		return incompatibleSchemaError{reason: "token statistics tables are missing"}
 	}
 	return nil
 }

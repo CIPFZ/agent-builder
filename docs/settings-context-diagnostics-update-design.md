@@ -39,7 +39,9 @@
 热力图每个格子有键盘焦点和 tooltip，内容包含日期、输入/输出/缓存 Token、会话数和 Turn 数；
 颜色只使用 Ant Design 主题 token 派生的五级色阶。无数据与零值必须可区分。
 
-现有自动压缩和 Microcompact 配置移到页面底部“上下文治理”，行为保持不变。
+设置导航将该页面命名为“Token 用量”，页面只展示统计结果，不再重复显示“上下文”标题。
+自动压缩默认启用；自动压缩阈值、Microcompact、保留条数和摘要模型等治理参数不作为普通用户
+设置项展示，继续由运行时配置和经过验证的默认策略管理。
 
 ### 统计口径
 
@@ -200,9 +202,10 @@ worker 资源预算：空闲时只有一个 timer，无常驻队列；执行时�
 首版复用已有 message.completed event，只为 event payload 增加少量 usage 计数；每日投影一年
 最多约 365 行，通常远小于 1 MiB。统计不再为每个 Turn 或 Message 新增 marker 行。
 
-统计默认读取最近 365 个本地自然日。“累计”表示该窗口内累计。消息继续服从 Session 的
-现有生命周期；删除 Session 后对应统计随消息删除。如果产品希望删除会话后仍保留消费
-统计，则必须启用不含 Session 内容的每日投影，并明确提供单独的统计清除入口。
+统计默认读取最近 365 个本地自然日；“累计”读取独立的 lifetime 投影，不会因 daily bucket
+轮转或 Session 删除而倒退。投影只保存匿名计数、峰值和聚合时间，不保存消息正文、工具参数
+或 Provider secret。首次接管从 `messages.usage_json` 重建投影，并把 cursor 原子推进到当时
+最大的 runtime event sequence；之后只顺序消费新的 `message.completed` 事件。
 
 统计 worker 只顺序消费 persisted runtime event，不新增 Wails 事件或常驻 Turn accumulator。
 统计页查询固定为最多 365 个 daily bucket，不加载历史 message。

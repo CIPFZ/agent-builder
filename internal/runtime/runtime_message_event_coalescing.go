@@ -42,9 +42,6 @@ func (r *runtimeService) deriveOutputTextDeltasLocked(msg apitypes.Message, turn
 		}
 		cursor.lastReasoningLen = len(thinking)
 	}
-	if msg.IsFinished() {
-		cursor.completed = true
-	}
 	if len(events) > 0 {
 		cursor.lastDeltaEmitted = now.UnixMilli()
 	}
@@ -55,6 +52,9 @@ func (r *runtimeService) recordMessageEventWithCoalesceLocked(event RuntimeEvent
 	if event.Type != runtimeapi.EventMessageUpdated {
 		if event.Type == runtimeapi.EventMessageCompleted || event.Type == runtimeapi.EventMessageCreated {
 			if cursor, ok := r.messageStream[event.MessageID]; ok && cursor != nil {
+				if event.Type == runtimeapi.EventMessageCompleted && cursor.completed {
+					return nil
+				}
 				cursor.lastUpdateEmitted = now.UnixMilli()
 				if event.Type == runtimeapi.EventMessageCompleted {
 					cursor.completed = true

@@ -194,6 +194,8 @@ type RuntimeContextGovernanceProviderOverride = runtime.RuntimeContextGovernance
 type RuntimeRequests = runtime.RuntimeRequests
 type RuntimeUsage = runtime.RuntimeUsage
 type RuntimeContextUsage = runtime.RuntimeContextUsage
+type RuntimeContextStatisticsRequest = runtime.RuntimeContextStatisticsRequest
+type RuntimeContextStatistics = runtime.RuntimeContextStatistics
 type RuntimeContextCategory = runtime.RuntimeContextCategory
 type RuntimeEventStats = runtime.RuntimeEventStats
 type RuntimeEventsResponse = runtime.RuntimeEventsResponse
@@ -1203,6 +1205,10 @@ func (r *RuntimeBridge) ContextGovernanceSettings(ctx context.Context) (RuntimeC
 
 	return r.service.ContextGovernanceSettings(ctx)
 
+}
+
+func (r *RuntimeBridge) ContextStatistics(ctx context.Context, req RuntimeContextStatisticsRequest) (RuntimeContextStatistics, error) {
+	return r.service.ContextStatistics(ctx, req)
 }
 
 func (r *RuntimeBridge) SaveContextGovernanceSettings(ctx context.Context, req RuntimeContextGovernanceSettings) (RuntimeContextGovernanceSettingsResponse, error) {

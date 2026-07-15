@@ -122,6 +122,7 @@ type RuntimeService interface {
 	DeleteSession(context.Context, string) (RuntimeSessionsResponse, error)
 	SessionMessages(context.Context, string) (RuntimeMessagesResponse, error)
 	SessionContextUsage(context.Context, string) (RuntimeContextUsage, error)
+	ContextStatistics(context.Context, RuntimeContextStatisticsRequest) (RuntimeContextStatistics, error)
 	SessionConversationSnapshotV2(context.Context, string, RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error)
 	SessionConversationMessageContentV2(context.Context, string, string) (RuntimeCanonicalMessageContentResponseV2, error)
 	SearchSessionConversationV2(context.Context, string, RuntimeConversationSearchRequestV2) (RuntimeConversationSearchResponseV2, error)
@@ -206,6 +207,7 @@ type runtimeService struct {
 	turns                  runtimeTurnStore
 	userInputs             runtimeUserInputStore
 	eventStore             runtimeEventStore
+	tokenStatistics        *tokenStatisticsStore
 	permissionStore        runtimePermissionStore
 	mcpRequestStore        runtimeMCPRequestStore
 	runs                   runtimeRunStore

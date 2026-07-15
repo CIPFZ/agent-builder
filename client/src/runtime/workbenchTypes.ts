@@ -1273,6 +1273,20 @@ export interface ContextGovernanceSettingsViewModel {
   providerOverrides?: Record<string, ContextGovernanceProviderOverrideViewModel>;
 }
 
+export interface ContextStatisticsPointViewModel {
+  day: string; timezone: string; inputTokens: bigint; outputTokens: bigint;
+  cacheReadTokens: bigint; cacheCreationTokens: bigint; reasoningTokens: bigint;
+  totalTokens: bigint; sessionCount: bigint; turnCount: bigint; modelCallCount: bigint;
+}
+
+export interface ContextStatisticsViewModel {
+  totalTokens: bigint; inputTokens: bigint; outputTokens: bigint; cacheReadTokens: bigint;
+  cacheCreationTokens: bigint; reasoningTokens: bigint; modelCallCount: bigint;
+  peakTokens: bigint; peakAt?: string; longestTurnMillis: bigint; longestTurnId?: string;
+  currentStreakDays: bigint; longestStreakDays: bigint; activeDays: bigint;
+  lastUpdatedAt?: string; points: ContextStatisticsPointViewModel[];
+}
+
 export interface WorkbenchViewModel {
   mode: WorkbenchMode;
   currentProject: ProjectViewModel;
@@ -1392,4 +1406,5 @@ export interface WorkbenchAdapter {
   refreshProjectMemoryIndex?: (projectID: string) => Promise<ProjectMemoryIndexViewModel>;
   getContextGovernanceSettings?: () => Promise<ContextGovernanceSettingsViewModel>;
   saveContextGovernanceSettings?: (settings: ContextGovernanceSettingsViewModel) => Promise<ContextGovernanceSettingsViewModel>;
+  getContextStatistics?: (request: { from?: string; to?: string; view: 'daily' | 'cumulative'; timezone: string }) => Promise<ContextStatisticsViewModel>;
 }
