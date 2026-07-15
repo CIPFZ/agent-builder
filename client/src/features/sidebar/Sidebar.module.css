@@ -418,17 +418,6 @@
   transition: opacity 120ms ease;
 }
 
-.titleOptimizer {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  margin-left: 6px;
-  color: var(--app-text-tertiary);
-  font-size: 10px;
-  line-height: 1;
-}
-
 .projectSessionButton:hover .projectSessionTitle,
 .projectSessionButton:focus-visible .projectSessionTitle,
 .projectSessionButton:active .projectSessionTitle,
@@ -535,10 +524,23 @@
   justify-content: center;
   width: 14px;
   height: 14px;
-  color: var(--app-text-tertiary);
-  font-size: 13px;
   pointer-events: none;
   transition: opacity 120ms ease;
+}
+
+.activityRing {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid color-mix(in srgb, var(--app-text-tertiary) 28%, transparent);
+  border-top-color: var(--app-text-tertiary);
+  border-radius: 50%;
+  animation: sessionActivitySpin 720ms linear infinite;
+}
+
+@keyframes sessionActivitySpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .sessionRow:hover .sessionSpinner,

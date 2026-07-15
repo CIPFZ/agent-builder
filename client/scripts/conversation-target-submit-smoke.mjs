@@ -35,7 +35,8 @@ assert.doesNotMatch(contextIndicator, /手动压缩|CompressOutlined|styles\.rin
 assert.doesNotMatch(shell, /retargetOutputStore|hydrateOutputStore|applyOutputEvents/, 'draft adoption cannot revive the removed output store');
 assert.match(adapter, /titleSource: 'fallback' as const,[\s\S]*?titleStatus: 'generating' as const/, 'draft adoption immediately exposes a provisional fallback title');
 assert.match(adapter, /Array\.from\(title\)[\s\S]*?characters\.length > 48[\s\S]*?characters\.slice\(0, 47\).*…/, 'optimistic fallback follows the 48-character title contract');
-assert.match(sidebar, /titleStatus === 'generating'[\s\S]*?正在优化标题/, 'sidebar presents background title optimization without replacing the fallback title');
-assert.match(workspace, /activeSession\.titleStatus === 'generating'[\s\S]*?正在优化标题/, 'active Session header presents background title optimization');
+assert.doesNotMatch(sidebar, /titleStatus|正在优化标题/, 'sidebar keeps title generation invisible and reserves activity for the conversation');
+assert.doesNotMatch(sidebar, /LoadingOutlined/, 'sidebar activity uses a circular CSS ring instead of the glyph spinner');
+assert.doesNotMatch(workspace, /titleStatus === 'generating'|正在优化标题/, 'active Session header replaces fallback titles without a loading affordance');
 
 console.log('conversation target submit smoke passed');

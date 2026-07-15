@@ -42,16 +42,17 @@ func (m *blockingTitleModel) StreamObject(context.Context, fantasy.ObjectCall) (
 func (m *blockingTitleModel) Provider() string { return "test" }
 func (m *blockingTitleModel) Model() string    { return "blocking-title-model" }
 
-func TestTitleAgentDoesNotBlockConversationAndHasNoTools(t *testing.T) {
+func TestTitleAgentOutlivesFirstTurnAndHasNoTools(t *testing.T) {
 	env := testEnv(t)
 	mainModel := &scriptedSummarizerModel{streamFunc: streamText("main response")}
 	titleModel := &blockingTitleModel{started: make(chan struct{}), release: make(chan struct{})}
 	agent := testSessionAgent(env, mainModel, titleModel, "main system prompt")
 	sess, err := env.sessions.Create(t.Context(), "New chat")
 	require.NoError(t, err)
+	runCtx, cancelRun := context.WithCancel(t.Context())
 
 	startedAt := time.Now()
-	_, err = agent.Run(t.Context(), SessionAgentCall{SessionID: sess.ID, TurnID: "turn-1", Prompt: "Please inspect the streaming response lifecycle"})
+	_, err = agent.Run(runCtx, SessionAgentCall{SessionID: sess.ID, TurnID: "turn-1", Prompt: "Please inspect the streaming response lifecycle"})
 	require.NoError(t, err)
 	require.Less(t, time.Since(startedAt), time.Second, "conversation waited for the Title Agent")
 
@@ -66,10 +67,45 @@ func TestTitleAgentDoesNotBlockConversationAndHasNoTools(t *testing.T) {
 	require.Equal(t, session.TitleSourceFallbackPending, pending.TitleSource)
 	require.Equal(t, FallbackSessionTitle("Please inspect the streaming response lifecycle"), pending.Title)
 
-	close(titleModel.release)
+	cancelRun()
 	require.Eventually(t, func() bool {
 		updated, getErr := env.sessions.Get(t.Context(), sess.ID)
 		return getErr == nil && updated.TitleSource == session.TitleSourceFallback
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestTitleAgentCanReplaceFallbackAfterFirstTurn(t *testing.T) {
+	env := testEnv(t)
+	mainModel := &scriptedSummarizerModel{streamFunc: streamText("main response")}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	titleModel := &scriptedSummarizerModel{streamFunc: func(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
+		close(started)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-release:
+			return streamText("Independent title")(ctx, call)
+		}
+	}}
+	agent := testSessionAgent(env, mainModel, titleModel, "main system prompt")
+	sess, err := env.sessions.Create(t.Context(), "New chat")
+	require.NoError(t, err)
+
+	_, err = agent.Run(t.Context(), SessionAgentCall{SessionID: sess.ID, TurnID: "turn-1", Prompt: "Please inspect the title lifecycle"})
+	require.NoError(t, err)
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("Title Agent did not start")
+	}
+	pending, err := env.sessions.Get(t.Context(), sess.ID)
+	require.NoError(t, err)
+	require.Equal(t, session.TitleSourceFallbackPending, pending.TitleSource)
+	close(release)
+	require.Eventually(t, func() bool {
+		updated, getErr := env.sessions.Get(t.Context(), sess.ID)
+		return getErr == nil && updated.TitleSource == session.TitleSourceAgent && updated.Title == "Independent title"
 	}, time.Second, 10*time.Millisecond)
 }
 

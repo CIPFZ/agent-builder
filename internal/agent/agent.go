@@ -1423,11 +1423,15 @@ func (a *sessionAgent) getSessionMessages(ctx context.Context, session session.S
 func (a *sessionAgent) startTitleGeneration(parent context.Context, sessionID, userPrompt, expectedTitle string) {
 	select {
 	case a.titleSlots <- struct{}{}:
+		titleCtx, cancelTitle := context.WithTimeout(parent, titleAgentTimeout)
+		go func() {
+			<-titleCtx.Done()
+			a.finalizeFallbackTitle(context.Background(), sessionID, expectedTitle)
+		}()
 		go func() {
 			defer func() { <-a.titleSlots }()
-			modelCtx, cancel := context.WithTimeout(parent, titleAgentTimeout)
-			a.generateTitle(modelCtx, parent, sessionID, userPrompt, expectedTitle)
-			cancel()
+			defer cancelTitle()
+			a.generateTitle(titleCtx, context.Background(), sessionID, userPrompt, expectedTitle)
 		}()
 	default:
 		// Admission is deliberately bounded. The deterministic fallback is

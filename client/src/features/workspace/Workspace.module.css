@@ -46,16 +46,6 @@
   white-space: nowrap;
 }
 
-.titleOptimizer {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  color: var(--app-text-tertiary);
-  font-size: 11px;
-  line-height: 1;
-}
-
 .headerActions {
   display: flex;
   flex: 0 0 auto;
