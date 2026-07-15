@@ -805,12 +805,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
     commitConversationAction(nextViewModel);
   };
 
-  const selectTerminalProfile = async (profileID: string) => {
-    const nextViewModel = await adapter.selectTerminalProfile({ ...viewModelRef.current, mode: modeRef.current }, profileID);
-    commitConversationAction(nextViewModel);
-    return nextViewModel.settings;
-  };
-
   const selectAppearance = async (appearance: import('../../theme/contract.ts').AppearanceSettings) => {
     const nextViewModel = await adapter.selectAppearance({ ...viewModelRef.current, mode: modeRef.current }, appearance);
     commitConversationAction(nextViewModel);
@@ -1032,7 +1026,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
           selectedModel={workbenchViewModel.composer.selectedModel}
           contextUsage={workbenchViewModel.composer.contextUsage}
           onModelSelect={selectModel}
-          onTerminalProfileSelect={selectTerminalProfile}
           onAppearanceSelect={selectAppearance}
           onOpenTargetSelect={selectOpenTarget}
           onContextGovernanceLoad={getContextGovernanceSettings}

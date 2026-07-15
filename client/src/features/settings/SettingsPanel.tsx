@@ -94,7 +94,6 @@ interface SettingsPanelProps {
   selectedModel?: RuntimeModelOptionViewModel;
   contextUsage?: ContextUsageViewModel;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
-  onTerminalProfileSelect: (profileID: string) => Promise<SettingsViewModel>;
   onAppearanceSelect: (appearance: AppearanceSettings) => Promise<SettingsViewModel>;
   onOpenTargetSelect: (targetID: string) => Promise<SettingsViewModel>;
   onContextGovernanceLoad: () => Promise<ContextGovernanceSettingsViewModel>;
@@ -131,7 +130,6 @@ export function SettingsPanel({
   selectedModel,
   contextUsage,
   onModelSelect,
-  onTerminalProfileSelect,
   onAppearanceSelect,
   onOpenTargetSelect,
   onContextGovernanceLoad,
@@ -205,7 +203,7 @@ export function SettingsPanel({
           />
         );
       case 'common':
-        return <CommonSettings settings={settings} onTerminalProfileSelect={onTerminalProfileSelect} onAppearanceSelect={onAppearanceSelect} onOpenTargetSelect={onOpenTargetSelect} onSettingsRefresh={onSettingsRefresh} />;
+        return <CommonSettings settings={settings} onAppearanceSelect={onAppearanceSelect} onOpenTargetSelect={onOpenTargetSelect} />;
       case 'context':
         return (
           <ContextGovernanceSettings
@@ -217,8 +215,6 @@ export function SettingsPanel({
         );
       case 'im':
         return <EmptySettingsPage title="IM 接入" />;
-      case 'terminal':
-        return <EmptySettingsPage title="终端" />;
       case 'agents':
         return <EmptySettingsPage title="Agents" />;
       case 'plugins':
@@ -1636,39 +1632,16 @@ function stateTagColor(state?: string) {
 
 function CommonSettings({
   settings,
-  onTerminalProfileSelect,
   onAppearanceSelect,
-  onSettingsRefresh,
   onOpenTargetSelect,
 }: {
   settings: SettingsViewModel;
-  onTerminalProfileSelect: (profileID: string) => Promise<SettingsViewModel>;
   onAppearanceSelect: (appearance: AppearanceSettings) => Promise<SettingsViewModel>;
-  onSettingsRefresh: () => Promise<SettingsViewModel>;
   onOpenTargetSelect: (targetID: string) => Promise<SettingsViewModel>;
 }) {
-  const [terminalProfile, setTerminalProfile] = useState(settings.terminalProfile);
-  const [savingTerminalProfile, setSavingTerminalProfile] = useState(false);
   const [messageApi, messageContextHolder] = message.useMessage();
-  const selectedTerminalProfile = savingTerminalProfile ? terminalProfile : settings.terminalProfile || terminalProfile;
   const [savingAppearance, setSavingAppearance] = useState(false);
-  const [refreshingTerminals, setRefreshingTerminals] = useState(false);
   const [savingOpenTarget, setSavingOpenTarget] = useState(false);
-
-  const saveTerminalProfile = async (profileID: string) => {
-    setTerminalProfile(profileID);
-    setSavingTerminalProfile(true);
-    try {
-      const nextSettings = await onTerminalProfileSelect(profileID);
-      setTerminalProfile(nextSettings.terminalProfile);
-      messageApi.success('终端配置已保存');
-    } catch (error) {
-      setTerminalProfile(settings.terminalProfile);
-      messageApi.error(error instanceof Error ? error.message : '终端配置保存失败');
-    } finally {
-      setSavingTerminalProfile(false);
-    }
-  };
 
   const saveColorMode = async (colorMode: ColorMode) => {
     setSavingAppearance(true);
@@ -1678,18 +1651,6 @@ function CommonSettings({
       messageApi.error(error instanceof Error ? error.message : '主题设置保存失败');
     } finally {
       setSavingAppearance(false);
-    }
-  };
-
-  const refreshTerminalProfiles = async () => {
-    if (refreshingTerminals) return;
-    setRefreshingTerminals(true);
-    try {
-      await onSettingsRefresh();
-    } catch (error) {
-      messageApi.error(error instanceof Error ? error.message : '终端环境刷新失败');
-    } finally {
-      setRefreshingTerminals(false);
     }
   };
 
@@ -1735,24 +1696,6 @@ function CommonSettings({
                 variant="filled"
                 value={settings.defaultEditor}
                 onChange={(value) => void saveOpenTarget(value)}
-              />
-            </Flex>
-            <Flex align="center" className={styles.listItem} gap={16} justify="space-between">
-              <Flex vertical>
-                <Text>终端配置</Text>
-                <Text type="secondary">运行本地命令时使用的默认终端</Text>
-              </Flex>
-              <Select
-                loading={savingTerminalProfile || refreshingTerminals}
-                options={settings.terminalOptions}
-                popupMatchSelectWidth={false}
-                style={{ minWidth: 180 }}
-                value={selectedTerminalProfile}
-                variant="filled"
-                onChange={(value) => void saveTerminalProfile(value)}
-                onOpenChange={(open) => {
-                  if (open) void refreshTerminalProfiles();
-                }}
               />
             </Flex>
           </Flex>

@@ -16,6 +16,7 @@
 6. [数据存储规范](data-storage.md)：权威来源、作用域、项目目录、Objects 和生命周期。
 7. [开发指南](development.md)：构建、测试、调试和改动约束。
 8. [目录索引](repository-map.md)：按目录快速定位代码职责。
+9. [设置功能设计](settings-context-diagnostics-update-design.md)：上下文统计、诊断与版本更新的实现边界。
 
 ## 文档维护规则
 
