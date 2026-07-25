@@ -135,3 +135,33 @@ func TestRepairProjectionRebuildsWhenCompletedEventWasMissing(t *testing.T) {
 		t.Fatalf("input=%d output=%d cacheRead=%d cacheCreation=%d total=%d calls=%d", input, output, cacheRead, cacheCreation, total, calls)
 	}
 }
+
+func TestQueryContextStatisticsPointsUsesRequestedLocalDay(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	conn, err := db.Connect(ctx, dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Release(dataDir) })
+	if _, err = conn.ExecContext(ctx, `INSERT INTO sessions(id,title,scope,workdir,updated_at,created_at) VALUES('session','test','standalone','C:/work',0,0)`); err != nil {
+		t.Fatal(err)
+	}
+	// Both calls are on July 25 in Shanghai, but they straddle midnight UTC.
+	first := time.Date(2026, time.July, 24, 23, 30, 0, 0, time.UTC).UnixMilli()
+	second := time.Date(2026, time.July, 25, 15, 30, 0, 0, time.UTC).UnixMilli()
+	if _, err = conn.ExecContext(ctx, `INSERT INTO messages(id,session_id,role,parts,created_at,updated_at,usage_json) VALUES('first','session','assistant','[]',?,?,?),('second','session','assistant','[]',?,?,?)`, first, first, `{"input":10,"output":2,"cacheRead":3,"cacheCreation":1,"reasoning":1}`, second, second, `{"input":20,"output":4,"cacheRead":6,"cacheCreation":2,"reasoning":2}`); err != nil {
+		t.Fatal(err)
+	}
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	points, err := queryContextStatisticsPoints(ctx, conn, "2026-07-25", "2026-07-25", "Asia/Shanghai", loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(points) != 1 || points[0].Day != "2026-07-25" || points[0].TotalTokens != "48" || points[0].ModelCallCount != "2" || points[0].SessionCount != "1" {
+		t.Fatalf("points=%#v", points)
+	}
+}

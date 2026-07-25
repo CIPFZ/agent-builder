@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata"
 
 	database "github.com/CIPFZ/agent-builder/internal/db"
 	"github.com/CIPFZ/agent-builder/internal/message"
@@ -469,7 +470,9 @@ func (r *runtimeService) ContextStatistics(ctx context.Context, req RuntimeConte
 	}
 	tz := strings.TrimSpace(req.Timezone)
 	loc := time.UTC
-	if tz != "" {
+	if tz == "" {
+		tz = "UTC"
+	} else {
 		parsed, e := time.LoadLocation(tz)
 		if e != nil {
 			return RuntimeContextStatistics{}, fmt.Errorf("invalid IANA timezone %q", tz)
@@ -482,29 +485,11 @@ func (r *runtimeService) ContextStatistics(ctx context.Context, req RuntimeConte
 	if req.To == "" {
 		req.To = time.Now().In(loc).Format("2006-01-02")
 	}
-	rows, err := db.QueryContext(ctx, `SELECT day,timezone,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,reasoning_tokens,session_count,turn_count,model_call_count FROM runtime_token_usage_daily WHERE day>=? AND day<=? ORDER BY day`, req.From, req.To)
+	points, err := queryContextStatisticsPoints(ctx, db, req.From, req.To, tz, loc)
 	if err != nil {
 		return RuntimeContextStatistics{}, err
 	}
-	defer rows.Close()
-	out := RuntimeContextStatistics{Points: []RuntimeContextStatisticsPoint{}}
-	for rows.Next() {
-		var p RuntimeContextStatisticsPoint
-		var in, outp, cr, cc, reas, sess, turn, calls int64
-		if err := rows.Scan(&p.Day, &p.Timezone, &in, &outp, &cr, &cc, &reas, &sess, &turn, &calls); err != nil {
-			return out, err
-		}
-		p.InputTokens = strconv.FormatInt(in, 10)
-		p.OutputTokens = strconv.FormatInt(outp, 10)
-		p.CacheReadTokens = strconv.FormatInt(cr, 10)
-		p.CacheCreationTokens = strconv.FormatInt(cc, 10)
-		p.ReasoningTokens = strconv.FormatInt(reas, 10)
-		p.TotalTokens = strconv.FormatInt(in+outp+cr+cc, 10)
-		p.SessionCount = strconv.FormatInt(sess, 10)
-		p.TurnCount = strconv.FormatInt(turn, 10)
-		p.ModelCallCount = strconv.FormatInt(calls, 10)
-		out.Points = append(out.Points, p)
-	}
+	out := RuntimeContextStatistics{Points: points}
 	var in, outp, cr, cc, reas, total, calls, peak, peakAt, updated int64
 	if err = db.QueryRowContext(ctx, `SELECT input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,reasoning_tokens,total_tokens,model_call_count,peak_tokens,peak_at,updated_at FROM runtime_token_usage_lifetime WHERE id=1`).Scan(&in, &outp, &cr, &cc, &reas, &total, &calls, &peak, &peakAt, &updated); err != nil {
 		return out, err
@@ -531,6 +516,111 @@ func (r *runtimeService) ContextStatistics(ctx context.Context, req RuntimeConte
 	out.LongestStreakDays = strconv.FormatInt(longestStreak, 10)
 	out.ActiveDays = strconv.Itoa(len(out.Points))
 	return out, nil
+}
+
+// queryContextStatisticsPoints reads the persisted provider usage facts rather
+// than the UTC daily projection. A UTC day cannot be converted into a user's
+// local day after it has already been aggregated: calls around midnight may
+// belong to two different local dates. messages.usage_json is the canonical
+// per-model-call source and lets this query apply the requested IANA timezone
+// before grouping.
+func queryContextStatisticsPoints(ctx context.Context, db *sql.DB, from, to, timezone string, loc *time.Location) ([]RuntimeContextStatisticsPoint, error) {
+	fromDay, err := time.ParseInLocation("2006-01-02", from, loc)
+	if err != nil {
+		return nil, fmt.Errorf("invalid statistics start day %q", from)
+	}
+	toDay, err := time.ParseInLocation("2006-01-02", to, loc)
+	if err != nil {
+		return nil, fmt.Errorf("invalid statistics end day %q", to)
+	}
+	if toDay.Before(fromDay) {
+		return nil, errors.New("statistics end day must not be before start day")
+	}
+
+	fromMillis := fromDay.UTC().UnixMilli()
+	toExclusiveMillis := toDay.AddDate(0, 0, 1).UTC().UnixMilli()
+	rows, err := db.QueryContext(ctx, `
+SELECT m.created_at,m.session_id,m.usage_json,
+       (SELECT e.turn_id FROM runtime_events e WHERE e.message_id=m.id AND e.type='message.completed' ORDER BY e.sequence LIMIT 1)
+FROM messages m
+WHERE m.role='assistant'
+  AND m.usage_json IS NOT NULL
+  AND m.usage_json<>''
+  AND (CASE WHEN m.created_at > -100000000000 AND m.created_at < 100000000000 THEN m.created_at*1000 ELSE m.created_at END) >= ?
+  AND (CASE WHEN m.created_at > -100000000000 AND m.created_at < 100000000000 THEN m.created_at*1000 ELSE m.created_at END) < ?
+ORDER BY m.created_at`, fromMillis, toExclusiveMillis)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	days := map[string]tokenUsageDelta{}
+	sessionsByDay := map[string]map[string]struct{}{}
+	turnsByDay := map[string]map[string]struct{}{}
+	for rows.Next() {
+		var createdAt int64
+		var sessionID, raw string
+		var turnID sql.NullString
+		if err := rows.Scan(&createdAt, &sessionID, &raw, &turnID); err != nil {
+			return nil, err
+		}
+		var usage message.Usage
+		if err := json.Unmarshal([]byte(raw), &usage); err != nil || usage.IsZero() {
+			continue
+		}
+		delta := tokenUsageDelta{
+			input: usage.InputTokens, output: usage.OutputTokens,
+			cacheRead: usage.CacheReadTokens, cacheCreation: usage.CacheCreationTokens,
+			reasoning: usage.ReasoningTokens, calls: 1,
+		}
+		for _, value := range []int64{delta.input, delta.output, delta.cacheRead, delta.cacheCreation, delta.reasoning} {
+			if value < 0 {
+				return nil, errors.New("negative message usage")
+			}
+		}
+		for _, value := range []int64{delta.input, delta.output, delta.cacheRead, delta.cacheCreation} {
+			delta.total, err = checkedAdd(delta.total, value)
+			if err != nil {
+				return nil, err
+			}
+		}
+		day := time.UnixMilli(messageCreatedAtMillis(createdAt)).In(loc).Format("2006-01-02")
+		days[day], err = addUsageDelta(days[day], delta)
+		if err != nil {
+			return nil, err
+		}
+		if sessionsByDay[day] == nil {
+			sessionsByDay[day] = map[string]struct{}{}
+		}
+		sessionsByDay[day][sessionID] = struct{}{}
+		if turnID.Valid && turnID.String != "" {
+			if turnsByDay[day] == nil {
+				turnsByDay[day] = map[string]struct{}{}
+			}
+			turnsByDay[day][turnID.String] = struct{}{}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	dayKeys := make([]string, 0, len(days))
+	for day := range days {
+		dayKeys = append(dayKeys, day)
+	}
+	sort.Strings(dayKeys)
+	points := make([]RuntimeContextStatisticsPoint, 0, len(dayKeys))
+	for _, day := range dayKeys {
+		delta := days[day]
+		points = append(points, RuntimeContextStatisticsPoint{
+			Day: day, Timezone: timezone,
+			InputTokens: strconv.FormatInt(delta.input, 10), OutputTokens: strconv.FormatInt(delta.output, 10),
+			CacheReadTokens: strconv.FormatInt(delta.cacheRead, 10), CacheCreationTokens: strconv.FormatInt(delta.cacheCreation, 10),
+			ReasoningTokens: strconv.FormatInt(delta.reasoning, 10), TotalTokens: strconv.FormatInt(delta.total, 10),
+			SessionCount: strconv.Itoa(len(sessionsByDay[day])), TurnCount: strconv.Itoa(len(turnsByDay[day])), ModelCallCount: strconv.FormatInt(delta.calls, 10),
+		})
+	}
+	return points, nil
 }
 
 func statisticsStreaks(points []RuntimeContextStatisticsPoint, now time.Time) (int64, int64) {
