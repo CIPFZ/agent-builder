@@ -26,6 +26,10 @@ Runtime 投影不能只存在浏览器内存中。提交成功、事件到达、
 
 `client/src/runtime/wailsWorkbenchAdapter.ts` 是唯一产品适配器。请求/响应通过 Wails bindings，持续输出通过 Wails events。`staticWorkbenchAdapter.tsx` 仅用于纯 UI 数据构造，不得作为 Runtime 传输降级。
 
+设置中的诊断页面同样遵循该边界：Incident、Evidence、定向检查和脱敏支持信息均由 Runtime
+生成，React 只保存筛选、抽屉、加载和检查结果展示状态。诊断刷新仅在页面打开、筛选变化、用户
+手动刷新或恢复动作完成后发生，不使用定时轮询。
+
 代码必须考虑以下环境差异：
 
 - Wails WebView 可调用生成的/动态注入的 binding 和 Wails runtime。

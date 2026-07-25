@@ -1287,6 +1287,40 @@ export interface ContextStatisticsViewModel {
   lastUpdatedAt?: string; points: ContextStatisticsPointViewModel[];
 }
 
+export type DiagnosticIncidentKind = 'provider_failure' | 'turn_interrupted' | 'tool_failure' | 'persistence_failure';
+
+export interface DiagnosticEvidenceViewModel {
+  id: string; source: string; kind: string; label: string; summary: string; timestamp: string;
+  sessionId?: string; turnId?: string; toolCallId?: string; metadata?: Record<string, string>;
+}
+
+export interface DiagnosticRecoveryActionViewModel {
+  id: string; label: string; kind: string; sessionId?: string; turnId?: string; runId?: string;
+  checkpointId?: string; destructive?: boolean; startsWorker?: boolean; evidence?: string[];
+}
+
+export interface DiagnosticIncidentViewModel {
+  id: string; kind: DiagnosticIncidentKind; severity: string; status: 'unresolved' | 'recovered';
+  sessionId?: string; turnId?: string; runId?: string; toolCallId?: string; provider?: string; model?: string;
+  title: string; summary: string; cause: string; resolution: string; errorCode?: string; recoverable: boolean; resolved: boolean;
+  createdAt: string; lastObservedAt: string; evidence: DiagnosticEvidenceViewModel[];
+  actions: DiagnosticRecoveryActionViewModel[]; recommendedCheckId?: string;
+}
+
+export interface DiagnosticIncidentsResponseViewModel {
+  incidents: DiagnosticIncidentViewModel[]; recentCount: number; recoverableCount: number;
+  latestAt?: string; nextCursor?: string;
+}
+
+export interface TargetedDiagnosticViewModel {
+  incidentId: string; checkId: string; title: string; status: string; summary: string;
+  detail?: string; durationMillis: number; completedAt: string;
+}
+
+export interface DiagnosticSupportInformationViewModel {
+  incidentId: string; preview: Record<string, unknown>; text: string;
+}
+
 export interface WorkbenchViewModel {
   mode: WorkbenchMode;
   currentProject: ProjectViewModel;
@@ -1407,4 +1441,8 @@ export interface WorkbenchAdapter {
   getContextGovernanceSettings?: () => Promise<ContextGovernanceSettingsViewModel>;
   saveContextGovernanceSettings?: (settings: ContextGovernanceSettingsViewModel) => Promise<ContextGovernanceSettingsViewModel>;
   getContextStatistics?: (request: { from?: string; to?: string; view: 'daily' | 'cumulative'; timezone: string }) => Promise<ContextStatisticsViewModel>;
+  getDiagnosticIncidents?: (request: { sessionId?: string; kind?: string; status?: string; limit?: number; before?: string }) => Promise<DiagnosticIncidentsResponseViewModel>;
+  runTargetedDiagnostic?: (incidentID: string, checkID: string) => Promise<TargetedDiagnosticViewModel>;
+	getDiagnosticSupportInformation?: (incidentID: string) => Promise<DiagnosticSupportInformationViewModel>;
+	openDiagnosticDataDirectory?: () => Promise<void>;
 }

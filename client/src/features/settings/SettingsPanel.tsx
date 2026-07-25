@@ -40,6 +40,9 @@ import type { MenuProps } from 'antd';
 import type {
   ConfiguredProviderViewModel,
   ContextStatisticsViewModel,
+  DiagnosticIncidentViewModel,
+  DiagnosticIncidentsResponseViewModel,
+  DiagnosticSupportInformationViewModel,
   HookExecutionSummaryViewModel,
   HookViewModel,
   ProjectMemoryCreateViewModel,
@@ -54,9 +57,12 @@ import type {
   RuntimeMCPServerViewModel,
   RuntimeModelOptionViewModel,
   SettingsViewModel,
+  SessionViewModel,
+  TargetedDiagnosticViewModel,
   WorkbenchMode,
 } from '../../runtime/workbenchTypes.ts';
 import { HookSettingsPanel } from '../hooks/HookSettingsPanel.tsx';
+import { DiagnosticsSettings } from './DiagnosticsSettings.tsx';
 import { nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
 import styles from './SettingsPanel.module.css';
 import type { AppearanceSettings, ColorMode } from '../../theme/contract.ts';
@@ -81,6 +87,7 @@ const protocolOptions = [
 
 interface SettingsPanelProps {
   settings: SettingsViewModel;
+  sessions: SessionViewModel[];
   project?: ProjectViewModel;
   hooks?: HookViewModel[];
   hookExecutions?: HookExecutionSummaryViewModel;
@@ -97,6 +104,10 @@ interface SettingsPanelProps {
   onAppearanceSelect: (appearance: AppearanceSettings) => Promise<SettingsViewModel>;
   onOpenTargetSelect: (targetID: string) => Promise<SettingsViewModel>;
   onContextStatisticsLoad: (request: { from?: string; to?: string; view: 'daily' | 'cumulative'; timezone: string }) => Promise<ContextStatisticsViewModel>;
+  onDiagnosticIncidentsLoad: (request: { sessionId?: string; kind?: string; status?: string; limit?: number }) => Promise<DiagnosticIncidentsResponseViewModel>;
+  onTargetedDiagnosticRun: (incidentID: string, checkID: string) => Promise<TargetedDiagnosticViewModel>;
+  onDiagnosticSupportInformation: (incidentID: string) => Promise<DiagnosticSupportInformationViewModel>;
+  onDiagnosticAction: (incident: DiagnosticIncidentViewModel, actionKind: string) => Promise<void>;
   onSkillRefresh: () => Promise<SettingsViewModel>;
   onSkillToggle: (name: string, enabled: boolean) => Promise<SettingsViewModel>;
   onMCPServerRefresh: (name: string) => Promise<SettingsViewModel>;
@@ -115,6 +126,7 @@ interface SettingsPanelProps {
 
 export function SettingsPanel({
   settings,
+  sessions,
   project,
   hooks,
   hookExecutions,
@@ -131,6 +143,10 @@ export function SettingsPanel({
   onAppearanceSelect,
   onOpenTargetSelect,
   onContextStatisticsLoad,
+  onDiagnosticIncidentsLoad,
+  onTargetedDiagnosticRun,
+  onDiagnosticSupportInformation,
+  onDiagnosticAction,
   onSkillRefresh,
   onSkillToggle,
   onMCPServerRefresh,
@@ -216,7 +232,16 @@ export function SettingsPanel({
       case 'computer-use':
         return <EmptySettingsPage title="Computer Use" />;
       case 'diagnostics':
-        return <EmptySettingsPage title="诊断" />;
+		return (
+		  <DiagnosticsSettings
+		    sessions={sessions}
+		    onLoad={onDiagnosticIncidentsLoad}
+		    onRunCheck={onTargetedDiagnosticRun}
+		    onSupportInformation={onDiagnosticSupportInformation}
+		    onAction={onDiagnosticAction}
+		    onOpenProviderSettings={() => setActiveKey('providers')}
+		  />
+		);
       default:
         return <EmptySettingsPage title={settings.navItems.find((item) => item.key === activeKey)?.label ?? '设置'} />;
     }

@@ -1,0 +1,15 @@
+.page { display: flex; flex-direction: column; gap: 20px; width: 100%; min-width: 0; }
+.summaryGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.filters { align-items: center; }
+.filter { min-width: 180px; }
+.incidentList { display: flex; flex-direction: column; gap: 12px; }
+.incidentCard { border-color: var(--app-border-subtle); }
+.incidentBody { min-width: 0; flex: 1; }
+.incidentBody h5 { margin: 10px 0 4px; }
+.incidentBody p { margin-bottom: 6px; }
+.drawerContent { width: 100%; }
+.guidanceGrid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.guidanceItem { padding: 12px 14px; border: 1px solid var(--app-border-subtle); border-radius: 8px; background: var(--app-surface-subtle); }
+.guidanceItem p { margin: 4px 0 0; }
+.supportPreview { max-height: 360px; overflow: auto; padding: 12px; border-radius: 8px; background: var(--app-surface-subtle); color: var(--app-text-primary); white-space: pre-wrap; word-break: break-word; }
+@media (max-width: 760px) { .summaryGrid { grid-template-columns: 1fr; } .filter { min-width: 100%; } }

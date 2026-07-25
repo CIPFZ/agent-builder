@@ -911,6 +911,31 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
     return adapter.getContextStatistics(request);
   };
 
+  const getDiagnosticIncidents = (request: Parameters<NonNullable<WorkbenchAdapter['getDiagnosticIncidents']>>[0]) => {
+    if (!adapter.getDiagnosticIncidents) throw new Error('Diagnostics are unavailable');
+    return adapter.getDiagnosticIncidents(request);
+  };
+
+  const runTargetedDiagnostic = (incidentID: string, checkID: string) => {
+    if (!adapter.runTargetedDiagnostic) throw new Error('Targeted diagnostics are unavailable');
+    return adapter.runTargetedDiagnostic(incidentID, checkID);
+  };
+
+  const getDiagnosticSupportInformation = (incidentID: string) => {
+    if (!adapter.getDiagnosticSupportInformation) throw new Error('Diagnostic support information is unavailable');
+    return adapter.getDiagnosticSupportInformation(incidentID);
+  };
+
+  const executeDiagnosticAction = async (incident: import('../../runtime/workbenchTypes.ts').DiagnosticIncidentViewModel, actionKind: string) => {
+    let next;
+    if (actionKind === 'mark_done' && incident.turnId) next = await adapter.markInterruptedDone(viewModel, incident.turnId);
+    else if (actionKind === 'open_session' && incident.sessionId) next = await adapter.selectSession(viewModel, incident.sessionId);
+    else if (actionKind === 'open_data_directory' && adapter.openDiagnosticDataDirectory) { await adapter.openDiagnosticDataDirectory(); return; }
+    else return;
+    setViewModel(next);
+    if (actionKind === 'open_session') setMode(next.mode);
+  };
+
   const listProjectMemories = (projectID: string) => {
     if (!adapter.listProjectMemories) {
       throw new Error('Project memory is unavailable');
@@ -1004,6 +1029,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
       <main className={`${styles.shell} ${styles.settingsShell}`} data-testid="workbench-shell">
         <SettingsPanel
           settings={workbenchViewModel.settings}
+          sessions={workbenchViewModel.sessions}
           hooks={workbenchViewModel.hooks}
           hookExecutions={workbenchViewModel.hookExecutions}
           project={workbenchViewModel.currentProject}
@@ -1019,6 +1045,10 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
           onAppearanceSelect={selectAppearance}
           onOpenTargetSelect={selectOpenTarget}
           onContextStatisticsLoad={getContextStatistics}
+          onDiagnosticIncidentsLoad={getDiagnosticIncidents}
+          onTargetedDiagnosticRun={runTargetedDiagnostic}
+          onDiagnosticSupportInformation={getDiagnosticSupportInformation}
+          onDiagnosticAction={executeDiagnosticAction}
           onMCPServerDetailsLoad={loadMCPServerDetails}
           onMCPServerRefresh={refreshMCPServer}
           onMCPServerSave={saveMCPServer}

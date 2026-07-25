@@ -206,6 +206,11 @@ type RuntimeRecoveryStatus = runtime.RuntimeRecoveryStatus
 type RuntimeRecoveredTurn = runtime.RuntimeRecoveredTurn
 type RuntimeRecoverableError = runtime.RuntimeRecoverableError
 type RuntimeRecoveryAction = runtime.RuntimeRecoveryAction
+type RuntimeDiagnosticIncident = runtime.RuntimeDiagnosticIncident
+type RuntimeDiagnosticIncidentsRequest = runtime.RuntimeDiagnosticIncidentsRequest
+type RuntimeDiagnosticIncidentsResponse = runtime.RuntimeDiagnosticIncidentsResponse
+type RuntimeTargetedDiagnostic = runtime.RuntimeTargetedDiagnostic
+type RuntimeDiagnosticSupportInformation = runtime.RuntimeDiagnosticSupportInformation
 type RuntimeResumeInterruptedTurnRequest = runtime.RuntimeResumeInterruptedTurnRequest
 type RuntimeRecoveryRetryResponse = runtime.RuntimeRecoveryRetryResponse
 type RuntimeSkill = runtime.RuntimeSkill
@@ -1209,6 +1214,26 @@ func (r *RuntimeBridge) ContextGovernanceSettings(ctx context.Context) (RuntimeC
 
 func (r *RuntimeBridge) ContextStatistics(ctx context.Context, req RuntimeContextStatisticsRequest) (RuntimeContextStatistics, error) {
 	return r.service.ContextStatistics(ctx, req)
+}
+
+func (r *RuntimeBridge) DiagnosticIncidents(ctx context.Context, req RuntimeDiagnosticIncidentsRequest) (RuntimeDiagnosticIncidentsResponse, error) {
+	return r.service.DiagnosticIncidents(ctx, req)
+}
+
+func (r *RuntimeBridge) DiagnosticIncident(ctx context.Context, incidentID string) (RuntimeDiagnosticIncident, error) {
+	return r.service.DiagnosticIncident(ctx, incidentID)
+}
+
+func (r *RuntimeBridge) RunTargetedDiagnostic(ctx context.Context, incidentID, checkID string) (RuntimeTargetedDiagnostic, error) {
+	return r.service.RunTargetedDiagnostic(ctx, incidentID, checkID)
+}
+
+func (r *RuntimeBridge) DiagnosticSupportInformation(ctx context.Context, incidentID string) (RuntimeDiagnosticSupportInformation, error) {
+	return r.service.DiagnosticSupportInformation(ctx, incidentID)
+}
+
+func (r *RuntimeBridge) OpenDiagnosticDataDirectory(ctx context.Context) (bool, error) {
+	return r.service.OpenDiagnosticDataDirectory(ctx)
 }
 
 func (r *RuntimeBridge) SaveContextGovernanceSettings(ctx context.Context, req RuntimeContextGovernanceSettings) (RuntimeContextGovernanceSettingsResponse, error) {

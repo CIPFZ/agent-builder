@@ -846,7 +846,10 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 		FinishedAt:               time.Now().UnixMilli(),
 		Error:                    entry.Error,
 	}
-	_, _ = r.turns.Upsert(context.Background(), finishedTurn)
+	if _, persistErr := r.turns.Upsert(context.Background(), finishedTurn); persistErr != nil {
+		r.recordPersistenceDiagnostic("runtime_turns.upsert_terminal", classifyPersistenceErrorCode(persistErr), persistErr, requestID)
+		slog.Error("Failed to persist terminal runtime turn", "request_id", requestID, "session_id", sessionID, "error", persistErr)
+	}
 	if recoverable, ok := r.publishRecoverableErrorClassified(finishedTurn); ok {
 		r.maybeStartReactiveProviderRecovery(context.Background(), finishedTurn, recoverable, userMessageMetadata)
 	}

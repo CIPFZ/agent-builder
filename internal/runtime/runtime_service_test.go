@@ -5491,6 +5491,26 @@ func (s *recordingRuntimeService) ContextGovernanceSettings(context.Context) (Ru
 	return RuntimeContextGovernanceSettingsResponse{Settings: s.contextGovernanceSettings}, nil
 }
 
+func (s *recordingRuntimeService) DiagnosticIncidents(context.Context, RuntimeDiagnosticIncidentsRequest) (RuntimeDiagnosticIncidentsResponse, error) {
+	return RuntimeDiagnosticIncidentsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) DiagnosticIncident(context.Context, string) (RuntimeDiagnosticIncident, error) {
+	return RuntimeDiagnosticIncident{}, nil
+}
+
+func (s *recordingRuntimeService) RunTargetedDiagnostic(context.Context, string, string) (RuntimeTargetedDiagnostic, error) {
+	return RuntimeTargetedDiagnostic{}, nil
+}
+
+func (s *recordingRuntimeService) DiagnosticSupportInformation(context.Context, string) (RuntimeDiagnosticSupportInformation, error) {
+	return RuntimeDiagnosticSupportInformation{}, nil
+}
+
+func (s *recordingRuntimeService) OpenDiagnosticDataDirectory(context.Context) (bool, error) {
+	return true, nil
+}
+
 func (s *recordingRuntimeService) SaveContextGovernanceSettings(_ context.Context, req RuntimeContextGovernanceSettings) (RuntimeContextGovernanceSettingsResponse, error) {
 	s.savedContextGovernanceCalls++
 	s.savedContextGovernance = req

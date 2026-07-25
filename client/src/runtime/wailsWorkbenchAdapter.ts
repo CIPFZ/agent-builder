@@ -6,6 +6,9 @@ import type {
   ConfiguredProviderViewModel,
   CompactBoundaryViewModel,
   ContextDiagnosticsViewModel,
+  DiagnosticIncidentsResponseViewModel,
+  DiagnosticSupportInformationViewModel,
+  TargetedDiagnosticViewModel,
   ContextGovernanceProviderOverrideViewModel,
   ContextGovernanceSettingsViewModel,
   ContextStatisticsViewModel,
@@ -884,6 +887,9 @@ interface RuntimeContextGovernanceSettingsResponseDTO {
 
 interface RuntimeContextStatisticsPointDTO { day:string;timezone:string;inputTokens:string;outputTokens:string;cacheReadTokens:string;cacheCreationTokens:string;reasoningTokens:string;totalTokens:string;sessionCount:string;turnCount:string;modelCallCount:string }
 interface RuntimeContextStatisticsDTO { totalTokens:string;inputTokens:string;outputTokens:string;cacheReadTokens:string;cacheCreationTokens:string;reasoningTokens:string;modelCallCount:string;peakTokens:string;peakAt?:string;longestTurnMillis:string;longestTurnId?:string;currentStreakDays:string;longestStreakDays:string;activeDays:string;lastUpdatedAt?:string;points?:RuntimeContextStatisticsPointDTO[] }
+type RuntimeDiagnosticIncidentsResponseDTO = DiagnosticIncidentsResponseViewModel;
+type RuntimeTargetedDiagnosticDTO = TargetedDiagnosticViewModel;
+type RuntimeDiagnosticSupportInformationDTO = DiagnosticSupportInformationViewModel;
 const decimalBigInt=(value?:string)=>BigInt(value||'0');
 function mapContextStatistics(dto:RuntimeContextStatisticsDTO):ContextStatisticsViewModel{return{totalTokens:decimalBigInt(dto.totalTokens),inputTokens:decimalBigInt(dto.inputTokens),outputTokens:decimalBigInt(dto.outputTokens),cacheReadTokens:decimalBigInt(dto.cacheReadTokens),cacheCreationTokens:decimalBigInt(dto.cacheCreationTokens),reasoningTokens:decimalBigInt(dto.reasoningTokens),modelCallCount:decimalBigInt(dto.modelCallCount),peakTokens:decimalBigInt(dto.peakTokens),peakAt:dto.peakAt,longestTurnMillis:decimalBigInt(dto.longestTurnMillis),longestTurnId:dto.longestTurnId,currentStreakDays:decimalBigInt(dto.currentStreakDays),longestStreakDays:decimalBigInt(dto.longestStreakDays),activeDays:decimalBigInt(dto.activeDays),lastUpdatedAt:dto.lastUpdatedAt,points:(dto.points??[]).map(p=>({...p,inputTokens:decimalBigInt(p.inputTokens),outputTokens:decimalBigInt(p.outputTokens),cacheReadTokens:decimalBigInt(p.cacheReadTokens),cacheCreationTokens:decimalBigInt(p.cacheCreationTokens),reasoningTokens:decimalBigInt(p.reasoningTokens),totalTokens:decimalBigInt(p.totalTokens),sessionCount:decimalBigInt(p.sessionCount),turnCount:decimalBigInt(p.turnCount),modelCallCount:decimalBigInt(p.modelCallCount)}))}}
 
@@ -1736,6 +1742,10 @@ interface RuntimeBridgeModule {
   UpdatePolicy?: (req: { mode: string }) => Promise<RuntimePolicyResponseDTO>;
   ContextGovernanceSettings?: () => Promise<RuntimeContextGovernanceSettingsResponseDTO>;
   ContextStatistics?: (req:{from?:string;to?:string;view:string;timezone:string})=>Promise<RuntimeContextStatisticsDTO>;
+  DiagnosticIncidents?: (req:{sessionId?:string;kind?:string;status?:string;limit?:number;before?:string})=>Promise<RuntimeDiagnosticIncidentsResponseDTO>;
+  RunTargetedDiagnostic?: (incidentID:string,checkID:string)=>Promise<RuntimeTargetedDiagnosticDTO>;
+	DiagnosticSupportInformation?: (incidentID:string)=>Promise<RuntimeDiagnosticSupportInformationDTO>;
+	OpenDiagnosticDataDirectory?: ()=>Promise<boolean>;
   SaveContextGovernanceSettings?: (req: RuntimeContextGovernanceSettingsDTO) => Promise<RuntimeContextGovernanceSettingsResponseDTO>;
   DecidePermission?: (req: { permissionId: string; action: string; guidance?: string }) => Promise<RuntimeStatusDTO>;
   Skills?: () => Promise<RuntimeSkillsResponseDTO>;
@@ -4809,6 +4819,26 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
   async getContextStatistics(request) {
     const bridge=await loadRuntimeBridge();if(!bridge?.ContextStatistics)throw new Error('token statistics runtime binding is unavailable');return mapContextStatistics(await bridge.ContextStatistics(request));
   },
+  async getDiagnosticIncidents(request) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.DiagnosticIncidents) throw new Error('diagnostic runtime binding is unavailable');
+    return bridge.DiagnosticIncidents(request);
+  },
+  async runTargetedDiagnostic(incidentID, checkID) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.RunTargetedDiagnostic) throw new Error('targeted diagnostic runtime binding is unavailable');
+    return bridge.RunTargetedDiagnostic(incidentID, checkID);
+  },
+	async getDiagnosticSupportInformation(incidentID) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.DiagnosticSupportInformation) throw new Error('diagnostic support information binding is unavailable');
+    return bridge.DiagnosticSupportInformation(incidentID);
+	},
+	async openDiagnosticDataDirectory() {
+	  const bridge = await loadRuntimeBridge();
+	  if (!bridge?.OpenDiagnosticDataDirectory) throw new Error('diagnostic data directory binding is unavailable');
+	  await bridge.OpenDiagnosticDataDirectory();
+	},
   async saveContextGovernanceSettings(settings) {
     const bridge = await loadRuntimeBridge();
     if (!bridge?.SaveContextGovernanceSettings) {

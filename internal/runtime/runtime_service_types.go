@@ -142,6 +142,11 @@ type RuntimeService interface {
 	UpdatePolicy(context.Context, RuntimePolicyUpdateRequest) (RuntimePolicyResponse, error)
 	ContextGovernanceSettings(context.Context) (RuntimeContextGovernanceSettingsResponse, error)
 	SaveContextGovernanceSettings(context.Context, RuntimeContextGovernanceSettings) (RuntimeContextGovernanceSettingsResponse, error)
+	DiagnosticIncidents(context.Context, RuntimeDiagnosticIncidentsRequest) (RuntimeDiagnosticIncidentsResponse, error)
+	DiagnosticIncident(context.Context, string) (RuntimeDiagnosticIncident, error)
+	RunTargetedDiagnostic(context.Context, string, string) (RuntimeTargetedDiagnostic, error)
+	DiagnosticSupportInformation(context.Context, string) (RuntimeDiagnosticSupportInformation, error)
+	OpenDiagnosticDataDirectory(context.Context) (bool, error)
 	Events(context.Context, ...int64) (RuntimeEventsResponse, error)
 	SubscribeEvents(context.Context, ...int64) (<-chan RuntimeEvent, func())
 	AuditTurn(context.Context, string) (RuntimeAuditResponse, error)
@@ -235,8 +240,11 @@ type runtimeService struct {
 	// per-session circuit breaker after three failures and skip further
 	// auto/reactive compaction until a successful compact or manual
 	// invocation resets the counter (see runtime_prompt_assembly.go).
-	compactFailureMu sync.Mutex
-	compactFailures  map[string]int
+	compactFailureMu       sync.Mutex
+	compactFailures        map[string]int
+	diagnosticMu           sync.Mutex
+	persistenceDiagnostics []runtimePersistenceDiagnostic
+	diagnosticChecks       map[string]RuntimeTargetedDiagnostic
 }
 
 // runtimeTurnCompactState is the per-(session,turn) in-memory state produced

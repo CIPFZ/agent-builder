@@ -158,10 +158,15 @@ func (r *runtimeService) restart() {
 	r.conversationV2Pending = make(map[string]map[int64]RuntimeEvent)
 	r.compactTurnStates = make(map[string]runtimeTurnCompactState)
 	r.compactFailures = make(map[string]int)
+	r.diagnosticChecks = make(map[string]RuntimeTargetedDiagnostic)
 }
 
 func (r *runtimeService) ensureStarted(ctx context.Context) error {
-	return r.ensureWorkspaceStarted(ctx, true)
+	err := r.ensureWorkspaceStarted(ctx, true)
+	if err != nil && isPersistenceDiagnosticError(err) {
+		r.recordPersistenceDiagnostic("runtime_bootstrap", "bootstrap_failed", err, "")
+	}
+	return err
 }
 
 func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConfigured bool) error {

@@ -389,6 +389,24 @@ type RuntimeTargetedDiagnostic struct {
 N+1 查询。`RunTargetedDiagnostic` 只接受少量枚举 check ID；React 不能提交任意 shell 命令。
 真正会改状态的修复继续使用独立 Runtime 方法与权限确认。
 
+### 当前实现
+
+设置页已实现四类 Incident 投影：`provider_failure`、`turn_interrupted`、`tool_failure` 和
+`persistence_failure`。查询以 `runtime_turns` 和 `runtime_tool_calls` 为候选根，批量关联
+`runtime_events`、`runtime_audit_events`、`runtime_recovery_links`、Hook、MCP、权限与 sandbox
+事实；失败工具属于失败 Turn 时只作为证据，不生成重复卡片。用户取消、权限/策略拒绝以及已被
+成功 Turn 正常处理的命令失败不会进入默认列表。
+
+终态 Turn 写入失败不再静默忽略。数据库或 bootstrap 无法写入时，Runtime 使用有界的进程内
+诊断缓冲提供最小故障面，不递归写回故障数据库。定向检查只接受 Incident ID 和枚举 Check ID，
+Provider 检查使用关联 Provider、路径检查只使用证据中的路径、SQLite quick check 只接受直接
+持久化 Incident。支持信息由 Runtime 按 allowlist 生成，并在 React 复制前展示预览。
+
+React 页面通过 Wails binding 加载数据，提供最近七天数量、最近故障、可安全修复数量、Session/类型/
+状态筛选、手动刷新、详情 Drawer、已确认原因、解决方案、精简故障链和支持信息预览。诊断页不直接
+重试模型或工具任务，需要再次执行时引导用户返回关联会话。定向检查只在现有证据不足且 Incident
+明确适用时显示具体名称；页面不轮询，也不会在默认加载时运行 Provider、文件系统或数据库检查。
+
 ## 版本更新
 
 ### 当前边界与首版决策

@@ -2513,6 +2513,77 @@ type RuntimeRecoveryAction struct {
 	Evidence     []string `json:"evidence,omitempty"`
 }
 
+type RuntimeDiagnosticEvidence struct {
+	ID         string            `json:"id"`
+	Source     string            `json:"source"`
+	Kind       string            `json:"kind"`
+	Label      string            `json:"label"`
+	Summary    string            `json:"summary"`
+	Timestamp  string            `json:"timestamp"`
+	SessionID  string            `json:"sessionId,omitempty"`
+	TurnID     string            `json:"turnId,omitempty"`
+	ToolCallID string            `json:"toolCallId,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+}
+
+type RuntimeDiagnosticIncident struct {
+	ID                 string                      `json:"id"`
+	Kind               string                      `json:"kind"`
+	Severity           string                      `json:"severity"`
+	Status             string                      `json:"status"`
+	SessionID          string                      `json:"sessionId,omitempty"`
+	TurnID             string                      `json:"turnId,omitempty"`
+	RunID              string                      `json:"runId,omitempty"`
+	ToolCallID         string                      `json:"toolCallId,omitempty"`
+	Provider           string                      `json:"provider,omitempty"`
+	Model              string                      `json:"model,omitempty"`
+	Title              string                      `json:"title"`
+	Summary            string                      `json:"summary"`
+	Cause              string                      `json:"cause"`
+	Resolution         string                      `json:"resolution"`
+	ErrorCode          string                      `json:"errorCode,omitempty"`
+	Recoverable        bool                        `json:"recoverable"`
+	Resolved           bool                        `json:"resolved"`
+	CreatedAt          string                      `json:"createdAt"`
+	LastObservedAt     string                      `json:"lastObservedAt"`
+	Evidence           []RuntimeDiagnosticEvidence `json:"evidence"`
+	Actions            []RuntimeRecoveryAction     `json:"actions"`
+	RecommendedCheckID string                      `json:"recommendedCheckId,omitempty"`
+}
+
+type RuntimeDiagnosticIncidentsRequest struct {
+	SessionID string `json:"sessionId,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Before    string `json:"before,omitempty"`
+}
+
+type RuntimeDiagnosticIncidentsResponse struct {
+	Incidents        []RuntimeDiagnosticIncident `json:"incidents"`
+	RecentCount      int                         `json:"recentCount"`
+	RecoverableCount int                         `json:"recoverableCount"`
+	LatestAt         string                      `json:"latestAt,omitempty"`
+	NextCursor       string                      `json:"nextCursor,omitempty"`
+}
+
+type RuntimeTargetedDiagnostic struct {
+	IncidentID     string `json:"incidentId"`
+	CheckID        string `json:"checkId"`
+	Title          string `json:"title"`
+	Status         string `json:"status"`
+	Summary        string `json:"summary"`
+	Detail         string `json:"detail,omitempty"`
+	DurationMillis int64  `json:"durationMillis"`
+	CompletedAt    string `json:"completedAt"`
+}
+
+type RuntimeDiagnosticSupportInformation struct {
+	IncidentID string         `json:"incidentId"`
+	Preview    map[string]any `json:"preview"`
+	Text       string         `json:"text"`
+}
+
 type RuntimeResumeInterruptedTurnRequest struct {
 	Mode     string            `json:"mode,omitempty"`
 	Prompt   string            `json:"prompt,omitempty"`

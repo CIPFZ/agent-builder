@@ -44,6 +44,7 @@ func newRuntimeService() *runtimeService {
 		compactTurnStates: make(map[string]runtimeTurnCompactState),
 
 		compactFailures:        make(map[string]int),
+		diagnosticChecks:       make(map[string]RuntimeTargetedDiagnostic),
 		conversationV2Deferred: make(map[string]bool),
 		conversationV2Pending:  make(map[string]map[int64]RuntimeEvent),
 	}
