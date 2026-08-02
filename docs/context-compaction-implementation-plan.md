@@ -40,7 +40,7 @@ Claude Code 只作为机制参考。Agent Builder 的实现必须遵守以下边
   Reactive Attempt；
 - `sessions.summary_message_id` 已作为当前 Full Compact 的历史切片锚点。
 
-需要修正的问题：
+第一阶段启动时的基线问题（已处理）：
 
 - Tool Result Budget 有两套不一致的控制面；
 - 当前 Microcompact 不是 Time-based，且 replacement 的原始引用不一定是可读取 Object；
@@ -54,6 +54,12 @@ Claude Code 只作为机制参考。Agent Builder 的实现必须遵守以下边
   Time-based 策略复用；
 - Context Governance 的桌面保存路径仍使用 JSON ConfigStore，与项目当前 SQLite
   权威存储约束不一致。
+
+实施状态（2026-08-02）：上述条目是方案编写时的旧实现基线，不是当前待办。
+WP0–WP8 已完成单一 Runtime 控制面、Time-based Microcompact、Runtime Object Ref、
+严格 Full Compact 失败语义、`summaryModel` 路由、Session Memory、preserved tail Boundary、
+Reactive Recovery 和 SQLite-only Context Governance。对应实施修订记录在 11.1 和 11.2；
+这两节描述的是已同步进代码的决策，不是未完成问题。
 
 ### 2.1 Claude Code 参考点与本项目落点
 
@@ -821,3 +827,17 @@ binding、adapter mapper 和契约 fixture；WP8 再完成组件呈现、交互�
 - canonical conversation、ToolCall、ToolResult 和审计记录没有被压缩操作删除；
 - `go test ./...`、`go build ./...`、`cd client && npm run build` 和 `task lint`
   全部通过。
+
+## 13. 第一阶段之后的推进边界
+
+本文档只定义第一阶段，没有已批准的“上下文压缩第二阶段”实施范围。
+WP0–WP8 后的直接工作是第一阶段的桌面验收和发布稳定化：
+
+- 完成 Auto/Manual/Session Memory/Reactive 的桌面手测矩阵；
+- 验证当前 Session 实时收敛、事件丢失恢复、重启恢复和跨 Provider 消息不变量；
+- 将手测发现的回归修复成自动化测试，通过第 12 节的全量门禁后再发布。
+
+第二阶段必须另行立项和评审。可候选但尚未授权的方向包括
+Provider-specific Prompt Cache 优化、有数据支持时的 Session Memory Object Store 迁移，
+以及高级 Context Governance 设置。Snip Compact、Context Collapse 和 Anthropic Cached
+Microcompact 不会因为进入后续阶段而自动纳入范围。
