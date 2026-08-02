@@ -15,8 +15,10 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/modelmeta"
 )
 
-var errConfiguredProviderNotFound = errors.New("configured provider not found")
-var errConfiguredProviderDuplicate = errors.New("configured provider name already exists")
+var (
+	errConfiguredProviderNotFound  = errors.New("configured provider not found")
+	errConfiguredProviderDuplicate = errors.New("configured provider name already exists")
+)
 
 type runtimeProviderSettingsStore struct {
 	db *sql.DB
@@ -492,7 +494,8 @@ FROM configured_providers`
 
 func scanConfiguredProvider(scanner interface {
 	Scan(dest ...any) error
-}) (RuntimeConfiguredProvider, error) {
+},
+) (RuntimeConfiguredProvider, error) {
 	var provider RuntimeConfiguredProvider
 	var remark, secretRef, proxy, defaultModel sql.NullString
 	var modelsJSON string
@@ -692,7 +695,8 @@ func (s runtimeProviderSettingsStore) GetConfiguredSecret(ctx context.Context, i
 
 func scanConfiguredProviderSecret(scanner interface {
 	Scan(dest ...any) error
-}) (RuntimeConfiguredProvider, string, error) {
+},
+) (RuntimeConfiguredProvider, string, error) {
 	var provider RuntimeConfiguredProvider
 	var remark, secretRef, proxy, defaultModel, apiKey sql.NullString
 	var modelsJSON string

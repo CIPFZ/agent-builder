@@ -12,18 +12,16 @@ import (
 	"time"
 )
 
-var (
-	pragmas = map[string]string{
-		"foreign_keys":  "ON",
-		"journal_mode":  "WAL",
-		"page_size":     "4096",
-		"temp_store":    "MEMORY",
-		"cache_size":    "-8000",
-		"synchronous":   "NORMAL",
-		"secure_delete": "ON",
-		"busy_timeout":  "30000",
-	}
-)
+var pragmas = map[string]string{
+	"foreign_keys":  "ON",
+	"journal_mode":  "WAL",
+	"page_size":     "4096",
+	"temp_store":    "MEMORY",
+	"cache_size":    "-8000",
+	"synchronous":   "NORMAL",
+	"secure_delete": "ON",
+	"busy_timeout":  "30000",
+}
 
 const expectedSchemaGeneration = "2"
 

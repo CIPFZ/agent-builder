@@ -5,6 +5,7 @@ import type {
   AgentRoleViewModel,
   ConfiguredProviderViewModel,
   CompactBoundaryViewModel,
+  ContextCompactionStatusViewModel,
   ContextDiagnosticsViewModel,
   DiagnosticIncidentsResponseViewModel,
   DiagnosticSupportInformationViewModel,
@@ -876,7 +877,9 @@ interface RuntimeContextGovernanceSettingsDTO {
   autoCompactEnabled?: boolean;
   autoCompactPercent?: number;
   microcompactEnabled?: boolean;
+  microcompactIdleMinutes?: number;
   microcompactKeepRecent?: number;
+  sessionMemoryEnabled?: boolean;
   summaryModel?: string;
   providerOverrides?: Record<string, RuntimeContextGovernanceProviderOverrideDTO>;
 }
@@ -914,7 +917,9 @@ function mapContextGovernanceSettings(dto?: RuntimeContextGovernanceSettingsDTO)
     autoCompactEnabled: dto.autoCompactEnabled,
     autoCompactPercent: dto.autoCompactPercent,
     microcompactEnabled: dto.microcompactEnabled,
+    microcompactIdleMinutes: dto.microcompactIdleMinutes,
     microcompactKeepRecent: dto.microcompactKeepRecent,
+    sessionMemoryEnabled: dto.sessionMemoryEnabled,
     summaryModel: dto.summaryModel,
     providerOverrides: providerOverrides
       ? Object.fromEntries(Object.entries(providerOverrides).map(([providerID, override]) => [providerID, mapContextGovernanceProviderOverride(override)]))
@@ -927,7 +932,9 @@ function toContextGovernanceSettingsRequest(settings: ContextGovernanceSettingsV
     autoCompactEnabled: settings.autoCompactEnabled,
     autoCompactPercent: settings.autoCompactPercent,
     microcompactEnabled: settings.microcompactEnabled,
+    microcompactIdleMinutes: settings.microcompactIdleMinutes,
     microcompactKeepRecent: settings.microcompactKeepRecent,
+    sessionMemoryEnabled: settings.sessionMemoryEnabled,
     summaryModel: settings.summaryModel,
     providerOverrides: settings.providerOverrides,
   };
@@ -1175,11 +1182,37 @@ interface RuntimeCompactBoundaryDTO {
   status?: string;
   summaryRef?: string;
   messageRefs?: string[];
+  preservedMessageRefs?: string[];
+  budgetBefore?: RuntimeBudgetReportDTO;
+  budgetAfter?: RuntimeBudgetReportDTO;
+  memoryRevision?: number;
+  willRetry?: boolean;
+  circuitOpen?: boolean;
   toolCallRefs?: unknown[];
   reinjectedRefs?: unknown[];
   error?: string;
   createdAt?: number;
   completedAt?: number;
+}
+
+interface RuntimeContextCompactionStatusDTO {
+  sessionId?: string;
+  activeOperation?: { id?: string; kind?: string; trigger?: string; stage?: string; status?: string; startedAt?: number; elapsedMillis?: number; willRetry?: boolean };
+  latestCompleted?: RuntimeCompactBoundaryDTO;
+  latestFailed?: RuntimeCompactBoundaryDTO;
+  circuitOpen?: boolean;
+  consecutiveFailures?: number;
+  latestSessionMemory?: {
+    id?: string; revision?: number; status?: string; lastSummarizedMessageId?: string;
+    sourceMessageCount?: number; sourceTokenEstimate?: number; sourceToolCallCount?: number;
+    provider?: string; model?: string; createdAt?: number; completedAt?: number; error?: string;
+  };
+  resolvedPolicy?: {
+    autoCompactEnabled?: boolean; autoCompactPercent?: number; microcompactEnabled?: boolean;
+    microcompactIdleMinutes?: number; microcompactKeepRecent?: number;
+    sessionMemoryEnabled?: boolean; summaryModel?: string;
+  };
+  updatedAt?: number;
 }
 
 interface RuntimeRunCheckpointDTO {
@@ -1701,6 +1734,7 @@ interface RuntimeBridgeModule {
   Messages?: () => Promise<RuntimeMessagesResponseDTO>;
   SessionMessages?: (sessionID: string) => Promise<RuntimeMessagesResponseDTO>;
   SessionContextUsage?: (sessionID: string) => Promise<RuntimeContextUsageDTO>;
+  ContextCompactionStatus?: (sessionID: string) => Promise<RuntimeContextCompactionStatusDTO>;
   SessionConversationSnapshotV2?: (sessionID: string, req: CanonicalConversationSnapshotRequest) => Promise<CanonicalConversationSnapshot>;
   SessionConversationMessageContentV2?: (sessionID: string, messageID: string) => Promise<{ schemaVersion: 2; sessionId: string; messageId: string; content: string }>;
   ReadObjectContent?: (refID: string) => Promise<{ content: string; redacted?: boolean }>;
@@ -1720,7 +1754,6 @@ interface RuntimeBridgeModule {
   HookExecutions?: (req: RuntimeHookExecutionsRequestDTO) => Promise<RuntimeHookExecutionsResponseDTO>;
   HookExecution?: (executionID: string) => Promise<RuntimeHookExecutionResponseDTO>;
   ManualCompact?: (req: RuntimeContextActionRequestDTO) => Promise<unknown>;
-  ManualSnip?: (req: RuntimeContextActionRequestDTO) => Promise<unknown>;
   RunProjection?: (req: RuntimeRunProjectionRequestDTO) => Promise<RuntimeRunProjectionResponseDTO>;
   RunSummaries?: () => Promise<RuntimeRunSummariesResponseDTO>;
   RunSummary?: (runID: string) => Promise<RuntimeRunSummaryResponseDTO>;
@@ -3153,6 +3186,73 @@ function mapContextUsage(usage?: RuntimeContextUsageDTO): ContextUsageViewModel 
   };
 }
 
+function mapCompactionStatus(dto?: RuntimeContextCompactionStatusDTO): ContextCompactionStatusViewModel | undefined {
+  if (!dto?.sessionId) return undefined;
+  const mapBoundary = (boundary?: RuntimeCompactBoundaryDTO) => {
+    if (!boundary?.id) return undefined;
+    const preTokens = boundary.budgetBefore?.totalEstimatedTokens ?? 0;
+    const postTokens = boundary.budgetAfter?.totalEstimatedTokens ?? 0;
+    return {
+      id: boundary.id,
+      kind: boundary.kind ?? 'full',
+      trigger: boundary.trigger ?? '',
+      status: boundary.status ?? '',
+      preTokens,
+      postTokens,
+      savedTokens: Math.max(0, preTokens - postTokens),
+      summarizedCount: boundary.messageRefs?.length ?? 0,
+      preservedCount: boundary.preservedMessageRefs?.length ?? 0,
+      memoryRevision: boundary.memoryRevision,
+      error: boundary.error,
+      willRetry: Boolean(boundary.willRetry),
+      circuitOpen: Boolean(boundary.circuitOpen),
+      createdAt: boundary.createdAt ?? 0,
+      completedAt: boundary.completedAt,
+    };
+  };
+  return {
+    sessionId: dto.sessionId,
+    activeOperation: dto.activeOperation?.id ? {
+      id: dto.activeOperation.id,
+      kind: dto.activeOperation.kind ?? 'full',
+      trigger: dto.activeOperation.trigger ?? '',
+      stage: dto.activeOperation.stage ?? '',
+      status: dto.activeOperation.status ?? '',
+      startedAt: dto.activeOperation.startedAt ?? 0,
+      elapsedMillis: dto.activeOperation.elapsedMillis ?? 0,
+      willRetry: Boolean(dto.activeOperation.willRetry),
+    } : undefined,
+    latestCompleted: mapBoundary(dto.latestCompleted),
+    latestFailed: mapBoundary(dto.latestFailed),
+    circuitOpen: Boolean(dto.circuitOpen),
+    consecutiveFailures: dto.consecutiveFailures ?? 0,
+    latestSessionMemory: dto.latestSessionMemory?.id ? {
+      id: dto.latestSessionMemory.id,
+      revision: dto.latestSessionMemory.revision ?? 0,
+      status: dto.latestSessionMemory.status ?? '',
+      lastSummarizedMessageId: dto.latestSessionMemory.lastSummarizedMessageId,
+      sourceMessageCount: dto.latestSessionMemory.sourceMessageCount ?? 0,
+      sourceTokenEstimate: dto.latestSessionMemory.sourceTokenEstimate ?? 0,
+      sourceToolCallCount: dto.latestSessionMemory.sourceToolCallCount ?? 0,
+      provider: dto.latestSessionMemory.provider,
+      model: dto.latestSessionMemory.model,
+      createdAt: dto.latestSessionMemory.createdAt ?? 0,
+      completedAt: dto.latestSessionMemory.completedAt,
+      error: dto.latestSessionMemory.error,
+    } : undefined,
+    resolvedPolicy: {
+      autoCompactEnabled: dto.resolvedPolicy?.autoCompactEnabled ?? true,
+      autoCompactPercent: dto.resolvedPolicy?.autoCompactPercent,
+      microcompactEnabled: dto.resolvedPolicy?.microcompactEnabled ?? true,
+      microcompactIdleMinutes: dto.resolvedPolicy?.microcompactIdleMinutes ?? 60,
+      microcompactKeepRecent: dto.resolvedPolicy?.microcompactKeepRecent ?? 5,
+      sessionMemoryEnabled: dto.resolvedPolicy?.sessionMemoryEnabled ?? true,
+      summaryModel: dto.resolvedPolicy?.summaryModel ?? 'session',
+    },
+    updatedAt: dto.updatedAt ?? 0,
+  };
+}
+
 function mapRunSchedulerPlanCandidates(response?: RuntimeRunSchedulerPlanResponseDTO): RunSchedulerTaskCandidateViewModel[] {
   const plan = response?.plan;
   const runID = plan?.runId;
@@ -3589,6 +3689,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     agentTasks,
     agentRoles,
     contextUsage,
+    compactionStatus,
   ] = await Promise.all([
     fullHydration ? hydrateHooks(bridge) : Promise.resolve(undefined),
     activeSessionID ? hydrateHookExecutions(bridge, activeSessionID) : Promise.resolve(summarizeHookExecutions([])),
@@ -3606,6 +3707,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     activeSessionID ? hydrateAgentTasks(bridge, activeSessionID) : Promise.resolve(undefined),
     fullHydration ? hydrateAgentRoles(bridge) : Promise.resolve(undefined),
     activeSessionID ? optionalRuntimeRequest(() => bridge.SessionContextUsage?.(activeSessionID) ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
+    activeSessionID ? optionalRuntimeRequest(() => bridge.ContextCompactionStatus?.(activeSessionID) ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ])
   const modelOptionList = modelsResponse ? modelOptions(modelsResponse) : current.composer.modelOptions;
   const selectedModel = modelsResponse ? modelOptionList.find((model) => model.selected) : current.composer.selectedModel;
@@ -3683,6 +3785,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       modelLabel: modelLabel(status, modelsResponse),
       capabilityLabel: capabilityLabel(skills, mcpServers),
       contextUsage: mapContextUsage(contextUsage) ?? (current.composer.contextUsage?.sessionId === activeSessionID ? current.composer.contextUsage : undefined),
+      compactionStatus: mapCompactionStatus(compactionStatus) ?? (current.composer.compactionStatus?.sessionId === activeSessionID ? current.composer.compactionStatus : undefined),
       selectedModel,
       modelOptions: modelOptionList,
       busy,
@@ -4372,19 +4475,6 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         return hydrateWorkbench(current, bridge, { refreshTargets: ['session_activity'] });
       },
       () => staticWorkbenchAdapter.manualCompact(current, instructions),
-    );
-  },
-  async manualSnip(current, reason) {
-    return withBridge(
-      async (bridge) => {
-        if (!bridge.ManualSnip) {
-          return staticWorkbenchAdapter.manualSnip(current, reason);
-        }
-        const req = contextActionRequest(current, reason || 'manual_snip');
-        await bridge.ManualSnip(req);
-        return hydrateWorkbench(current, bridge, { refreshTargets: ['session_activity'] });
-      },
-      () => staticWorkbenchAdapter.manualSnip(current, reason),
     );
   },
   async resumeRunCheckpoint(current, runID, checkpointID) {

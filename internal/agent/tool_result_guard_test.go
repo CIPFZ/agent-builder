@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -21,6 +22,12 @@ type testToolResultPersister struct{}
 
 func (testToolResultPersister) PersistToolResult(_ context.Context, req ToolResultPersistenceRequest) (string, error) {
 	return "runtime://objects/" + req.ToolCallID, nil
+}
+
+type failingToolResultPersister struct{}
+
+func (failingToolResultPersister) PersistToolResult(context.Context, ToolResultPersistenceRequest) (string, error) {
+	return "", errors.New("object store unavailable")
 }
 
 func TestGuard_ExemptTool_PassesThrough(t *testing.T) {
@@ -92,10 +99,10 @@ func TestGuard_TurnBudget_SpillsLargestResult(t *testing.T) {
 	p2 := g.Process(t.Context(), r2)
 	require.NotEmpty(t, p2.StoredPath)
 	require.Contains(t, p2.Content, "<persisted-output>")
-	require.Equal(t, "turn_budget", p2.TruncatedBy)
+	require.Equal(t, "round_budget", p2.TruncatedBy)
 }
 
-func TestGuard_ResetTurn(t *testing.T) {
+func TestGuard_ResetAPIRound(t *testing.T) {
 	g := newTestGuard(t.TempDir())
 	g.config.TurnBudget = 50
 
@@ -106,7 +113,7 @@ func TestGuard_ResetTurn(t *testing.T) {
 	}
 	g.Process(t.Context(), r1)
 
-	g.ResetTurn()
+	g.ResetAPIRound()
 	require.Equal(t, 0, g.turnTotal)
 
 	r2 := message.ToolResult{
@@ -133,4 +140,15 @@ func TestGuard_Disabled_SkipsAllProcessing(t *testing.T) {
 	processed := g.Process(t.Context(), result)
 	require.Equal(t, result.Content, processed.Content)
 	require.Empty(t, processed.StoredPath)
+}
+
+func TestGuard_PersistFailureUsesUTF8SafeFallbackWithoutFakeRef(t *testing.T) {
+	cfg := config.DefaultToolResultGuardConfig()
+	cfg.MaxResultChars = 5
+	g := NewToolResultGuard(cfg, "test-session", failingToolResultPersister{})
+	processed := g.Process(t.Context(), message.ToolResult{ToolCallID: "tool-unicode", Name: "bash", Content: "你好世界再次问好"})
+	require.True(t, strings.HasPrefix(processed.Content, "你好世界再"), processed.Content)
+	require.NotContains(t, processed.Content, "runtime://")
+	require.Empty(t, processed.StoredPath)
+	require.Equal(t, "single", processed.TruncatedBy)
 }

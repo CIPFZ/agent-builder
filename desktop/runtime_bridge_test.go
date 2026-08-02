@@ -80,6 +80,19 @@ func TestRuntimeBridgeForwardsSessionContextUsage(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsContextCompactionStatus(t *testing.T) {
+	t.Parallel()
+	service := &recordingRuntimeService{contextCompactionStatus: RuntimeContextCompactionStatus{SessionID: "session-1", CircuitOpen: true}}
+	bridge := &RuntimeBridge{service: service}
+	status, err := bridge.ContextCompactionStatus(context.Background(), "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.SessionID != "session-1" || !status.CircuitOpen {
+		t.Fatalf("status = %#v", status)
+	}
+}
+
 func TestRuntimeBridgeForwardsContextGovernanceSettings(t *testing.T) {
 	t.Parallel()
 
@@ -1139,6 +1152,7 @@ type recordingRuntimeService struct {
 	conversationSnapshotSessionID string
 	conversationSnapshotRequest   RuntimeCanonicalConversationSnapshotRequest
 	contextUsage                  RuntimeContextUsage
+	contextCompactionStatus       RuntimeContextCompactionStatus
 	contextUsageSessionID         string
 	contextGovernanceSettings     RuntimeContextGovernanceSettings
 	contextGovernanceSaveReq      RuntimeContextGovernanceSettings
@@ -1359,6 +1373,7 @@ func (s *recordingRuntimeService) SaveAppearanceSettings(context.Context, Runtim
 func (s *recordingRuntimeService) OpenTargetSettings(context.Context) (RuntimeOpenTargetSettingsResponse, error) {
 	return RuntimeOpenTargetSettingsResponse{}, nil
 }
+
 func (s *recordingRuntimeService) SaveOpenTargetSettings(context.Context, RuntimeOpenTargetSettings) (RuntimeOpenTargetSettingsResponse, error) {
 	return RuntimeOpenTargetSettingsResponse{}, nil
 }
@@ -1458,10 +1473,6 @@ func (s *recordingRuntimeService) PromptAssembliesBySession(_ context.Context, s
 
 func (s *recordingRuntimeService) ManualCompact(context.Context, runtime.RuntimeContextActionRequest) (runtime.RuntimeManualCompactResponse, error) {
 	return runtime.RuntimeManualCompactResponse{}, nil
-}
-
-func (s *recordingRuntimeService) ManualSnip(context.Context, runtime.RuntimeContextActionRequest) (runtime.RuntimeManualSnipResponse, error) {
-	return runtime.RuntimeManualSnipResponse{}, nil
 }
 
 func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, error) {
@@ -1569,6 +1580,10 @@ func (s *recordingRuntimeService) TurnCompactBoundaries(context.Context, string)
 
 func (s *recordingRuntimeService) SessionCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error) {
 	return RuntimeCompactBoundariesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ContextCompactionStatus(context.Context, string) (RuntimeContextCompactionStatus, error) {
+	return s.contextCompactionStatus, nil
 }
 
 func (s *recordingRuntimeService) Worktrees(context.Context) (RuntimeWorktreesResponse, error) {
@@ -1701,6 +1716,7 @@ func (s *recordingRuntimeService) SessionConversationSnapshotV2(_ context.Contex
 func (s *recordingRuntimeService) SessionConversationEventsV2(_ context.Context, sessionID string, req runtime.RuntimeCanonicalConversationEventsRequestV2) (runtime.RuntimeCanonicalConversationEventsResponseV2, error) {
 	return runtime.RuntimeCanonicalConversationEventsResponseV2{SchemaVersion: 2, SessionID: sessionID, AfterCursor: req.After, Cursor: req.After, Events: []runtime.RuntimeConversationEntityEventV2{}}, nil
 }
+
 func (s *recordingRuntimeService) SubscribeSessionConversationEventsV2(context.Context, string, string) (<-chan runtime.RuntimeCanonicalConversationEventBatchV2, func()) {
 	ch := make(chan runtime.RuntimeCanonicalConversationEventBatchV2)
 	return ch, func() { close(ch) }

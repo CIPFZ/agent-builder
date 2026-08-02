@@ -23,6 +23,7 @@ type blockingTitleModel struct {
 func (m *blockingTitleModel) Generate(context.Context, fantasy.Call) (*fantasy.Response, error) {
 	return nil, fmt.Errorf("Generate is not implemented")
 }
+
 func (m *blockingTitleModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
 	m.tools = len(call.Tools)
 	m.once.Do(func() { close(m.started) })
@@ -33,9 +34,11 @@ func (m *blockingTitleModel) Stream(ctx context.Context, call fantasy.Call) (fan
 		return nil, errors.New("title generation failed")
 	}
 }
+
 func (m *blockingTitleModel) GenerateObject(context.Context, fantasy.ObjectCall) (*fantasy.ObjectResponse, error) {
 	return nil, fmt.Errorf("GenerateObject is not implemented")
 }
+
 func (m *blockingTitleModel) StreamObject(context.Context, fantasy.ObjectCall) (fantasy.ObjectStreamResponse, error) {
 	return nil, fmt.Errorf("StreamObject is not implemented")
 }

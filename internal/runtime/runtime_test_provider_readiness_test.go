@@ -77,12 +77,16 @@ func runtimeDevTestRoot(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := filepath.Join(repoRoot, "tmp", "runtime-dev", name)
-	if !isPathInside(filepath.Join(repoRoot, "tmp", "runtime-dev"), root) {
-		t.Fatalf("refusing runtime dev root outside tmp/runtime-dev: %s", root)
-	}
-	if err := os.RemoveAll(root); err != nil {
+	base := filepath.Join(repoRoot, "tmp", "runtime-dev")
+	if err := os.MkdirAll(base, 0o700); err != nil {
 		t.Fatal(err)
+	}
+	root, err := os.MkdirTemp(base, name+"-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isPathInside(base, root) {
+		t.Fatalf("refusing runtime dev root outside tmp/runtime-dev: %s", root)
 	}
 	if err := os.MkdirAll(filepath.Join(root, "config"), 0o700); err != nil {
 		t.Fatal(err)

@@ -96,8 +96,8 @@ func TestRuntimeRunTransitionFinalSchemaIsInitialized(t *testing.T) {
 	if err := conn.QueryRowContext(context.Background(), `SELECT value FROM runtime_settings WHERE key = 'schema_generation'`).Scan(&generation); err != nil {
 		t.Fatal(err)
 	}
-	if generation != "1" {
-		t.Fatalf("schema_generation = %q, want 1", generation)
+	if generation != "2" {
+		t.Fatalf("schema_generation = %q, want 2", generation)
 	}
 }
 

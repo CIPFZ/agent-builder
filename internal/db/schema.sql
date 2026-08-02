@@ -266,6 +266,10 @@ CREATE TABLE runtime_context_boundaries (
     summary_message_id TEXT,
     summary_ref TEXT,
     message_refs_json TEXT,
+    preserved_message_refs_json TEXT,
+    boundary_cutoff_message_id TEXT,
+    summary_mode TEXT,
+    memory_revision INTEGER,
     tool_call_refs_json TEXT,
     reinjected_refs_json TEXT,
     budget_before_json TEXT,
@@ -273,6 +277,27 @@ CREATE TABLE runtime_context_boundaries (
     created_at INTEGER NOT NULL,
     completed_at INTEGER,
     error TEXT
+);
+
+CREATE TABLE runtime_session_memory_revisions (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    turn_id TEXT,
+    revision INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    base_revision INTEGER,
+    content TEXT,
+    content_hash TEXT,
+    last_summarized_message_id TEXT,
+    source_message_count INTEGER NOT NULL DEFAULT 0,
+    source_token_estimate INTEGER NOT NULL DEFAULT 0,
+    source_tool_call_count INTEGER NOT NULL DEFAULT 0,
+    provider TEXT,
+    model TEXT,
+    created_at INTEGER NOT NULL,
+    completed_at INTEGER,
+    error TEXT,
+    UNIQUE (session_id, revision)
 );
 
 CREATE TABLE runtime_context_content_replacements (
@@ -335,8 +360,19 @@ CREATE TABLE runtime_context_reactive_attempts (
     action TEXT NOT NULL,
     status TEXT NOT NULL,
     error TEXT,
+    budget_before_json TEXT,
+    budget_after_json TEXT,
+    will_retry INTEGER NOT NULL DEFAULT 0,
+    circuit_open INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     completed_at INTEGER
+);
+
+CREATE TABLE runtime_context_circuit_states (
+    session_id TEXT PRIMARY KEY,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    circuit_open INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
 );
 
 CREATE TABLE runtime_context_read_state_snapshots (
@@ -911,11 +947,17 @@ CREATE INDEX idx_runtime_context_boundaries_projection_created_at
 CREATE INDEX idx_runtime_context_boundaries_turn_created_at
     ON runtime_context_boundaries (turn_id, created_at);
 
+CREATE INDEX idx_runtime_session_memory_status_revision
+    ON runtime_session_memory_revisions (session_id, status, revision);
+
 CREATE INDEX idx_runtime_context_content_replacements_projection
     ON runtime_context_content_replacements (projection_id);
 
 CREATE INDEX idx_runtime_context_content_replacements_tool_call
     ON runtime_context_content_replacements (tool_call_id);
+
+CREATE UNIQUE INDEX idx_runtime_context_replacements_stable_key
+    ON runtime_context_content_replacements (session_id, tool_call_id, kind);
 
 CREATE INDEX idx_runtime_context_projection_messages_projection_sequence
     ON runtime_context_projection_messages (projection_id, sequence);

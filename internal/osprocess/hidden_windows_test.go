@@ -1,6 +1,7 @@
 package osprocess
 
 import (
+	"context"
 	"os/exec"
 	"syscall"
 	"testing"
@@ -11,7 +12,7 @@ import (
 func TestHideWindowSetsWindowsFlags(t *testing.T) {
 	t.Parallel()
 
-	cmd := exec.Command("cmd", "/c", "exit", "0")
+	cmd := exec.CommandContext(context.Background(), "cmd", "/c", "exit", "0")
 	HideWindow(cmd)
 
 	if cmd.SysProcAttr == nil {
@@ -28,7 +29,7 @@ func TestHideWindowSetsWindowsFlags(t *testing.T) {
 func TestHideWindowPreservesExistingWindowsFlags(t *testing.T) {
 	t.Parallel()
 
-	cmd := exec.Command("cmd", "/c", "exit", "0")
+	cmd := exec.CommandContext(context.Background(), "cmd", "/c", "exit", "0")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: windows.DETACHED_PROCESS,
 	}

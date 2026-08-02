@@ -600,10 +600,7 @@ func applyRevisionAwareEventForTest(state map[string]RuntimeConversationEntityEv
 	currentJSON, _ := canonicalEventEntityJSON(current)
 	nextJSON, _ := canonicalEventEntityJSON(event)
 	if nextRevision == currentRevision {
-		if string(currentJSON) != string(nextJSON) {
-			return true
-		}
-		return false
+		return string(currentJSON) != string(nextJSON)
 	}
 	state[key] = event
 	return false
@@ -725,6 +722,7 @@ func applyCanonicalEventsForTest(s RuntimeCanonicalConversationSnapshot, events 
 	canonicalSortSnapshot(&s)
 	return s
 }
+
 func upsertCanonicalForTest[T any](items []T, value *T, event RuntimeConversationEntityEventV2) []T {
 	out := []T{}
 	for _, item := range items {
@@ -740,6 +738,7 @@ func upsertCanonicalForTest[T any](items []T, value *T, event RuntimeConversatio
 	}
 	return out
 }
+
 func assertCanonicalSnapshotsEqual(t *testing.T, a, b RuntimeCanonicalConversationSnapshot) {
 	t.Helper()
 	a.Cursor = b.Cursor
@@ -751,6 +750,7 @@ func assertCanonicalSnapshotsEqual(t *testing.T, a, b RuntimeCanonicalConversati
 		t.Fatalf("snapshots differ\n%s\n%s", left, right)
 	}
 }
+
 func findCanonicalMessage(t *testing.T, s RuntimeCanonicalConversationSnapshot, id string) RuntimeCanonicalMessage {
 	t.Helper()
 	for _, v := range s.Messages {
@@ -761,6 +761,7 @@ func findCanonicalMessage(t *testing.T, s RuntimeCanonicalConversationSnapshot, 
 	t.Fatalf("message %s missing", id)
 	return RuntimeCanonicalMessage{}
 }
+
 func decimalLE(a, b string) bool {
 	av, _ := strconv.ParseUint(a, 10, 64)
 	bv, _ := strconv.ParseUint(b, 10, 64)

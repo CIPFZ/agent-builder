@@ -181,9 +181,6 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
   async manualCompact() {
     return runtimeUnavailable();
   },
-  async manualSnip() {
-    return runtimeUnavailable();
-  },
   async resumeRunCheckpoint() {
     return runtimeUnavailable();
   },

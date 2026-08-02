@@ -124,6 +124,7 @@ type coordinator struct {
 	schedulerRecorder      SchedulerRecorder
 	promptAssemblyRecorder PromptAssemblyRecorder
 	modelInputBuilder      ModelInputBuilder
+	historyProjector       SessionHistoryProjector
 	reactiveCompactor      ReactiveCompactor
 	toolResultPersister    ToolResultPersister
 	discoveryRecorder      ToolDiscoveryRecorder
@@ -563,6 +564,9 @@ func NewCoordinator(
 		if builder, ok := schedulerRecorder[0].(ModelInputBuilder); ok {
 			c.modelInputBuilder = builder
 		}
+		if projector, ok := schedulerRecorder[0].(SessionHistoryProjector); ok {
+			c.historyProjector = projector
+		}
 		if compactor, ok := schedulerRecorder[0].(ReactiveCompactor); ok {
 			c.reactiveCompactor = compactor
 		}
@@ -892,6 +896,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		Notify:               c.notify,
 		GuardConfig:          c.cfg.Config().Options.ToolResultGuard,
 		ModelInputBuilder:    c.modelInputBuilder,
+		HistoryProjector:     c.historyProjector,
 		AssemblyRecorder:     c.promptAssemblyRecorder,
 		ReactiveCompactor:    c.reactiveCompactor,
 		ToolResultPersister:  c.toolResultPersister,

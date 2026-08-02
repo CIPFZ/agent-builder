@@ -86,6 +86,7 @@ func checkedAdd(a, b int64) (int64, error) {
 	}
 	return a + b, nil
 }
+
 func parseDecimal(v any) (int64, error) {
 	s, ok := v.(string)
 	if !ok {
@@ -97,6 +98,7 @@ func parseDecimal(v any) (int64, error) {
 	}
 	return n, err
 }
+
 func usageDeltaFromPayload(raw string) (tokenUsageDelta, bool, error) {
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
@@ -206,7 +208,7 @@ func (s *tokenStatisticsStore) backfill(ctx context.Context) error {
 	days := map[string]tokenUsageDelta{}
 	sessionsByDay := map[string]map[string]struct{}{}
 	loc := time.UTC
-	for rows.Next() {
+	if err := consumeRuntimeRows(rows, func(rows *sql.Rows) error {
 		var created int64
 		var sid, raw string
 		if err := rows.Scan(&created, &sid, &raw); err != nil {
@@ -214,7 +216,7 @@ func (s *tokenStatisticsStore) backfill(ctx context.Context) error {
 		}
 		var u message.Usage
 		if json.Unmarshal([]byte(raw), &u) != nil || u.IsZero() {
-			continue
+			return nil
 		}
 		createdAt := messageCreatedAtMillis(created)
 		d := tokenUsageDelta{input: u.InputTokens, output: u.OutputTokens, cacheRead: u.CacheReadTokens, cacheCreation: u.CacheCreationTokens, reasoning: u.ReasoningTokens, calls: 1, peakAt: createdAt}
@@ -243,11 +245,8 @@ func (s *tokenStatisticsStore) backfill(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if err := rows.Close(); err != nil {
+		return nil
+	}); err != nil {
 		return err
 	}
 	now := time.Now().UnixMilli()
@@ -272,6 +271,7 @@ func (s *tokenStatisticsStore) backfill(ctx context.Context) error {
 	}
 	return tx.Commit()
 }
+
 func (s *tokenStatisticsStore) consume(ctx context.Context, limit int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -387,6 +387,7 @@ func (s *tokenStatisticsStore) consume(ctx context.Context, limit int) error {
 	}
 	return tx.Commit()
 }
+
 func sum(days map[string]tokenUsageDelta, field string) int64 {
 	var n int64
 	for _, d := range days {
@@ -407,6 +408,7 @@ func sum(days map[string]tokenUsageDelta, field string) int64 {
 	}
 	return n
 }
+
 func (r *runtimeService) startTokenStatistics(ctx context.Context, db *sql.DB) error {
 	store := &tokenStatisticsStore{db: db}
 	if err := store.backfill(ctx); err != nil {

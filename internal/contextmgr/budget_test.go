@@ -14,7 +14,7 @@ func TestToolResultBudgetReplacesHugeResultAndPersistsDecision(t *testing.T) {
 	t.Parallel()
 
 	store, manager := testContextManager(t)
-	huge := strings.Repeat("a", 200)
+	huge := strings.Repeat("a", 200) + " runtime://objects/tool-1-object"
 	result, err := manager.BuildModelInput(context.Background(), BuildInputRequest{
 		SessionID: "session-1",
 		TurnID:    "turn-1",
@@ -57,7 +57,7 @@ func TestToolResultBudgetReplacesHugeResultAndPersistsDecision(t *testing.T) {
 	if part := result.ModelMessages[1].Content[0].(fantasy.ToolResultPart); part.ToolCallID != "tool-1" {
 		t.Fatalf("tool result id changed: %#v", part)
 	}
-	stored, err := store.GetContentReplacementByToolCall(context.Background(), "tool-1")
+	stored, err := store.GetContentReplacement(context.Background(), "session-1", "tool-1", "tool_result_budget")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,8 +109,8 @@ func TestToolResultBudgetGroupsParallelResultsByMessage(t *testing.T) {
 			{
 				Role: fantasy.MessageRoleTool,
 				Content: []fantasy.MessagePart{
-					fantasy.ToolResultPart{ToolCallID: "tool-1", Output: fantasy.ToolResultOutputContentText{Text: strings.Repeat("a", 5000)}},
-					fantasy.ToolResultPart{ToolCallID: "tool-2", Output: fantasy.ToolResultOutputContentText{Text: strings.Repeat("b", 5000)}},
+					fantasy.ToolResultPart{ToolCallID: "tool-1", Output: fantasy.ToolResultOutputContentText{Text: strings.Repeat("a", 5000) + " runtime://objects/tool-1-object"}},
+					fantasy.ToolResultPart{ToolCallID: "tool-2", Output: fantasy.ToolResultOutputContentText{Text: strings.Repeat("b", 5000) + " runtime://objects/tool-2-object"}},
 				},
 			},
 		},
@@ -129,6 +129,18 @@ func TestToolResultBudgetGroupsParallelResultsByMessage(t *testing.T) {
 	}
 }
 
+func TestToolResultBudgetRejectsMissingRuntimeObjectRef(t *testing.T) {
+	_, manager := testContextManager(t)
+	_, err := manager.BuildModelInput(context.Background(), BuildInputRequest{
+		SessionID: "session-1", TurnID: "turn-missing-ref", Step: 1,
+		ModelMessages:    toolResultMessages("missing", strings.Repeat("x", 100)),
+		ToolResultBudget: ToolResultBudgetConfig{MaxSingleResultChars: 50, MessageBudgetChars: 1000},
+	})
+	if err == nil || !strings.Contains(err.Error(), "missing runtime object") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func testContextManager(t *testing.T) (SQLStore, *DefaultManager) {
 	t.Helper()
 	dataDir := t.TempDir()
@@ -140,6 +152,11 @@ func testContextManager(t *testing.T) (SQLStore, *DefaultManager) {
 		_ = db.Release(dataDir)
 	})
 	store := NewSQLStore(conn)
+	for _, id := range []string{"tool-1-object", "tool-2-object", "tool-a-object", "tool-b-object", "tool-c-object"} {
+		if _, err := conn.ExecContext(context.Background(), `INSERT INTO objects (id, uri, project_id, session_id, tool_call_id, kind, size_bytes, estimated_tokens, storage_kind, inline_payload, redaction_status, created_at) VALUES (?, ?, 'project-1', 'session-1', ?, 'output', 1, 1, 'inline', 'x', 'none', 1)`, id, "runtime://objects/"+id, strings.TrimSuffix(id, "-object")); err != nil {
+			t.Fatal(err)
+		}
+	}
 	manager := NewManager(ManagerOptions{
 		Store: store,
 		Now:   func() time.Time { return time.UnixMilli(1000).UTC() },
@@ -148,6 +165,7 @@ func testContextManager(t *testing.T) (SQLStore, *DefaultManager) {
 }
 
 func toolResultMessages(toolCallID, output string) []fantasy.Message {
+	output += " runtime://objects/" + toolCallID + "-object"
 	return []fantasy.Message{
 		{
 			Role: fantasy.MessageRoleAssistant,

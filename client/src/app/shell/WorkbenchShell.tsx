@@ -751,11 +751,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
     commitConversationAction(nextViewModel);
   };
 
-  const manualSnip = async () => {
-    const nextViewModel = await adapter.manualSnip({ ...viewModelRef.current, mode: modeRef.current });
-    commitConversationAction(nextViewModel);
-  };
-
   const resumeRunCheckpoint = async (runID: string, checkpointID: string) => {
     const nextViewModel = await adapter.resumeRunCheckpoint({ ...viewModelRef.current, mode: modeRef.current }, runID, checkpointID);
     commitConversationAction(nextViewModel);
@@ -1130,7 +1125,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
           onInterruptedDiscard={discardInterruptedTurn}
           onRecoverableErrorRetry={retryRecoverableError}
           onManualCompact={manualCompact}
-          onManualSnip={manualSnip}
           onRunCheckpointResume={resumeRunCheckpoint}
           onRunTaskExecute={executeRunTask}
           onAgentTaskFollowUp={sendAgentTaskFollowUp}

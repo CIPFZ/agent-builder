@@ -169,6 +169,7 @@ func TestRuntimeRunSchedulerExecuteTaskInvokesForegroundRunnerAndUsesCompletionE
 
 	service, release := runtimeRunTransitionWriterTestService(t)
 	defer release()
+	service.eventStore = runtimeEventStore{}
 
 	run, turn := runtimeRunSchedulerPlanLinkedTurnFixture(t, service, turnStatusQueued)
 	task, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
@@ -602,6 +603,7 @@ type phase25RuntimeWorkbenchCoordinator struct {
 func (c *phase25RuntimeWorkbenchCoordinator) Run(context.Context, string, string, string, ...message.Attachment) (*fantasy.AgentResult, error) {
 	return nil, nil
 }
+
 func (c *phase25RuntimeWorkbenchCoordinator) RunWithMetadata(ctx context.Context, sessionID, turnID, prompt string, _ map[string]string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
 	return c.Run(ctx, sessionID, turnID, prompt, attachments...)
 }
@@ -619,6 +621,7 @@ func (c *phase25RuntimeWorkbenchCoordinator) Summarize(context.Context, string) 
 func (c *phase25RuntimeWorkbenchCoordinator) GenerateCompactSummary(context.Context, agent.CompactSummaryRequest) (agent.CompactSummaryResult, error) {
 	return agent.CompactSummaryResult{}, nil
 }
+
 func (c *phase25RuntimeWorkbenchCoordinator) RunCompactHooks(context.Context, string, string, string, string) (agent.CompactHookResult, error) {
 	return agent.CompactHookResult{}, nil
 }

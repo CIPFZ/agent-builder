@@ -91,18 +91,50 @@ func (r *runtimeService) workspaceDBIfStarted(ctx context.Context) (*sql.DB, err
 }
 
 func (r *runtimeService) configDB(ctx context.Context) (*sql.DB, error) {
-	layout, err := resolveDesktopLayout()
+	r.mu.Lock()
+	if r.desktopDB != nil {
+		conn := r.desktopDB
+		r.mu.Unlock()
+		return conn, nil
+	}
+	dataDir := strings.TrimSpace(r.desktopDataDir)
+	r.mu.Unlock()
+	if dataDir == "" {
+		layout, err := resolveDesktopLayout()
+		if err != nil {
+			return nil, err
+		}
+		if err := ensureDesktopLayout(layout); err != nil {
+			return nil, err
+		}
+		dataDir = layout.DataDir
+	}
+	conn, err := db.Connect(ctx, dataDir)
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureDesktopLayout(layout); err != nil {
-		return nil, err
+	r.mu.Lock()
+	if r.desktopDB != nil {
+		existing := r.desktopDB
+		r.mu.Unlock()
+		_ = db.Release(dataDir)
+		return existing, nil
 	}
-	conn, err := db.Connect(ctx, layout.DataDir)
-	if err != nil {
-		return nil, err
-	}
+	r.desktopDB = conn
+	r.desktopDBDataDir = dataDir
+	r.mu.Unlock()
 	return conn, nil
+}
+
+func (r *runtimeService) releaseConfigDB() {
+	r.mu.Lock()
+	dataDir := r.desktopDBDataDir
+	r.desktopDB = nil
+	r.desktopDBDataDir = ""
+	r.mu.Unlock()
+	if dataDir != "" {
+		_ = db.Release(dataDir)
+	}
 }
 
 func (r *runtimeService) restart() {

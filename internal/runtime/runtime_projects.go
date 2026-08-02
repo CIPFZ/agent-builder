@@ -343,7 +343,7 @@ func normalizeRuntimeProjectName(name string) (string, error) {
 		return "", errors.New("project name is required")
 	}
 	if name == "." || name == ".." {
-		return "", errors.New("project name cannot be . or ..")
+		return "", errors.New("project name cannot be the current or parent directory marker")
 	}
 	if strings.ContainsAny(name, `/\:*?"<>|`) {
 		return "", errors.New("project name cannot contain path separators or Windows reserved characters")
@@ -407,11 +407,11 @@ func requireRuntimeProjectDirectory(path string) error {
 func defaultRuntimeOpenPathInFileManager(path string) error {
 	switch goruntime.GOOS {
 	case "windows":
-		return exec.Command("explorer.exe", path).Start()
+		return exec.CommandContext(context.Background(), "explorer.exe", path).Start()
 	case "darwin":
-		return exec.Command("open", path).Start()
+		return exec.CommandContext(context.Background(), "open", path).Start()
 	default:
-		return exec.Command("xdg-open", path).Start()
+		return exec.CommandContext(context.Background(), "xdg-open", path).Start()
 	}
 }
 

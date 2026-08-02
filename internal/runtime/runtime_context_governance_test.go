@@ -11,6 +11,7 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/agent"
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
 	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/db"
 	"github.com/CIPFZ/agent-builder/internal/message"
 )
@@ -20,13 +21,9 @@ import (
 // tests in runtime_context_usage_test.go.
 func newContextGovernanceTestService(t *testing.T) (*runtimeService, string) {
 	t.Helper()
-	// SaveContextGovernanceSettings writes through config.ConfigStore to the
-	// real global config JSON file and triggers a reload. Point that at an
-	// isolated temp directory so the test never touches (or is polluted by)
-	// the developer machine's actual ~/.local/share/agent-builder config.
-	t.Setenv("AGENT_BUILDER_GLOBAL_DATA", t.TempDir())
 	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	service := newRuntimeService()
+	isolateRuntimeDesktopDB(t, service)
 	service.runtime = runtimeWorkbench
 	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	conn, err := db.Connect(context.Background(), workspace.Config.Options.DataDirectory)
@@ -43,8 +40,58 @@ func newContextGovernanceTestService(t *testing.T) (*runtimeService, string) {
 	return service, session.ID
 }
 
+func TestProjectSessionHistoryRestoresCompletedBoundary(t *testing.T) {
+	ctx := context.Background()
+	service, sessionID := newContextGovernanceTestService(t)
+	ws, err := service.runtime.GetWorkspace(service.workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	create := func(role message.MessageRole, text string, summary bool) message.Message {
+		t.Helper()
+		msg, createErr := ws.Messages.Create(ctx, sessionID, message.CreateMessageParams{
+			Role: role, Parts: []message.ContentPart{message.TextContent{Text: text}}, IsSummaryMessage: summary,
+		})
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		return msg
+	}
+	oldUser := create(message.User, "old user", false)
+	oldAssistant := create(message.Assistant, "old assistant", false)
+	preserved := create(message.User, "preserved tail", false)
+	summary := create(message.User, "compact summary", true)
+	newUser := create(message.User, "new user", false)
+	canonical, err := ws.Messages.List(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ensureContextManager(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.contextStore.UpsertBoundary(ctx, contextmgr.Boundary{
+		ID: "boundary-projector", SessionID: sessionID, Kind: "full", Trigger: "manual",
+		Status: contextmgr.ProjectionStatusCompleted, SummaryMessageID: summary.ID,
+		MessageRefs: []string{oldUser.ID, oldAssistant.ID}, PreservedMessageRefs: []string{preserved.ID},
+		BoundaryCutoffMessageID: preserved.ID, SummaryMode: "model", CreatedAt: 1, CompletedAt: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := service.projectSessionHistory(ctx, sessionID, canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projected) != 3 || projected[0].ID != summary.ID || projected[1].ID != preserved.ID || projected[2].ID != newUser.ID {
+		t.Fatalf("projected ids = %#v", []string{projected[0].ID, projected[1].ID, projected[2].ID})
+	}
+	if len(canonical) != 5 || canonical[0].ID != oldUser.ID {
+		t.Fatal("canonical history was modified")
+	}
+}
+
 // Not t.Parallel(): newContextGovernanceTestService uses t.Setenv to
-// sandbox the global config path, which the testing package forbids
+// sandbox the desktop database path, which the testing package forbids
 // combining with parallel subtests.
 func TestContextGovernanceSettingsRoundTrip(t *testing.T) {
 	ctx := context.Background()
@@ -186,7 +233,7 @@ func TestBuildModelInputProjectionSkipsAutoCompactWhenDisabled(t *testing.T) {
 	if _, err := ws.Messages.Create(ctx, sessionID, message.CreateMessageParams{
 		Role:  message.Assistant,
 		Parts: []message.ContentPart{message.TextContent{Text: "large context anchor"}, message.Finish{Reason: message.FinishReasonEndTurn, Time: time.Now().Unix()}},
-		Usage: message.Usage{InputTokens: 120000, OutputTokens: 12000},
+		Usage: message.Usage{InputTokens: 170000, OutputTokens: 15000},
 	}); err != nil {
 		t.Fatal(err)
 	}

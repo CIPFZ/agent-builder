@@ -25,9 +25,6 @@ func (s Store) UpsertRecord(ctx context.Context, record Record) (Record, error) 
 	if err != nil {
 		return Record{}, fmt.Errorf("failed to encode memory tags: %w", err)
 	}
-	if record.Enabled {
-		// Preserve existing disabled state through COALESCE below only when the row exists.
-	}
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO project_memory_records (
     id, project_id, relative_path, type, title, description, tags_json,

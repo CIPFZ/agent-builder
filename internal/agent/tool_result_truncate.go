@@ -3,7 +3,6 @@ package agent
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 )
 
 const (
@@ -25,7 +24,8 @@ var errorKeywords = []string{
 // XML block with head+tail preview and (result, true).
 // storedRef is the authoritative Runtime Object URI for the full content.
 func Truncate(content string, maxChars int, storedRef string) (string, bool) {
-	totalChars := len(content)
+	runes := []rune(content)
+	totalChars := len(runes)
 	if totalChars <= maxChars {
 		return content, false
 	}
@@ -33,7 +33,11 @@ func Truncate(content string, maxChars int, storedRef string) (string, bool) {
 	headSize := int(float64(maxChars) * headRatio)
 	tailSize := int(float64(maxChars) * tailRatio)
 
-	if hasTailPriority(content[totalChars-tailSize*2:]) {
+	tailCheckStart := totalChars - tailSize*2
+	if tailCheckStart < 0 {
+		tailCheckStart = 0
+	}
+	if hasTailPriority(string(runes[tailCheckStart:])) {
 		tailSize = int(float64(maxChars) * tailErrorRatio)
 		if tailSize > totalChars/2 {
 			tailSize = totalChars / 2
@@ -41,30 +45,14 @@ func Truncate(content string, maxChars int, storedRef string) (string, bool) {
 		headSize = maxChars - tailSize
 	}
 
-	headSize = safeUTF8Cut(content, headSize)
 	tailStart := totalChars - tailSize
-	tailStart = safeUTF8Cut(content, tailStart)
-	tailContent := content[tailStart:]
+	tailContent := string(runes[tailStart:])
 
-	headContent := content[:headSize]
+	headContent := string(runes[:headSize])
 	previewBody := headContent + tailContent
 	hasMore := (headSize+tailSize < totalChars)
 
 	return buildPersistedOutput(previewBody, totalChars, storedRef, len(headContent), len(tailContent), hasMore), true
-}
-
-// safeUTF8Cut adjusts a byte position backward to a valid UTF-8 boundary.
-func safeUTF8Cut(s string, pos int) int {
-	if pos <= 0 {
-		return 0
-	}
-	if pos >= len(s) {
-		return len(s)
-	}
-	for pos > 0 && !utf8.RuneStart(s[pos]) {
-		pos--
-	}
-	return pos
 }
 
 // hasTailPriority checks if the tail portion contains error keywords

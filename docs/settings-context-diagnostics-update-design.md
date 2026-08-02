@@ -248,6 +248,11 @@ DTO 映射成 `ContextStatisticsViewModel`。范围或粒度变化时发一次�
 文件系统，也不检查版本更新。完整 `/doctor` 保留为高级手动入口；它与页面可复用检查器，
 但不是页面的默认数据源。
 
+上下文诊断从 Runtime `ContextCompactionStatus` 和 Prompt Assembly 读取，按“当前预算、最近压缩、
+Session Memory、投影优化、恢复尝试”展示。主页面不暴露 50k/200k、tail 等内部阈值；
+`microcompactIdleMinutes` 的 resolved 值与来源只在诊断中展示。复制诊断摘要不得包含摘要正文、
+原始 ToolResult 或敏感 reinjection 内容。
+
 首版遵循“少而精”：覆盖面不是目标，定位价值才是。一个诊断项只有同时满足以下条件才进入
 默认页面：
 

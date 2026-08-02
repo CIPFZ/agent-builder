@@ -15,6 +15,12 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
+func isolateRuntimeDesktopDB(t *testing.T, service *runtimeService) {
+	t.Helper()
+	service.desktopDataDir = t.TempDir()
+	t.Cleanup(service.releaseConfigDB)
+}
+
 func TestContextThresholdSnapshots(t *testing.T) {
 	t.Parallel()
 
@@ -184,6 +190,7 @@ func TestManualCompactAppendsSummaryAndEvents(t *testing.T) {
 	ctx := context.Background()
 	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	service := newRuntimeService()
+	installTestCompactSummaryGenerator(service)
 	service.runtime = runtimeWorkbench
 	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	conn, err := db.Connect(ctx, workspace.Config.Options.DataDirectory)
@@ -264,6 +271,7 @@ func TestBuildModelInputProjectionAutoCompactsAboveThreshold(t *testing.T) {
 	ctx := context.Background()
 	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	service := newRuntimeService()
+	installTestCompactSummaryGenerator(service)
 	service.runtime = runtimeWorkbench
 	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	conn, err := db.Connect(ctx, workspace.Config.Options.DataDirectory)
@@ -290,7 +298,7 @@ func TestBuildModelInputProjectionAutoCompactsAboveThreshold(t *testing.T) {
 	if _, err := ws.Messages.Create(ctx, session.ID, message.CreateMessageParams{
 		Role:  message.Assistant,
 		Parts: []message.ContentPart{message.TextContent{Text: "large context anchor"}, message.Finish{Reason: message.FinishReasonEndTurn, Time: time.Now().Unix()}},
-		Usage: message.Usage{InputTokens: 120000, OutputTokens: 12000},
+		Usage: message.Usage{InputTokens: 170000, OutputTokens: 15000},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -347,6 +355,7 @@ func TestBuildModelInputProjectionKeepsCompactAcrossSteps(t *testing.T) {
 	ctx := context.Background()
 	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	service := newRuntimeService()
+	installTestCompactSummaryGenerator(service)
 	service.runtime = runtimeWorkbench
 	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	conn, err := db.Connect(ctx, workspace.Config.Options.DataDirectory)
@@ -374,7 +383,7 @@ func TestBuildModelInputProjectionKeepsCompactAcrossSteps(t *testing.T) {
 	if _, err := ws.Messages.Create(ctx, session.ID, message.CreateMessageParams{
 		Role:  message.Assistant,
 		Parts: []message.ContentPart{message.TextContent{Text: "large context anchor"}, message.Finish{Reason: message.FinishReasonEndTurn, Time: time.Now().Unix()}},
-		Usage: message.Usage{InputTokens: 120000, OutputTokens: 12000},
+		Usage: message.Usage{InputTokens: 170000, OutputTokens: 15000},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -470,6 +479,7 @@ func TestBuildModelInputProjectionAutoCompactOncePerTurn(t *testing.T) {
 	ctx := context.Background()
 	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	service := newRuntimeService()
+	installTestCompactSummaryGenerator(service)
 	service.runtime = runtimeWorkbench
 	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	conn, err := db.Connect(ctx, workspace.Config.Options.DataDirectory)
@@ -497,7 +507,7 @@ func TestBuildModelInputProjectionAutoCompactOncePerTurn(t *testing.T) {
 	if _, err := ws.Messages.Create(ctx, session.ID, message.CreateMessageParams{
 		Role:  message.Assistant,
 		Parts: []message.ContentPart{message.TextContent{Text: "anchor"}, message.Finish{Reason: message.FinishReasonEndTurn, Time: time.Now().Unix()}},
-		Usage: message.Usage{InputTokens: 120000, OutputTokens: 12000},
+		Usage: message.Usage{InputTokens: 170000, OutputTokens: 15000},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -529,12 +539,19 @@ func TestBuildModelInputProjectionAutoCompactOncePerTurn(t *testing.T) {
 	}
 }
 
+func installTestCompactSummaryGenerator(service *runtimeService) {
+	service.compactSummaryGenerator = func(_ context.Context, req agent.CompactSummaryRequest) (agent.CompactSummaryResult, error) {
+		return agent.CompactSummaryResult{Summary: req.Instructions + "\n\nCurrent objective and state preserved for continuation."}, nil
+	}
+}
+
 func TestManualCompactRejectedWhileTurnRunning(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	service := newRuntimeService()
+	installTestCompactSummaryGenerator(service)
 	service.runtime = runtimeWorkbench
 	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	conn, err := db.Connect(ctx, workspace.Config.Options.DataDirectory)
@@ -594,6 +611,7 @@ func TestManualCompactSecondBoundaryExcludesPreBoundaryRegion(t *testing.T) {
 	ctx := context.Background()
 	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	service := newRuntimeService()
+	installTestCompactSummaryGenerator(service)
 	service.runtime = runtimeWorkbench
 	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	conn, err := db.Connect(ctx, workspace.Config.Options.DataDirectory)

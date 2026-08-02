@@ -264,6 +264,10 @@ func (s SQLStore) UpsertBoundary(ctx context.Context, boundary Boundary) (Bounda
 	if err != nil {
 		return Boundary{}, err
 	}
+	preservedMessageRefs, err := marshalJSON(boundary.PreservedMessageRefs)
+	if err != nil {
+		return Boundary{}, err
+	}
 	toolRefs, err := marshalJSON(boundary.ToolCallRefs)
 	if err != nil {
 		return Boundary{}, err
@@ -283,10 +287,11 @@ func (s SQLStore) UpsertBoundary(ctx context.Context, boundary Boundary) (Bounda
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO runtime_context_boundaries (
     id, session_id, turn_id, projection_id, kind, trigger, status,
-    summary_message_id, summary_ref, message_refs_json, tool_call_refs_json,
+    summary_message_id, summary_ref, message_refs_json, preserved_message_refs_json,
+    boundary_cutoff_message_id, summary_mode, memory_revision, tool_call_refs_json,
     reinjected_refs_json, budget_before_json, budget_after_json,
     created_at, completed_at, error
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     session_id = excluded.session_id,
     turn_id = excluded.turn_id,
@@ -297,6 +302,10 @@ ON CONFLICT(id) DO UPDATE SET
     summary_message_id = excluded.summary_message_id,
     summary_ref = excluded.summary_ref,
     message_refs_json = excluded.message_refs_json,
+    preserved_message_refs_json = excluded.preserved_message_refs_json,
+    boundary_cutoff_message_id = excluded.boundary_cutoff_message_id,
+    summary_mode = excluded.summary_mode,
+    memory_revision = excluded.memory_revision,
     tool_call_refs_json = excluded.tool_call_refs_json,
     reinjected_refs_json = excluded.reinjected_refs_json,
     budget_before_json = excluded.budget_before_json,
@@ -305,7 +314,8 @@ ON CONFLICT(id) DO UPDATE SET
     error = excluded.error`,
 		boundary.ID, boundary.SessionID, nullableString(boundary.TurnID), nullableString(boundary.ProjectionID),
 		boundary.Kind, boundary.Trigger, boundary.Status, nullableString(boundary.SummaryMessageID),
-		nullableString(boundary.SummaryRef), messageRefs, toolRefs, reinjectedRefs,
+		nullableString(boundary.SummaryRef), messageRefs, preservedMessageRefs,
+		nullableString(boundary.BoundaryCutoffMessageID), nullableString(boundary.SummaryMode), nullableInt(boundary.MemoryRevision), toolRefs, reinjectedRefs,
 		before, after, boundary.CreatedAt, nullableInt64(boundary.CompletedAt), nullableString(boundary.Error),
 	)
 	if err != nil {
@@ -320,7 +330,8 @@ func (s SQLStore) ListBoundariesByProjection(ctx context.Context, projectionID s
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, session_id, turn_id, projection_id, kind, trigger, status,
-    summary_message_id, summary_ref, message_refs_json, tool_call_refs_json,
+    summary_message_id, summary_ref, message_refs_json, preserved_message_refs_json,
+    boundary_cutoff_message_id, summary_mode, memory_revision, tool_call_refs_json,
     reinjected_refs_json, budget_before_json, budget_after_json,
     created_at, completed_at, error
 FROM runtime_context_boundaries
@@ -350,7 +361,8 @@ func (s SQLStore) ListBoundariesByTurn(ctx context.Context, turnID string) ([]Bo
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, session_id, turn_id, projection_id, kind, trigger, status,
-    summary_message_id, summary_ref, message_refs_json, tool_call_refs_json,
+    summary_message_id, summary_ref, message_refs_json, preserved_message_refs_json,
+    boundary_cutoff_message_id, summary_mode, memory_revision, tool_call_refs_json,
     reinjected_refs_json, budget_before_json, budget_after_json,
     created_at, completed_at, error
 FROM runtime_context_boundaries
@@ -380,7 +392,8 @@ func (s SQLStore) ListBoundariesBySession(ctx context.Context, sessionID string)
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, session_id, turn_id, projection_id, kind, trigger, status,
-    summary_message_id, summary_ref, message_refs_json, tool_call_refs_json,
+    summary_message_id, summary_ref, message_refs_json, preserved_message_refs_json,
+    boundary_cutoff_message_id, summary_mode, memory_revision, tool_call_refs_json,
     reinjected_refs_json, budget_before_json, budget_after_json,
     created_at, completed_at, error
 FROM runtime_context_boundaries
@@ -480,7 +493,7 @@ ORDER BY created_at ASC`, strings.TrimSpace(projectionID))
 	return out, nil
 }
 
-func (s SQLStore) GetContentReplacementByToolCall(ctx context.Context, toolCallID string) (ContentReplacement, error) {
+func (s SQLStore) GetContentReplacement(ctx context.Context, sessionID, toolCallID, kind string) (ContentReplacement, error) {
 	if s.db == nil {
 		return ContentReplacement{}, errors.New("context governance database is not available")
 	}
@@ -489,14 +502,37 @@ SELECT id, session_id, turn_id, projection_id, tool_call_id, tool_name, kind,
     original_ref, replacement_text, original_size_bytes,
     original_estimated_tokens, replacement_estimated_tokens, reason, created_at
 FROM runtime_context_content_replacements
-WHERE tool_call_id = ?
+WHERE session_id = ? AND tool_call_id = ? AND kind = ?
 ORDER BY created_at ASC
-LIMIT 1`, strings.TrimSpace(toolCallID))
+LIMIT 1`, strings.TrimSpace(sessionID), strings.TrimSpace(toolCallID), strings.TrimSpace(kind))
 	replacement, err := scanContentReplacement(row)
 	if err != nil {
 		return ContentReplacement{}, err
 	}
 	return replacement, nil
+}
+
+func (s SQLStore) RuntimeObjectRefExists(ctx context.Context, sessionID, ref string) (bool, error) {
+	if s.db == nil {
+		return false, errors.New("context governance database is not available")
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM objects WHERE session_id = ? AND uri = ?`, strings.TrimSpace(sessionID), strings.TrimSpace(ref)).Scan(&count); err != nil {
+		return false, fmt.Errorf("verify runtime object ref: %w", err)
+	}
+	return count > 0, nil
+}
+
+func (s SQLStore) RuntimeObjectRefForToolCall(ctx context.Context, sessionID, toolCallID string) (string, error) {
+	if s.db == nil {
+		return "", errors.New("context governance database is not available")
+	}
+	var ref string
+	err := s.db.QueryRowContext(ctx, `SELECT uri FROM objects WHERE session_id = ? AND tool_call_id = ? AND content_type = 'model_content' AND redaction_status = 'none' ORDER BY created_at DESC LIMIT 1`, strings.TrimSpace(sessionID), strings.TrimSpace(toolCallID)).Scan(&ref)
+	if err != nil {
+		return "", err
+	}
+	return ref, nil
 }
 
 func (s SQLStore) UpsertSnipBoundary(ctx context.Context, snip SnipBoundary) (SnipBoundary, error) {
@@ -629,11 +665,20 @@ func (s SQLStore) UpsertReactiveAttempt(ctx context.Context, attempt ReactiveAtt
 	if attempt.CreatedAt == 0 {
 		attempt.CreatedAt = time.Now().UTC().UnixMilli()
 	}
-	_, err := s.db.ExecContext(ctx, `
+	before, err := marshalOptionalJSON(attempt.BudgetBefore)
+	if err != nil {
+		return ReactiveAttempt{}, err
+	}
+	after, err := marshalOptionalJSON(attempt.BudgetAfter)
+	if err != nil {
+		return ReactiveAttempt{}, err
+	}
+	_, err = s.db.ExecContext(ctx, `
 INSERT INTO runtime_context_reactive_attempts (
     id, session_id, turn_id, projection_id, attempt, action, status,
-    error, created_at, completed_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    error, budget_before_json, budget_after_json, will_retry, circuit_open,
+    created_at, completed_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     session_id = excluded.session_id,
     turn_id = excluded.turn_id,
@@ -642,9 +687,14 @@ ON CONFLICT(id) DO UPDATE SET
     action = excluded.action,
     status = excluded.status,
     error = excluded.error,
+    budget_before_json = excluded.budget_before_json,
+    budget_after_json = excluded.budget_after_json,
+    will_retry = excluded.will_retry,
+    circuit_open = excluded.circuit_open,
     completed_at = excluded.completed_at`,
 		attempt.ID, attempt.SessionID, attempt.TurnID, nullableString(attempt.ProjectionID),
 		attempt.Attempt, attempt.Action, attempt.Status, nullableString(attempt.Error),
+		before, after, boolInt(attempt.WillRetry), boolInt(attempt.CircuitOpen),
 		attempt.CreatedAt, nullableInt64(attempt.CompletedAt),
 	)
 	if err != nil {
@@ -659,7 +709,8 @@ func (s SQLStore) ListReactiveAttemptsByTurn(ctx context.Context, turnID string)
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, session_id, turn_id, projection_id, attempt, action, status,
-    error, created_at, completed_at
+    error, budget_before_json, budget_after_json, will_retry, circuit_open,
+    created_at, completed_at
 FROM runtime_context_reactive_attempts
 WHERE turn_id = ?
 ORDER BY attempt ASC, created_at ASC`, strings.TrimSpace(turnID))
@@ -681,6 +732,74 @@ ORDER BY attempt ASC, created_at ASC`, strings.TrimSpace(turnID))
 	return out, nil
 }
 
+func (s SQLStore) ListReactiveAttemptsBySession(ctx context.Context, sessionID string) ([]ReactiveAttempt, error) {
+	if s.db == nil {
+		return nil, errors.New("context governance database is not available")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, session_id, turn_id, projection_id, attempt, action, status,
+    error, budget_before_json, budget_after_json, will_retry, circuit_open,
+    created_at, completed_at
+FROM runtime_context_reactive_attempts
+WHERE session_id = ?
+ORDER BY created_at DESC, attempt DESC`, strings.TrimSpace(sessionID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list context reactive attempts by session: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var out []ReactiveAttempt
+	for rows.Next() {
+		attempt, scanErr := scanReactiveAttempt(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, attempt)
+	}
+	return out, rows.Err()
+}
+
+func (s SQLStore) GetCircuitState(ctx context.Context, sessionID string) (CircuitState, error) {
+	if s.db == nil {
+		return CircuitState{}, errors.New("context governance database is not available")
+	}
+	var state CircuitState
+	var open int64
+	err := s.db.QueryRowContext(ctx, `SELECT session_id, failure_count, circuit_open, updated_at
+FROM runtime_context_circuit_states WHERE session_id = ?`, strings.TrimSpace(sessionID)).Scan(
+		&state.SessionID, &state.FailureCount, &open, &state.UpdatedAt,
+	)
+	if err != nil {
+		return CircuitState{}, err
+	}
+	state.Open = open != 0
+	return state, nil
+}
+
+func (s SQLStore) UpsertCircuitState(ctx context.Context, state CircuitState) (CircuitState, error) {
+	if s.db == nil {
+		return CircuitState{}, errors.New("context governance database is not available")
+	}
+	state.SessionID = strings.TrimSpace(state.SessionID)
+	if state.SessionID == "" {
+		return CircuitState{}, errors.New("context circuit session id is required")
+	}
+	if state.FailureCount < 0 {
+		state.FailureCount = 0
+	}
+	if state.UpdatedAt == 0 {
+		state.UpdatedAt = time.Now().UTC().UnixMilli()
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO runtime_context_circuit_states
+(session_id, failure_count, circuit_open, updated_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(session_id) DO UPDATE SET failure_count=excluded.failure_count,
+circuit_open=excluded.circuit_open, updated_at=excluded.updated_at`, state.SessionID,
+		state.FailureCount, boolInt(state.Open), state.UpdatedAt)
+	if err != nil {
+		return CircuitState{}, fmt.Errorf("failed to upsert context circuit state: %w", err)
+	}
+	return state, nil
+}
+
 type projectionScanner interface {
 	Scan(dest ...any) error
 }
@@ -691,12 +810,13 @@ type boundaryScanner interface {
 
 func scanBoundary(scanner boundaryScanner) (Boundary, error) {
 	var boundary Boundary
-	var turnID, projectionID, summaryMessageID, summaryRef, messageRefs, toolRefs, reinjectedRefs, before, after, errText sql.NullString
-	var completedAt sql.NullInt64
+	var turnID, projectionID, summaryMessageID, summaryRef, messageRefs, preservedMessageRefs, cutoffMessageID, summaryMode, toolRefs, reinjectedRefs, before, after, errText sql.NullString
+	var completedAt, memoryRevision sql.NullInt64
 	if err := scanner.Scan(
 		&boundary.ID, &boundary.SessionID, &turnID, &projectionID, &boundary.Kind,
 		&boundary.Trigger, &boundary.Status, &summaryMessageID, &summaryRef,
-		&messageRefs, &toolRefs, &reinjectedRefs, &before, &after,
+		&messageRefs, &preservedMessageRefs, &cutoffMessageID, &summaryMode, &memoryRevision,
+		&toolRefs, &reinjectedRefs, &before, &after,
 		&boundary.CreatedAt, &completedAt, &errText,
 	); err != nil {
 		return Boundary{}, err
@@ -705,11 +825,19 @@ func scanBoundary(scanner boundaryScanner) (Boundary, error) {
 	boundary.ProjectionID = projectionID.String
 	boundary.SummaryMessageID = summaryMessageID.String
 	boundary.SummaryRef = summaryRef.String
+	boundary.BoundaryCutoffMessageID = cutoffMessageID.String
+	boundary.SummaryMode = summaryMode.String
+	if memoryRevision.Valid {
+		boundary.MemoryRevision = int(memoryRevision.Int64)
+	}
 	boundary.Error = errText.String
 	if completedAt.Valid {
 		boundary.CompletedAt = completedAt.Int64
 	}
 	if err := decodeContextJSON(messageRefs.String, &boundary.MessageRefs); err != nil {
+		return Boundary{}, err
+	}
+	if err := decodeContextJSON(preservedMessageRefs.String, &boundary.PreservedMessageRefs); err != nil {
 		return Boundary{}, err
 	}
 	if err := decodeContextJSON(toolRefs.String, &boundary.ToolCallRefs); err != nil {
@@ -790,17 +918,33 @@ type reactiveAttemptScanner interface {
 
 func scanReactiveAttempt(scanner reactiveAttemptScanner) (ReactiveAttempt, error) {
 	var attempt ReactiveAttempt
-	var projectionID, errText sql.NullString
+	var projectionID, errText, before, after sql.NullString
+	var willRetry, circuitOpen int64
 	var completedAt sql.NullInt64
 	if err := scanner.Scan(
 		&attempt.ID, &attempt.SessionID, &attempt.TurnID, &projectionID,
 		&attempt.Attempt, &attempt.Action, &attempt.Status, &errText,
+		&before, &after, &willRetry, &circuitOpen,
 		&attempt.CreatedAt, &completedAt,
 	); err != nil {
 		return ReactiveAttempt{}, err
 	}
 	attempt.ProjectionID = projectionID.String
 	attempt.Error = errText.String
+	attempt.WillRetry = willRetry != 0
+	attempt.CircuitOpen = circuitOpen != 0
+	if before.Valid && strings.TrimSpace(before.String) != "" {
+		attempt.BudgetBefore = &BudgetReport{}
+		if err := json.Unmarshal([]byte(before.String), attempt.BudgetBefore); err != nil {
+			return ReactiveAttempt{}, err
+		}
+	}
+	if after.Valid && strings.TrimSpace(after.String) != "" {
+		attempt.BudgetAfter = &BudgetReport{}
+		if err := json.Unmarshal([]byte(after.String), attempt.BudgetAfter); err != nil {
+			return ReactiveAttempt{}, err
+		}
+	}
 	if completedAt.Valid {
 		attempt.CompletedAt = completedAt.Int64
 	}
@@ -880,4 +1024,11 @@ func nullableInt64(value int64) any {
 		return nil
 	}
 	return value
+}
+
+func boolInt(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
 }

@@ -93,6 +93,16 @@ Agent 层不得在用户工作目录创建 `.agent-builder/results` 或执行独
 
 ## 生命周期
 
+上下文压缩的结构化证据保存在 `runtime_context_projections`、
+`runtime_context_content_replacements`、`runtime_context_boundaries`、
+`runtime_context_reactive_attempts`、`runtime_context_circuit_states` 和
+`runtime_session_memory_revisions`。Session 删除必须在同一清理事务中删除这些记录；摘要消息和
+completed Boundary、preserved refs、Memory revision 与 Session anchor 原子提交。Context
+Governance 桌面设置只读写 `application_settings`，不建立 JSON/SQLite 双写或回退读取。
+
+Session Memory 正文第一阶段直接存 SQLite；Tool Result 原文保存在 Object Store，replacement
+只保存稳定的 `runtime://objects/...` 引用和有界预览。两者都不允许覆盖 canonical 对话历史。
+
 外置内容必须声明保留等级：`permanent`、`project`、`session`、`recovery`、
 `cache` 或 `temporary`。项目和 Session 的硬删除应清理其独占数据；软删除不得提前
 删除恢复所需内容。

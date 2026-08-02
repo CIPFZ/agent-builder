@@ -19,6 +19,13 @@ type ModelInputBuilder interface {
 	BuildModelInput(context.Context, ModelInputSnapshot) (ModelInputProjection, error)
 }
 
+// SessionHistoryProjector rebuilds the provider-facing history from
+// canonical messages and the latest completed persisted compact boundary.
+// Canonical storage remains untouched.
+type SessionHistoryProjector interface {
+	ProjectSessionHistory(context.Context, string, []message.Message) ([]message.Message, error)
+}
+
 // ReactiveCompactor is invoked by the agent loop after a provider request
 // fails with a context-length error. The implementation records the reactive
 // attempt, executes the correct recovery action for the current attempt

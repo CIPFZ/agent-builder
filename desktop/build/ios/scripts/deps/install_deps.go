@@ -11,6 +11,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -42,7 +43,7 @@ func main() {
 					return false, ""
 				}
 				// Get version info
-				out, err := exec.Command("xcodebuild", "-version").Output()
+				out, err := exec.CommandContext(context.Background(), "xcodebuild", "-version").Output()
 				if err != nil {
 					return false, ""
 				}
@@ -61,7 +62,7 @@ func main() {
 			Name: "Xcode Developer Path",
 			CheckFunc: func() (bool, string) {
 				// Check if xcode-select points to a valid Xcode path
-				out, err := exec.Command("xcode-select", "-p").Output()
+				out, err := exec.CommandContext(context.Background(), "xcode-select", "-p").Output()
 				if err != nil {
 					return false, "xcode-select not configured"
 				}
@@ -89,7 +90,7 @@ func main() {
 			Name: "iOS SDK",
 			CheckFunc: func() (bool, string) {
 				// Get the iOS Simulator SDK path
-				cmd := exec.Command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
+				cmd := exec.CommandContext(context.Background(), "xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
 				output, err := cmd.Output()
 				if err != nil {
 					return false, "Cannot find iOS SDK"
@@ -108,7 +109,7 @@ func main() {
 				}
 
 				// Get SDK version
-				versionCmd := exec.Command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-version")
+				versionCmd := exec.CommandContext(context.Background(), "xcrun", "--sdk", "iphonesimulator", "--show-sdk-version")
 				versionOut, _ := versionCmd.Output()
 				version := strings.TrimSpace(string(versionOut))
 
@@ -126,7 +127,7 @@ func main() {
 					return false, ""
 				}
 				// Check if we can list runtimes
-				out, err := exec.Command("xcrun", "simctl", "list", "runtimes").Output()
+				out, err := exec.CommandContext(context.Background(), "xcrun", "simctl", "list", "runtimes").Output()
 				if err != nil {
 					return false, "Cannot access simulator"
 				}
@@ -182,7 +183,7 @@ func main() {
 					fmt.Printf("   Fix command: %s\n", strings.Join(dep.InstallCmd, " "))
 					if promptUser("Do you want to run this command?") {
 						fmt.Println("Running command...")
-						cmd := exec.Command(dep.InstallCmd[0], dep.InstallCmd[1:]...)
+						cmd := exec.CommandContext(context.Background(), dep.InstallCmd[0], dep.InstallCmd[1:]...)
 						cmd.Stdout = os.Stdout
 						cmd.Stderr = os.Stderr
 						cmd.Stdin = os.Stdin
@@ -208,7 +209,7 @@ func main() {
 		fmt.Println("❌ Cannot check for iPhone simulators")
 		hasErrors = true
 	} else {
-		out, err := exec.Command("xcrun", "simctl", "list", "devices").Output()
+		out, err := exec.CommandContext(context.Background(), "xcrun", "simctl", "list", "devices").Output()
 		if err != nil {
 			fmt.Println("❌ Failed to list simulator devices")
 			hasErrors = true
@@ -217,7 +218,7 @@ func main() {
 			fmt.Println()
 
 			// Get the latest iOS runtime
-			runtimeOut, err := exec.Command("xcrun", "simctl", "list", "runtimes").Output()
+			runtimeOut, err := exec.CommandContext(context.Background(), "xcrun", "simctl", "list", "runtimes").Output()
 			if err != nil {
 				fmt.Println("   Failed to get iOS runtimes:", err)
 			} else {
@@ -241,7 +242,7 @@ func main() {
 					createCmd := []string{"xcrun", "simctl", "create", "iPhone 15 Pro", "iPhone 15 Pro", latestRuntime}
 					fmt.Printf("   Command: %s\n", strings.Join(createCmd, " "))
 					if promptUser("Create simulator?") {
-						cmd := exec.Command(createCmd[0], createCmd[1:]...)
+						cmd := exec.CommandContext(context.Background(), createCmd[0], createCmd[1:]...)
 						cmd.Stdout = os.Stdout
 						cmd.Stderr = os.Stderr
 						if err := cmd.Run(); err != nil {
@@ -292,7 +293,7 @@ func checkCommand(args []string) bool {
 	if len(args) == 0 {
 		return false
 	}
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.CommandContext(context.Background(), args[0], args[1:]...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	err := cmd.Run()

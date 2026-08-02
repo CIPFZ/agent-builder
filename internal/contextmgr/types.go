@@ -19,8 +19,6 @@ const (
 type Manager interface {
 	BuildModelInput(context.Context, BuildInputRequest) (BuildInputResult, error)
 	ReactiveCompact(context.Context, ReactiveCompactRequest) (ReactiveCompactResult, error)
-	ManualCompact(context.Context, ManualCompactRequest) (CompactResult, error)
-	ManualSnip(context.Context, ManualSnipRequest) (SnipResult, error)
 }
 
 type BuildInputRequest struct {
@@ -39,20 +37,16 @@ type BuildInputRequest struct {
 	BudgetAfter       *BudgetReport
 	ToolResultBudget  ToolResultBudgetConfig
 	Microcompact      MicrocompactConfig
-	Snip              SnipConfig
-	FullCompact       FullCompactConfig
-	AutoCompact       AutoCompactConfig
 	Now               time.Time
 }
 
 type BuildInputResult struct {
-	Messages       []message.Message
-	ModelMessages  []fantasy.Message
-	Projection     Projection
-	Boundaries     []Boundary
-	Replacements   []ContentReplacement
-	Warnings       []Warning
-	SnipBoundaries []SnipBoundary
+	Messages      []message.Message
+	ModelMessages []fantasy.Message
+	Projection    Projection
+	Boundaries    []Boundary
+	Replacements  []ContentReplacement
+	Warnings      []Warning
 }
 
 type ReactiveCompactRequest struct {
@@ -78,17 +72,6 @@ type CompactResult struct {
 	Boundary Boundary
 }
 
-type ManualSnipRequest struct {
-	SessionID    string
-	TurnID       string
-	ProjectionID string
-	Reason       string
-}
-
-type SnipResult struct {
-	SnipBoundary SnipBoundary
-}
-
 type BudgetReport struct {
 	TotalEstimatedTokens int    `json:"totalEstimatedTokens,omitempty"`
 	ContextWindow        int    `json:"contextWindow,omitempty"`
@@ -102,11 +85,14 @@ type ToolResultBudgetConfig struct {
 
 type MicrocompactConfig struct {
 	Enabled              bool
+	Trigger              string
+	MainTurn             bool
 	IdleIntervalMillis   int64
 	LastAssistantAt      int64
 	ToolResultCountLimit int
 	ToolResultTokenLimit int
 	KeepRecent           int
+	EligibleToolCallIDs  map[string]bool
 }
 
 type FullCompactConfig struct {
@@ -188,23 +174,27 @@ type ProjectionMessage struct {
 }
 
 type Boundary struct {
-	ID               string        `json:"id"`
-	SessionID        string        `json:"sessionId"`
-	TurnID           string        `json:"turnId,omitempty"`
-	ProjectionID     string        `json:"projectionId,omitempty"`
-	Kind             string        `json:"kind"`
-	Trigger          string        `json:"trigger"`
-	Status           string        `json:"status"`
-	SummaryMessageID string        `json:"summaryMessageId,omitempty"`
-	SummaryRef       string        `json:"summaryRef,omitempty"`
-	MessageRefs      []string      `json:"messageRefs,omitempty"`
-	ToolCallRefs     []string      `json:"toolCallRefs,omitempty"`
-	ReinjectedRefs   []string      `json:"reinjectedRefs,omitempty"`
-	BudgetBefore     *BudgetReport `json:"budgetBefore,omitempty"`
-	BudgetAfter      *BudgetReport `json:"budgetAfter,omitempty"`
-	CreatedAt        int64         `json:"createdAt"`
-	CompletedAt      int64         `json:"completedAt,omitempty"`
-	Error            string        `json:"error,omitempty"`
+	ID                      string        `json:"id"`
+	SessionID               string        `json:"sessionId"`
+	TurnID                  string        `json:"turnId,omitempty"`
+	ProjectionID            string        `json:"projectionId,omitempty"`
+	Kind                    string        `json:"kind"`
+	Trigger                 string        `json:"trigger"`
+	Status                  string        `json:"status"`
+	SummaryMessageID        string        `json:"summaryMessageId,omitempty"`
+	SummaryRef              string        `json:"summaryRef,omitempty"`
+	MessageRefs             []string      `json:"summarizedMessageRefs,omitempty"`
+	PreservedMessageRefs    []string      `json:"preservedMessageRefs,omitempty"`
+	BoundaryCutoffMessageID string        `json:"boundaryCutoffMessageId,omitempty"`
+	SummaryMode             string        `json:"summaryMode,omitempty"`
+	MemoryRevision          int           `json:"memoryRevision,omitempty"`
+	ToolCallRefs            []string      `json:"toolCallRefs,omitempty"`
+	ReinjectedRefs          []string      `json:"reinjectedRefs,omitempty"`
+	BudgetBefore            *BudgetReport `json:"budgetBefore,omitempty"`
+	BudgetAfter             *BudgetReport `json:"budgetAfter,omitempty"`
+	CreatedAt               int64         `json:"createdAt"`
+	CompletedAt             int64         `json:"completedAt,omitempty"`
+	Error                   string        `json:"error,omitempty"`
 }
 
 type ContentReplacement struct {
@@ -222,6 +212,32 @@ type ContentReplacement struct {
 	ReplacementEstimatedTokens int    `json:"replacementEstimatedTokens,omitempty"`
 	Reason                     string `json:"reason,omitempty"`
 	CreatedAt                  int64  `json:"createdAt"`
+}
+
+const (
+	SessionMemoryStatusStarted   = "started"
+	SessionMemoryStatusCompleted = "completed"
+	SessionMemoryStatusFailed    = "failed"
+)
+
+type SessionMemoryRevision struct {
+	ID                      string `json:"id"`
+	SessionID               string `json:"sessionId"`
+	TurnID                  string `json:"turnId,omitempty"`
+	Revision                int    `json:"revision"`
+	Status                  string `json:"status"`
+	BaseRevision            int    `json:"baseRevision,omitempty"`
+	Content                 string `json:"content,omitempty"`
+	ContentHash             string `json:"contentHash,omitempty"`
+	LastSummarizedMessageID string `json:"lastSummarizedMessageId,omitempty"`
+	SourceMessageCount      int    `json:"sourceMessageCount"`
+	SourceTokenEstimate     int    `json:"sourceTokenEstimate"`
+	SourceToolCallCount     int    `json:"sourceToolCallCount"`
+	Provider                string `json:"provider,omitempty"`
+	Model                   string `json:"model,omitempty"`
+	CreatedAt               int64  `json:"createdAt"`
+	CompletedAt             int64  `json:"completedAt,omitempty"`
+	Error                   string `json:"error,omitempty"`
 }
 
 type SnipBoundary struct {
@@ -271,14 +287,25 @@ type Warning struct {
 }
 
 type ReactiveAttempt struct {
-	ID           string `json:"id"`
+	ID           string        `json:"id"`
+	SessionID    string        `json:"sessionId"`
+	TurnID       string        `json:"turnId"`
+	ProjectionID string        `json:"projectionId,omitempty"`
+	Attempt      int           `json:"attempt"`
+	Action       string        `json:"action"`
+	Status       string        `json:"status"`
+	Error        string        `json:"error,omitempty"`
+	BudgetBefore *BudgetReport `json:"budgetBefore,omitempty"`
+	BudgetAfter  *BudgetReport `json:"budgetAfter,omitempty"`
+	WillRetry    bool          `json:"willRetry"`
+	CircuitOpen  bool          `json:"circuitOpen"`
+	CreatedAt    int64         `json:"createdAt"`
+	CompletedAt  int64         `json:"completedAt,omitempty"`
+}
+
+type CircuitState struct {
 	SessionID    string `json:"sessionId"`
-	TurnID       string `json:"turnId"`
-	ProjectionID string `json:"projectionId,omitempty"`
-	Attempt      int    `json:"attempt"`
-	Action       string `json:"action"`
-	Status       string `json:"status"`
-	Error        string `json:"error,omitempty"`
-	CreatedAt    int64  `json:"createdAt"`
-	CompletedAt  int64  `json:"completedAt,omitempty"`
+	FailureCount int    `json:"failureCount"`
+	Open         bool   `json:"open"`
+	UpdatedAt    int64  `json:"updatedAt"`
 }

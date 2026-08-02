@@ -67,20 +67,13 @@ func (r *runtimeService) computeContextUsage(ctx context.Context, sessionID, tur
 	if err != nil {
 		return RuntimeContextUsage{}, fmt.Errorf("failed to list Agent Builder session messages: %w", err)
 	}
-	// Post-boundary selection is ordinal: locate the latest completed full
-	// boundary's summary message in the ordered list and slice from there.
-	// Timestamps are never compared (second/millisecond mixups and same-second
-	// messages made that unreliable). Unknown summary id (old sessions) falls
-	// back to the full list.
-	summaryMessageID, compactCount := r.latestCompletedFullBoundary(ctx, sessionID)
-	postBoundary := messages
-	if summaryMessageID != "" {
-		for i, msg := range messages {
-			if msg.ID == summaryMessageID {
-				postBoundary = messages[i:]
-				break
-			}
-		}
+	// Resolve the same persisted Boundary projection the Agent sends to the
+	// Provider. Budget decisions must never fall back to canonical full-history
+	// slicing once preserved-tail boundaries exist.
+	_, compactCount := r.latestCompletedFullBoundary(ctx, sessionID)
+	postBoundary, projectErr := r.projectSessionHistory(ctx, sessionID, messages)
+	if projectErr != nil {
+		return RuntimeContextUsage{}, fmt.Errorf("project session history for budget: %w", projectErr)
 	}
 	// The anchor is the last assistant message in the post-boundary slice that
 	// carries real provider usage. Estimated usage is never persisted to
@@ -296,7 +289,7 @@ func (r *runtimeService) latestCompletedFullBoundary(ctx context.Context, sessio
 	if err := conn.QueryRowContext(ctx, `
 SELECT COUNT(*)
 FROM runtime_context_boundaries
-WHERE session_id = ? AND kind = 'full' AND status = 'completed'
+WHERE session_id = ? AND kind IN ('full', 'session_memory') AND status = 'completed'
 `, sessionID).Scan(&count); err != nil {
 		return "", 0
 	}
@@ -304,7 +297,7 @@ WHERE session_id = ? AND kind = 'full' AND status = 'completed'
 	err = conn.QueryRowContext(ctx, `
 SELECT summary_message_id
 FROM runtime_context_boundaries
-WHERE session_id = ? AND kind = 'full' AND status = 'completed'
+WHERE session_id = ? AND kind IN ('full', 'session_memory') AND status = 'completed'
 ORDER BY created_at DESC, id DESC
 LIMIT 1
 `, sessionID).Scan(&summaryID)

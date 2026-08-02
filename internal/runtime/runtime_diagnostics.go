@@ -153,22 +153,17 @@ func (r *runtimeService) queryDiagnosticIncidents(ctx context.Context, conn *sql
 		args = append(args, sessionID)
 	}
 	args = append(args, limit*3+10)
-	rows, err := conn.QueryContext(ctx, `SELECT id, session_id, status, COALESCE(provider,''), COALESCE(model,''), COALESCE(error,''), started_at, updated_at, COALESCE(finished_at,0) FROM runtime_turns WHERE `+where+` ORDER BY updated_at DESC LIMIT ?`, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query diagnostic turns: %w", err)
-	}
 	var turns []RuntimeTurn
-	for rows.Next() {
+	if err := queryRuntimeRows(ctx, conn, `SELECT id, session_id, status, COALESCE(provider,''), COALESCE(model,''), COALESCE(error,''), started_at, updated_at, COALESCE(finished_at,0) FROM runtime_turns WHERE `+where+` ORDER BY updated_at DESC LIMIT ?`, func(rows *sql.Rows) error {
 		var turn RuntimeTurn
 		var updated int64
 		if err := rows.Scan(&turn.ID, &turn.SessionID, &turn.Status, &turn.Provider, &turn.Model, &turn.Error, &turn.StartedAt, &updated, &turn.FinishedAt); err != nil {
-			rows.Close() //nolint:errcheck
-			return nil, err
+			return err
 		}
 		turns = append(turns, turn)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
+		return nil
+	}, args...); err != nil {
+		return nil, fmt.Errorf("query diagnostic turns: %w", err)
 	}
 
 	turnIDs := make([]string, 0, len(turns))
@@ -262,19 +257,18 @@ func queryDiagnosticEvidence(ctx context.Context, conn *sql.DB, turnIDs, toolIDs
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
-		for rows.Next() {
+		if err := consumeRuntimeRows(rows, func(rows *sql.Rows) error {
 			var id, kind, sessionID, turnID, toolID, created string
 			if err := rows.Scan(&id, &kind, &sessionID, &turnID, &toolID, &created); err != nil {
-				rows.Close()
-				return nil, nil, nil, nil, err
+				return err
 			}
 			if !isRelevantDiagnosticEvent(kind) {
-				continue
+				return nil
 			}
 			byTurn[turnID] = append(byTurn[turnID], RuntimeDiagnosticEvidence{ID: id, Source: "runtime_events", Kind: kind, Label: "Runtime 事件", Summary: kind, Timestamp: created, SessionID: sessionID, TurnID: turnID, ToolCallID: toolID})
 			last[turnID] = laterTimestamp(last[turnID], created)
-		}
-		if err := rows.Close(); err != nil {
+			return nil
+		}); err != nil {
 			return nil, nil, nil, nil, err
 		}
 
@@ -282,19 +276,18 @@ func queryDiagnosticEvidence(ctx context.Context, conn *sql.DB, turnIDs, toolIDs
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
-		for rows.Next() {
+		if err := consumeRuntimeRows(rows, func(rows *sql.Rows) error {
 			var id, kind, sessionID, turnID, toolID, created string
 			if err := rows.Scan(&id, &kind, &sessionID, &turnID, &toolID, &created); err != nil {
-				rows.Close()
-				return nil, nil, nil, nil, err
+				return err
 			}
 			if !isRelevantDiagnosticAudit(kind) {
-				continue
+				return nil
 			}
 			byTurn[turnID] = append(byTurn[turnID], RuntimeDiagnosticEvidence{ID: id, Source: "runtime_audit_events", Kind: kind, Label: "审计记录", Summary: kind, Timestamp: created, SessionID: sessionID, TurnID: turnID, ToolCallID: toolID})
 			last[turnID] = laterTimestamp(last[turnID], created)
-		}
-		if err := rows.Close(); err != nil {
+			return nil
+		}); err != nil {
 			return nil, nil, nil, nil, err
 		}
 
@@ -302,19 +295,18 @@ func queryDiagnosticEvidence(ctx context.Context, conn *sql.DB, turnIDs, toolIDs
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
-		for rows.Next() {
+		if err := consumeRuntimeRows(rows, func(rows *sql.Rows) error {
 			var id, sourceID, resumedID, action, created, status string
 			if err := rows.Scan(&id, &sourceID, &resumedID, &action, &created, &status); err != nil {
-				rows.Close()
-				return nil, nil, nil, nil, err
+				return err
 			}
 			byTurn[sourceID] = append(byTurn[sourceID], RuntimeDiagnosticEvidence{ID: id, Source: "runtime_recovery_links", Kind: "recovery", Label: "恢复记录", Summary: action, Timestamp: created, TurnID: sourceID, Metadata: map[string]string{"resumedTurnId": resumedID, "resumedStatus": status}})
 			if status == turnStatusCompleted {
 				recovered[sourceID] = true
 			}
 			last[sourceID] = laterTimestamp(last[sourceID], created)
-		}
-		if err := rows.Close(); err != nil {
+			return nil
+		}); err != nil {
 			return nil, nil, nil, nil, err
 		}
 
@@ -328,23 +320,22 @@ func queryDiagnosticEvidence(ctx context.Context, conn *sql.DB, turnIDs, toolIDs
 			if err != nil {
 				return nil, nil, nil, nil, err
 			}
-			for rows.Next() {
+			if err := consumeRuntimeRows(rows, func(rows *sql.Rows) error {
 				var id, kind, sessionID, turnID, toolID, summary string
 				var created int64
 				if err := rows.Scan(&id, &kind, &sessionID, &turnID, &toolID, &summary, &created); err != nil {
-					rows.Close()
-					return nil, nil, nil, nil, err
+					return err
 				}
 				if !isRelevantAuxiliaryDiagnosticEvidence(kind, summary) {
-					continue
+					return nil
 				}
 				ev := RuntimeDiagnosticEvidence{ID: id, Source: spec.source, Kind: kind, Label: spec.label, Summary: preview(summary, 180), Timestamp: millisRFC3339(created), SessionID: sessionID, TurnID: turnID, ToolCallID: toolID}
 				byTurn[turnID] = append(byTurn[turnID], ev)
 				if toolID != "" {
 					byTool[toolID] = append(byTool[toolID], ev)
 				}
-			}
-			if err := rows.Close(); err != nil {
+				return nil
+			}); err != nil {
 				return nil, nil, nil, nil, err
 			}
 		}
@@ -354,21 +345,20 @@ func queryDiagnosticEvidence(ctx context.Context, conn *sql.DB, turnIDs, toolIDs
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
-		for rows.Next() {
+		if err := consumeRuntimeRows(rows, func(rows *sql.Rows) error {
 			var id, turnID, sessionID, name, status, output, errText string
 			var exitCode int
 			var started, finished int64
 			if err := rows.Scan(&id, &turnID, &sessionID, &name, &status, &output, &errText, &exitCode, &started, &finished); err != nil {
-				rows.Close()
-				return nil, nil, nil, nil, err
+				return err
 			}
 			ev := RuntimeDiagnosticEvidence{ID: "tool:" + id, Source: "runtime_tool_calls", Kind: status, Label: "工具执行", Summary: firstNonEmpty(preview(errText, 200), preview(output, 200), status), Timestamp: millisRFC3339(firstNonZeroInt64(finished, started)), SessionID: sessionID, TurnID: turnID, ToolCallID: id, Metadata: nonEmptyMetadata(map[string]string{"tool": name, "exitCode": strconv.Itoa(exitCode)})}
 			byTool[id] = append(byTool[id], ev)
 			if turnID != "" {
 				byTurn[turnID] = append(byTurn[turnID], ev)
 			}
-		}
-		if err := rows.Close(); err != nil {
+			return nil
+		}); err != nil {
 			return nil, nil, nil, nil, err
 		}
 
@@ -376,20 +366,19 @@ func queryDiagnosticEvidence(ctx context.Context, conn *sql.DB, turnIDs, toolIDs
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
-		for rows.Next() {
+		if err := consumeRuntimeRows(rows, func(rows *sql.Rows) error {
 			var id, turnID, toolID, path, status string
 			var created int64
 			if err := rows.Scan(&id, &turnID, &toolID, &path, &status, &created); err != nil {
-				rows.Close()
-				return nil, nil, nil, nil, err
+				return err
 			}
 			ev := RuntimeDiagnosticEvidence{ID: id + ":path", Source: "runtime_permission_requests", Kind: "path", Label: "引用路径", Summary: "故障证据包含一个明确路径", Timestamp: millisRFC3339(created), TurnID: turnID, ToolCallID: toolID, Metadata: map[string]string{"path": path, "status": status}}
 			byTool[toolID] = append(byTool[toolID], ev)
 			if turnID != "" {
 				byTurn[turnID] = append(byTurn[turnID], ev)
 			}
-		}
-		if err := rows.Close(); err != nil {
+			return nil
+		}); err != nil {
 			return nil, nil, nil, nil, err
 		}
 	}
@@ -736,6 +725,7 @@ func redactSupportPath(path string) string {
 	}
 	return clean
 }
+
 func incidentEvidencePath(incident RuntimeDiagnosticIncident) string {
 	for _, ev := range incident.Evidence {
 		if path := strings.TrimSpace(ev.Metadata["path"]); path != "" {
@@ -744,6 +734,7 @@ func incidentEvidencePath(incident RuntimeDiagnosticIncident) string {
 	}
 	return ""
 }
+
 func sqlInClause(values []string) (string, []any) {
 	holders := make([]string, len(values))
 	args := make([]any, len(values))
@@ -753,12 +744,14 @@ func sqlInClause(values []string) (string, []any) {
 	}
 	return strings.Join(holders, ","), args
 }
+
 func millisRFC3339(value int64) string {
 	if value <= 0 {
 		return ""
 	}
 	return time.UnixMilli(value).UTC().Format(time.RFC3339Nano)
 }
+
 func diagnosticBeforeMillis(value string) int64 {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -774,10 +767,12 @@ func diagnosticBeforeMillis(value string) int64 {
 	}
 	return time.Now().Add(time.Millisecond).UnixMilli()
 }
+
 func diagnosticCursor(item RuntimeDiagnosticIncident) string {
 	parsed, _ := time.Parse(time.RFC3339Nano, item.LastObservedAt)
 	return strconv.FormatInt(parsed.UnixMilli(), 10) + ":" + item.ID
 }
+
 func laterTimestamp(left, right string) string {
 	if left == "" {
 		return right
@@ -790,6 +785,7 @@ func laterTimestamp(left, right string) string {
 	}
 	return left
 }
+
 func nonEmptyMetadata(values map[string]string) map[string]string {
 	result := map[string]string{}
 	for key, value := range values {

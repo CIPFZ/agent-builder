@@ -695,7 +695,7 @@ func runtimeTerminalGitBashProfile() (runtimeTerminalShellProfile, error) {
 		`C:\Program Files (x86)\Git\bin\bash.exe`,
 	)
 	if gitBash == "" {
-		return runtimeTerminalShellProfile{}, errors.New("Git Bash terminal profile is not available")
+		return runtimeTerminalShellProfile{}, errors.New("git Bash terminal profile is unavailable")
 	}
 	return runtimeTerminalShellProfile{
 		name:  "MINGW64",
@@ -708,7 +708,7 @@ func runtimeTerminalGitBashProfile() (runtimeTerminalShellProfile, error) {
 func runtimeTerminalWindowsPowerShellProfile() (runtimeTerminalShellProfile, error) {
 	powershell := runtimeTerminalLookPath("powershell.exe")
 	if powershell == "" {
-		return runtimeTerminalShellProfile{}, errors.New("Windows PowerShell terminal profile is not available")
+		return runtimeTerminalShellProfile{}, errors.New("windows PowerShell terminal profile is unavailable")
 	}
 	return runtimeTerminalShellProfile{
 		name:  "Windows PowerShell",

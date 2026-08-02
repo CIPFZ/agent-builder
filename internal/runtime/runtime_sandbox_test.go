@@ -136,7 +136,6 @@ func TestRuntimeSandboxEvaluationBoundaryAndHeadlessFailClosed(t *testing.T) {
 	service := newRuntimeService()
 	service.turns = newRuntimeTurnStore(conn)
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
-	service.eventStore = newRuntimeEventStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	service.policy = runtimePolicyFromParts(permission.PolicyModeAsk, "headless", nil, 0)
 

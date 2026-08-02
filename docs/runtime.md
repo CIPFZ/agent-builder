@@ -60,6 +60,20 @@ Prompt 由系统指令、项目上下文、Skills、Hooks 注入、文件读取�
 
 上下文治理配置控制窗口使用和压缩行为。压缩是运行时操作，生成摘要消息并保留可追踪的 usage、边界和恢复信息；前端仅发起操作并展示结果。
 
+第一阶段压缩链路以 Runtime/SQLite 为唯一权威：canonical Message、ToolCall 和 ToolResult
+保持追加且不因压缩删除；Provider 输入由最新 completed `full` 或 `session_memory` Boundary
+重建为摘要、配对安全的保留尾部和 cutoff 后的新消息。Tool Result Budget 与 Time-based
+Microcompact 只改变 Provider-neutral 投影。
+
+Reactive Recovery 只接受结构化分类为 context-length 的 Provider 错误。固定顺序为：统一
+Microcompact reducer、Session Memory Compact（不适用时 Full Compact）、仍有安全 ToolResult
+缩减空间时的最终 reducer。Attempt、前后预算、是否重试和熔断状态写入 SQLite；三次连续
+auto/reactive Full Compact 失败会打开持久化熔断，手动 Compact 可解除。
+
+`ContextCompactionStatus` 是 Wails 客户端恢复状态的查询接口，包含 active operation、最近成功/
+失败 Boundary、熔断和最新 Session Memory revision。`compact.*` 事件只用于进度和失效通知，
+窗口刷新、会话切换和 Runtime 重启后都重新查询快照。
+
 ## 输出、事件与恢复
 
 - 会话输出支持快照、增量事件和流式订阅。

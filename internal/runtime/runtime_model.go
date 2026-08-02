@@ -12,7 +12,7 @@ import (
 
 const localProviderID = "local-model"
 
-var errModelConfigMissing = errors.New("model is not configured. Open model settings and save protocol, URL, API key, and model before chatting.")
+var errModelConfigMissing = errors.New("model is not configured; open model settings and save protocol, URL, API key, and model before chatting")
 
 func (r *runtimeService) Models(ctx context.Context) (RuntimeModelsResponse, error) {
 	configured, configuredErr := r.configuredProviderModels(ctx)

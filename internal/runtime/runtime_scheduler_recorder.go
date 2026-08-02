@@ -441,9 +441,10 @@ func (r *runtimeSchedulerRecorder) recordPolicyDecision(call agent.SchedulerTool
 func (r *runtimeSchedulerRecorder) recordPolicyDiagnosticsEvents(call agent.SchedulerToolCall, result permission.PolicyResult) {
 	if result.RuleID != "" {
 		eventType := runtimeapi.EventPolicyRuleMatched
-		if result.Decision == permission.PolicyDeny {
+		switch result.Decision {
+		case permission.PolicyDeny:
 			eventType = runtimeapi.EventPolicyRuleDenied
-		} else if result.Decision == permission.PolicyAsk {
+		case permission.PolicyAsk:
 			eventType = runtimeapi.EventPolicyRuleAsk
 		}
 		r.service.storeRuntimeEvent(runtimeapi.Event{
@@ -926,8 +927,11 @@ func (r *runtimeSchedulerRecorder) PersistToolResult(ctx context.Context, req ag
 	}
 	for i := len(refs) - 1; i >= 0; i-- {
 		ref := refs[i]
-		if ref.ContentType == "model_content" && ref.SizeBytes == int64(len(req.Content)) {
-			return ref.URI, nil
+		if ref.ContentType == "model_content" && ref.SizeBytes == int64(len(req.Content)) && ref.CanReadContent {
+			content, readErr := store.ReadContent(ctx, ref.ID)
+			if readErr == nil && content.Content == req.Content {
+				return ref.URI, nil
+			}
 		}
 	}
 	projectID := ""

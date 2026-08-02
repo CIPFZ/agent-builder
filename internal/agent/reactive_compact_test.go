@@ -29,6 +29,7 @@ type scriptedReactiveModel struct {
 func (m *scriptedReactiveModel) Generate(context.Context, fantasy.Call) (*fantasy.Response, error) {
 	return nil, fmt.Errorf("Generate is not implemented")
 }
+
 func (m *scriptedReactiveModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
 	m.mu.Lock()
 	m.calls++
@@ -61,9 +62,11 @@ func (m *scriptedReactiveModel) Stream(ctx context.Context, call fantasy.Call) (
 		yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonStop})
 	}, nil
 }
+
 func (m *scriptedReactiveModel) GenerateObject(context.Context, fantasy.ObjectCall) (*fantasy.ObjectResponse, error) {
 	return nil, fmt.Errorf("GenerateObject is not implemented")
 }
+
 func (m *scriptedReactiveModel) StreamObject(context.Context, fantasy.ObjectCall) (fantasy.ObjectStreamResponse, error) {
 	return nil, fmt.Errorf("StreamObject is not implemented")
 }

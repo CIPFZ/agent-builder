@@ -3,15 +3,11 @@ package runtime
 import "github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 
 func NewRuntimeService() RuntimeService {
-
 	return newRuntimeService()
-
 }
 
 func newRuntimeService() *runtimeService {
-
 	service := &runtimeService{
-
 		requests: make(map[string]runtimeRequestState),
 
 		sessionTurns: make(map[string]string),
@@ -42,6 +38,7 @@ func newRuntimeService() *runtimeService {
 		messageStream: make(map[string]*messageStreamCursor),
 
 		compactTurnStates: make(map[string]runtimeTurnCompactState),
+		compactOperations: make(map[string]bool),
 
 		compactFailures:        make(map[string]int),
 		diagnosticChecks:       make(map[string]RuntimeTargetedDiagnostic),

@@ -215,9 +215,10 @@ func (r *runtimeService) consumePermissionPolicyApplications(ctx context.Context
 			})
 			if applied.RuleID != "" {
 				eventType := runtimeapi.EventPolicyRuleMatched
-				if applied.Decision == permission.PolicyDeny {
+				switch applied.Decision {
+				case permission.PolicyDeny:
 					eventType = runtimeapi.EventPolicyRuleDenied
-				} else if applied.Decision == permission.PolicyAsk {
+				case permission.PolicyAsk:
 					eventType = runtimeapi.EventPolicyRuleAsk
 				}
 				r.storeRuntimeEvent(runtimeapi.Event{
@@ -350,6 +351,9 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 		if runtimeEvent.Type == runtimeapi.EventMessageCompleted && payload.Payload.Role == message.Assistant && !payload.Payload.Usage.IsZero() {
 			r.scheduleContextUsageUpdate(msg.SessionID, turnID)
 		}
+		if runtimeEvent.Type == runtimeapi.EventMessageCompleted && payload.Payload.Role == message.Assistant && !payload.Payload.IsSummaryMessage {
+			r.scheduleSessionMemoryExtraction(msg.SessionID, turnID, msg.ID)
+		}
 	case pubsub.Event[apitypes.Message]:
 		r.eventStats.messageEvents++
 		turnID := r.sessionTurns[payload.Payload.SessionID]
@@ -415,6 +419,19 @@ func (s runtimeEventStats) snapshot() RuntimeEventStats {
 }
 
 func (r *runtimeService) storeRuntimeEvent(event RuntimeEvent) RuntimeEvent {
+	// Recovery/import paths can append explicit durable sequences between
+	// ordinary runtime events. Reconcile with SQLite before each automatic
+	// allocation so an occupied sequence is never reused. Query outside r.mu
+	// to avoid reversing the projector transaction/ runtime mutex lock order.
+	if event.Sequence == 0 && r.eventStore.db != nil {
+		if maxSequence, err := r.eventStore.MaxSequence(context.Background()); err == nil {
+			r.mu.Lock()
+			if maxSequence > r.nextEventSequence {
+				r.nextEventSequence = maxSequence
+			}
+			r.mu.Unlock()
+		}
+	}
 	r.mu.Lock()
 	event = r.appendRuntimeEventLocked(event)
 	r.mu.Unlock()

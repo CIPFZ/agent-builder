@@ -197,10 +197,11 @@ func (r *runtimeService) applyUserPromptSubmitHooks(ctx context.Context, normali
 	if _, err := r.hookExecutions.Upsert(ctx, completed); err == nil {
 		eventType := runtimeapi.EventHookExecutionCompleted
 		auditType := "hook_execution_completed"
-		if completed.Status == hookStatusBlocked {
+		switch completed.Status {
+		case hookStatusBlocked:
 			eventType = runtimeapi.EventHookExecutionBlocked
 			auditType = "hook_execution_blocked"
-		} else if completed.Status == hookStatusFailed {
+		case hookStatusFailed:
 			eventType = runtimeapi.EventHookExecutionFailed
 			auditType = "hook_execution_failed"
 		}

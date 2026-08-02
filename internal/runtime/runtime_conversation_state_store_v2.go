@@ -193,6 +193,7 @@ func canonicalSnapshotStateRows(s RuntimeCanonicalConversationSnapshot) []canoni
 	}
 	return out
 }
+
 func canonicalEventEntityJSON(event RuntimeConversationEntityEventV2) ([]byte, error) {
 	switch event.EntityType {
 	case RuntimeConversationEntityTurn:
@@ -258,6 +259,7 @@ func (s runtimeConversationEventStoreV2) markFailure(ctx context.Context, sessio
 func canonicalSemanticSnapshotsEqual(a, b RuntimeCanonicalConversationSnapshot) bool {
 	return reflect.DeepEqual(canonicalComparableState(a), canonicalComparableState(b))
 }
+
 func canonicalComparableState(s RuntimeCanonicalConversationSnapshot) map[string]string {
 	out := map[string]string{}
 	for _, row := range canonicalSnapshotStateRows(s) {

@@ -68,7 +68,7 @@ func TestTruncate_UTF8Boundary_TruncatesSafely(t *testing.T) {
 	}
 	sb.WriteString("café café café café ")
 	content := sb.String()
-	maxChars := len(content) - 3
+	maxChars := utf8.RuneCountInString(content) - 3
 
 	result, persisted := Truncate(content, maxChars, "runtime://objects/test")
 	require.True(t, persisted)

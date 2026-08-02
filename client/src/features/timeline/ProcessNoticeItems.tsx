@@ -14,12 +14,11 @@ export function CompactTraceRow({ item }: { item: ConversationTimelineItemViewMo
   const compact = item.compact;
   const failed = item.status === 'failed' || Boolean(item.error || compact?.error);
   const compacting = item.status === 'compacting' || item.status === 'started';
-  const summary = compact?.summaryText || item.summary || item.content;
   const error = item.error || compact?.error;
   const meta = <>{(compact?.trigger || item.title) && <Tag>{compactTriggerLabel(compact?.trigger || item.title || '')}</Tag>}{item.status && <Tag color={failed ? 'error' : compacting ? 'processing' : 'success'}>{compactStatusLabel(item.status)}</Tag>}{!failed && !compacting && typeof compact?.preTokens === 'number' && typeof compact?.postTokens === 'number' && <span>{formatTokenCount(compact.preTokens)} -&gt; {formatTokenCount(compact.postTokens)} tokens</span>}{!failed && !compacting && typeof compact?.summarizedCount === 'number' && compact.summarizedCount > 0 && <span>{compact.summarizedCount} messages</span>}</>;
   return (
-    <TraceRow expandable={Boolean(summary)} icon={failed ? <WarningOutlined /> : compacting ? <LoadingOutlined spin /> : <CompressOutlined />} meta={meta} testId="timeline-compact-row" title={compactTraceTitle(item, compacting, failed)} tone={failed ? 'error' : 'default'} extra={error ? <span>{error}</span> : null}>
-      {summary ? <div className={styles.compactSummaryPanel}><div className={styles.compactSummaryLabel}>Summary retained for future turns</div><BoundedNoticeText text={summary} /></div> : null}
+    <TraceRow expandable={!compacting} icon={failed ? <WarningOutlined /> : compacting ? <LoadingOutlined spin /> : <CompressOutlined />} meta={meta} testId="timeline-compact-row" title={compactTraceTitle(item, compacting, failed)} tone={failed ? 'error' : 'default'} extra={error ? <span>{error}</span> : null}>
+      {!compacting ? <div className={styles.compactSummaryPanel}><div className={styles.compactSummaryLabel}>压缩详情</div><span>{compactDetail(compact?.trigger, item.status, compact?.preTokens, compact?.postTokens, compact?.summarizedCount)}</span></div> : null}
     </TraceRow>
   );
 }
@@ -44,17 +43,26 @@ export function TurnDiagnosticWarning({ item }: { item: ConversationTimelineItem
 
 function compactTraceTitle(item: ConversationTimelineItemViewModel, compacting: boolean, failed: boolean) {
   const trigger = compactTriggerLabel(item.compact?.trigger || item.title || '');
-  if (failed) return trigger ? `${trigger} context compact failed` : 'Context compact failed';
-  if (compacting) return trigger ? `${trigger} context compacting` : 'Compacting context';
-  return trigger ? `${trigger} context compacted` : 'Context compacted';
+  if (failed) return trigger ? `${trigger}上下文压缩失败` : '上下文压缩失败';
+  if (compacting) return item.compact?.trigger === 'reactive' ? '上下文超限，正在缩减并重试' : '正在整理上下文';
+  return trigger ? `${trigger}上下文已压缩` : '上下文已压缩';
 }
 
 function compactStatusLabel(status: string) {
-  return status === 'started' ? 'running' : status === 'completed' ? 'done' : status;
+  return status === 'started' ? '进行中' : status === 'completed' ? '已完成' : status === 'failed' ? '失败' : status;
 }
 
 function compactTriggerLabel(trigger: string) {
-  return trigger === 'auto' ? 'Auto' : trigger === 'manual' ? 'Manual' : trigger === 'reactive' ? 'Reactive' : trigger;
+  return trigger === 'auto' ? '自动' : trigger === 'manual' ? '手动' : trigger === 'reactive' ? '恢复' : trigger;
+}
+
+function compactDetail(trigger?: string, status?: string, preTokens?: number, postTokens?: number, summarizedCount?: number) {
+  return [
+    `类型：${compactTriggerLabel(trigger || '') || '上下文压缩'}`,
+    `结果：${compactStatusLabel(status || 'completed')}`,
+    typeof preTokens === 'number' && typeof postTokens === 'number' ? `Token：${formatTokenCount(preTokens)} → ${formatTokenCount(postTokens)}` : undefined,
+    typeof summarizedCount === 'number' ? `摘要消息：${summarizedCount}` : undefined,
+  ].filter(Boolean).join('；');
 }
 
 function formatTokenCount(tokens: number) {

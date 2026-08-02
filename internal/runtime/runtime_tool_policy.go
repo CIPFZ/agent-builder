@@ -12,8 +12,8 @@ import (
 // permission and turn state when it has them available.
 type runtimeToolPolicyContext struct {
 	PermissionStatus string // pending | denied | cancelled | expired | ""
-	TurnTerminal    bool
-	TurnError       string
+	TurnTerminal     bool
+	TurnError        string
 }
 
 // runtimeToolKind is the single kind derivation used everywhere. Callers pass

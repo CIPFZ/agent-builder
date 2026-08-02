@@ -115,6 +115,7 @@ func TestRunReactiveCompactAttempt2RunsFullCompact(t *testing.T) {
 	t.Parallel()
 
 	service, sessID := buildReactiveTestRuntime(t)
+	installTestCompactSummaryGenerator(service)
 	require := requireHelper(t)
 
 	// Prime with an attempt-1 microcompact override so we can prove
@@ -176,6 +177,31 @@ func TestCompactCircuitBreakerOpensAfterThreeFailures(t *testing.T) {
 	require.False(service.isCompactCircuitOpen("s2"))
 	// s1 is still reset.
 	require.False(service.isCompactCircuitOpen("s1"))
+}
+
+func TestCompactCircuitBreakerRestoresFromSQLite(t *testing.T) {
+	t.Parallel()
+
+	service, sessionID := buildReactiveTestRuntime(t)
+	if err := service.ensureContextManager(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < compactCircuitBreakerThreshold; i++ {
+		service.incrementCompactFailure(sessionID)
+	}
+
+	restarted := newRuntimeService()
+	restarted.contextStore = service.contextStore
+	if !restarted.isCompactCircuitOpen(sessionID) {
+		t.Fatal("circuit state was not restored from SQLite")
+	}
+	restarted.resetCompactFailures(sessionID)
+
+	again := newRuntimeService()
+	again.contextStore = service.contextStore
+	if again.isCompactCircuitOpen(sessionID) {
+		t.Fatal("manual reset was not persisted to SQLite")
+	}
 }
 
 // TestRunReactiveCompactSkipsWhenCircuitOpen verifies the reactive path
@@ -242,6 +268,7 @@ func TestManualCompactResetsCircuitBreaker(t *testing.T) {
 	t.Parallel()
 
 	service, sessID := buildReactiveTestRuntime(t)
+	installTestCompactSummaryGenerator(service)
 	require := requireHelper(t)
 
 	// Prime the breaker.
@@ -251,8 +278,7 @@ func TestManualCompactResetsCircuitBreaker(t *testing.T) {
 	require.True(service.isCompactCircuitOpen(sessID))
 
 	// Manual compact enters, resets the counter, then runs the compact.
-	// The heuristic summarizer produces a summary so the compact
-	// succeeds; the counter stays reset.
+	// The model summarizer succeeds; the counter stays reset.
 	_, err := service.ManualCompact(context.Background(), RuntimeContextActionRequest{
 		SessionID: sessID,
 		TurnID:    "turn-manual",
@@ -409,6 +435,7 @@ func (r requireT) NoError(err error) {
 		r.t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func (r requireT) True(v bool, msgAndArgs ...any) {
 	r.t.Helper()
 	if !v {
@@ -418,6 +445,7 @@ func (r requireT) True(v bool, msgAndArgs ...any) {
 		r.t.Fatal("expected true")
 	}
 }
+
 func (r requireT) False(v bool, msgAndArgs ...any) {
 	r.t.Helper()
 	if v {
@@ -427,12 +455,14 @@ func (r requireT) False(v bool, msgAndArgs ...any) {
 		r.t.Fatal("expected false")
 	}
 }
+
 func (r requireT) Equal(want, got any, msgAndArgs ...any) {
 	r.t.Helper()
 	if want != got {
 		r.t.Fatalf("want %v, got %v %v", want, got, msgAndArgs)
 	}
 }
+
 func (r requireT) NotEmpty(v any) {
 	r.t.Helper()
 	switch x := v.(type) {

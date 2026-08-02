@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/CIPFZ/agent-builder/internal/agent/tools"
 	"github.com/CIPFZ/agent-builder/internal/config"
@@ -49,17 +50,18 @@ func (g *ToolResultGuard) Process(ctx context.Context, result message.ToolResult
 
 	// Layer 2: Single-result truncation
 	threshold := g.resolveThreshold(result.Name)
-	if len(result.Content) > threshold {
+	resultChars := utf8.RuneCountInString(result.Content)
+	if resultChars > threshold {
 		slog.Info("ToolResultGuard: single result truncation",
 			"tool", result.Name,
 			"tool_call_id", result.ToolCallID,
-			"size", len(result.Content),
+			"size", resultChars,
 			"threshold", threshold,
 		)
 		return g.truncateAndPersist(ctx, result, threshold, "single")
 	}
 
-	g.turnTotal += len(result.Content)
+	g.turnTotal += resultChars
 
 	// Layer 3: Turn budget enforcement
 	if g.turnTotal > g.config.TurnBudget {
@@ -69,14 +71,16 @@ func (g *ToolResultGuard) Process(ctx context.Context, result message.ToolResult
 			"turn_total", g.turnTotal,
 			"turn_budget", g.config.TurnBudget,
 		)
-		return g.truncateAndPersist(ctx, result, 0, "turn_budget")
+		g.turnTotal -= resultChars
+		return g.truncateAndPersist(ctx, result, 0, "round_budget")
 	}
 
 	return result
 }
 
-// ResetTurn resets the turn-level character counter.
-func (g *ToolResultGuard) ResetTurn() {
+// ResetAPIRound resets the aggregate character counter for the next Provider
+// API round. A Runtime turn can contain several tool-loop API rounds.
+func (g *ToolResultGuard) ResetAPIRound() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.turnTotal = 0
@@ -129,14 +133,15 @@ func (g *ToolResultGuard) truncateAndPersist(ctx context.Context, result message
 	result.StoredPath = storedPath
 	result.OriginalSize = originalSize
 	result.TruncatedBy = reason
-	g.turnTotal += len(result.Content)
+	g.turnTotal += utf8.RuneCountInString(result.Content)
 	return result
 }
 
 func fallbackTruncate(content string, maxChars int) string {
-	if len(content) <= maxChars {
+	runes := []rune(content)
+	if len(runes) <= maxChars {
 		return content
 	}
-	preview := content[:maxChars]
+	preview := string(runes[:maxChars])
 	return preview + "\n\n[Truncated: tool response was too large and could not be persisted to the Runtime object store.]"
 }

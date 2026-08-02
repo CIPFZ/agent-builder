@@ -36,7 +36,6 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/agent/tools"
 	"github.com/CIPFZ/agent-builder/internal/agent/tools/mcp"
 	"github.com/CIPFZ/agent-builder/internal/config"
-	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/csync"
 	"github.com/CIPFZ/agent-builder/internal/message"
 	"github.com/CIPFZ/agent-builder/internal/pubsub"
@@ -142,6 +141,7 @@ type sessionAgent struct {
 
 	guardConfig         config.ToolResultGuardConfig
 	modelInputBuilder   ModelInputBuilder
+	historyProjector    SessionHistoryProjector
 	assemblyRecorder    PromptAssemblyRecorder
 	reactiveCompactor   ReactiveCompactor
 	toolResultPersister ToolResultPersister
@@ -162,6 +162,7 @@ type SessionAgentOptions struct {
 	Notify               pubsub.Publisher[notify.Notification]
 	GuardConfig          config.ToolResultGuardConfig
 	ModelInputBuilder    ModelInputBuilder
+	HistoryProjector     SessionHistoryProjector
 	AssemblyRecorder     PromptAssemblyRecorder
 	ReactiveCompactor    ReactiveCompactor
 	ToolResultPersister  ToolResultPersister
@@ -188,6 +189,7 @@ func NewSessionAgent(
 		titleSlots:           make(chan struct{}, titleAgentConcurrency),
 		guardConfig:          opts.GuardConfig,
 		modelInputBuilder:    opts.ModelInputBuilder,
+		historyProjector:     opts.HistoryProjector,
 		assemblyRecorder:     opts.AssemblyRecorder,
 		reactiveCompactor:    opts.ReactiveCompactor,
 		toolResultPersister:  opts.ToolResultPersister,
@@ -355,7 +357,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			TopK:             call.TopK,
 			FrequencyPenalty: call.FrequencyPenalty,
 			PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
-				guard.ResetTurn()
+				guard.ResetAPIRound()
 				prepared.Messages = options.Messages
 				for i := range prepared.Messages {
 					prepared.Messages[i].ProviderOptions = nil
@@ -581,7 +583,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		if err == nil {
 			break
 		}
-		if a.reactiveCompactor == nil || reactiveAttempts >= maxReactiveCompactAttempts || !contextmgr.IsContextLengthError(err.Error()) {
+		providerFailure := ClassifyProviderError(err)
+		if a.reactiveCompactor == nil || reactiveAttempts >= maxReactiveCompactAttempts || !providerFailure.CompactEligible {
 			break
 		}
 		reactiveAttempts++
@@ -612,7 +615,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		}
 	}
 
-	if err != nil && reactiveAttempts >= maxReactiveCompactAttempts && contextmgr.IsContextLengthError(err.Error()) {
+	if err != nil && reactiveAttempts >= maxReactiveCompactAttempts && ClassifyProviderError(err).CompactEligible {
 		err = fmt.Errorf("%s: %w", errContextTooLongAfterCompact, err)
 	}
 
@@ -1403,6 +1406,16 @@ func (a *sessionAgent) getSessionMessages(ctx context.Context, session session.S
 		return nil, fmt.Errorf("failed to list messages: %w", err)
 	}
 
+	if a.historyProjector != nil {
+		projected, projectErr := a.historyProjector.ProjectSessionHistory(ctx, session.ID, msgs)
+		if projectErr != nil {
+			return nil, fmt.Errorf("failed to project session history: %w", projectErr)
+		}
+		return projected, nil
+	}
+
+	// Legacy adapters without a Runtime projector retain the former summary
+	// anchor behavior. The desktop product always supplies historyProjector.
 	if session.SummaryMessageID != "" {
 		summaryMsgIndex := -1
 		for i, msg := range msgs {

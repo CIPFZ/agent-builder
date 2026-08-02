@@ -32,6 +32,7 @@ func (m *mockSessionAgent) SetTools(tools []fantasy.AgentTool)  {}
 func (m *mockSessionAgent) SetSystemPrompt(systemPrompt string) {}
 func (m *mockSessionAgent) SetSystemPromptSections(sections []PromptSectionSummary) {
 }
+
 func (m *mockSessionAgent) Cancel(sessionID string) {
 	m.cancelled = append(m.cancelled, sessionID)
 }
@@ -96,30 +97,38 @@ func (r *recordingAgentTaskRecorder) EvaluateToolCall(context.Context, Scheduler
 func (r *recordingAgentTaskRecorder) ToolCallStarted(context.Context, SchedulerToolCall) error {
 	return nil
 }
+
 func (r *recordingAgentTaskRecorder) ToolCallOutput(context.Context, SchedulerToolCallResult) error {
 	return nil
 }
+
 func (r *recordingAgentTaskRecorder) ToolCallCompleted(context.Context, SchedulerToolCallResult) error {
 	return nil
 }
+
 func (r *recordingAgentTaskRecorder) ToolCallFailed(context.Context, SchedulerToolCallResult) error {
 	return nil
 }
+
 func (r *recordingAgentTaskRecorder) ToolCallCancelled(context.Context, SchedulerToolCallResult) error {
 	return nil
 }
+
 func (r *recordingAgentTaskRecorder) AgentTaskStarted(_ context.Context, record AgentTaskRecord) error {
 	r.started = append(r.started, record)
 	return nil
 }
+
 func (r *recordingAgentTaskRecorder) AgentTaskProgress(_ context.Context, record AgentTaskRecord) error {
 	r.progress = append(r.progress, record)
 	return nil
 }
+
 func (r *recordingAgentTaskRecorder) AgentTaskCompleted(_ context.Context, record AgentTaskRecord) error {
 	r.completed = append(r.completed, record)
 	return nil
 }
+
 func (r *recordingAgentTaskRecorder) AgentTaskFailed(_ context.Context, record AgentTaskRecord) error {
 	r.failed = append(r.failed, record)
 	return nil
@@ -770,12 +779,15 @@ func (denyingSchedulerRecorder) ToolCallStarted(context.Context, SchedulerToolCa
 func (denyingSchedulerRecorder) ToolCallOutput(context.Context, SchedulerToolCallResult) error {
 	return nil
 }
+
 func (denyingSchedulerRecorder) ToolCallCompleted(context.Context, SchedulerToolCallResult) error {
 	return nil
 }
+
 func (denyingSchedulerRecorder) ToolCallFailed(context.Context, SchedulerToolCallResult) error {
 	return nil
 }
+
 func (denyingSchedulerRecorder) ToolCallCancelled(context.Context, SchedulerToolCallResult) error {
 	return nil
 }

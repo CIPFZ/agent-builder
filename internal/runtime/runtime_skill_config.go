@@ -22,12 +22,13 @@ func loadDesktopSkillConfig(layout desktopLayout) (desktopSkillConfig, error) {
 	if err := ensureDesktopLayout(layout); err != nil {
 		return desktopSkillConfig{}, err
 	}
-	conn, err := db.Connect(context.Background(), layout.DataDir)
+	ctx := context.Background()
+	conn, err := db.Connect(ctx, layout.DataDir)
 	if err != nil {
 		return desktopSkillConfig{}, err
 	}
 	defer db.Release(layout.DataDir) //nolint:errcheck
-	rows, err := conn.Query(`SELECT path, name, enabled, source FROM skill_registrations WHERE scope = 'global' AND project_id = '' ORDER BY id`)
+	rows, err := conn.QueryContext(ctx, `SELECT path, name, enabled, source FROM skill_registrations WHERE scope = 'global' AND project_id = '' ORDER BY id`)
 	if err != nil {
 		return desktopSkillConfig{}, fmt.Errorf("load skill registrations: %w", err)
 	}
@@ -65,28 +66,29 @@ func saveDesktopSkillConfig(layout desktopLayout, cfg desktopSkillConfig) error 
 	}
 	cfg.SkillPaths = normalizeStringList(cfg.SkillPaths)
 	cfg.DisabledSkills = normalizeSkillNames(cfg.DisabledSkills)
-	conn, err := db.Connect(context.Background(), layout.DataDir)
+	ctx := context.Background()
+	conn, err := db.Connect(ctx, layout.DataDir)
 	if err != nil {
 		return err
 	}
 	defer db.Release(layout.DataDir) //nolint:errcheck
-	tx, err := conn.Begin()
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
-	if _, err := tx.Exec(`DELETE FROM skill_registrations WHERE scope = 'global' AND project_id = ''`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM skill_registrations WHERE scope = 'global' AND project_id = ''`); err != nil {
 		return err
 	}
 	now := time.Now().UnixMilli()
 	for _, path := range cfg.SkillPaths {
 		id := "global:path:" + filepath.ToSlash(path)
-		if _, err := tx.Exec(`INSERT INTO skill_registrations (id, scope, project_id, path, name, enabled, source, updated_at) VALUES (?, 'global', '', ?, '', 1, 'external_path', ?)`, id, path, now); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO skill_registrations (id, scope, project_id, path, name, enabled, source, updated_at) VALUES (?, 'global', '', ?, '', 1, 'external_path', ?)`, id, path, now); err != nil {
 			return err
 		}
 	}
 	for _, name := range cfg.DisabledSkills {
-		if _, err := tx.Exec(`INSERT INTO skill_registrations (id, scope, project_id, path, name, enabled, source, updated_at) VALUES (?, 'global', '', '', ?, 0, 'builtin', ?)`, "global:name:"+name, name, now); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO skill_registrations (id, scope, project_id, path, name, enabled, source, updated_at) VALUES (?, 'global', '', '', ?, 0, 'builtin', ?)`, "global:name:"+name, name, now); err != nil {
 			return err
 		}
 	}

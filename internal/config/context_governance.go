@@ -25,6 +25,11 @@ const (
 // configured.
 const DefaultContextGovernanceMicrocompactKeepRecent = 5
 
+// DefaultContextGovernanceMicrocompactIdleMinutes is the idle interval after
+// the last completed main assistant response before time-based microcompact
+// may run again.
+const DefaultContextGovernanceMicrocompactIdleMinutes = 60
+
 // Auto-compact trigger percent overrides must stay within this range: below
 // 5% compaction would fire almost immediately, above 95% there is no room
 // left for the model's own output.
@@ -53,12 +58,14 @@ type ContextGovernanceProviderOverride struct {
 // Every field is optional; ContextGovernanceFor resolves the effective
 // settings for a given provider/model with documented defaults.
 type ContextGovernanceConfig struct {
-	AutoCompactEnabled     *bool                                        `json:"autoCompactEnabled,omitempty" jsonschema:"description=Whether the runtime is allowed to auto-compact the conversation when the context window fills up,default=true"`
-	AutoCompactPercent     *float64                                     `json:"autoCompactPercent,omitempty" jsonschema:"description=Global auto compact trigger as a fraction of the context window (0.05-0.95). Empty lets the runtime derive the trigger from the model's context window.,minimum=0.05,maximum=0.95"`
-	MicrocompactEnabled    *bool                                        `json:"microcompactEnabled,omitempty" jsonschema:"description=Whether microcompact (tool-result trimming within a step) is enabled,default=true"`
-	MicrocompactKeepRecent int                                          `json:"microcompactKeepRecent,omitempty" jsonschema:"description=Number of most recent messages microcompact always keeps untouched,default=5"`
-	SummaryModel           string                                       `json:"summaryModel,omitempty" jsonschema:"description=Model used to generate compact summaries,enum=session,enum=small,default=session"`
-	ProviderOverrides      map[string]ContextGovernanceProviderOverride `json:"providerOverrides,omitempty" jsonschema:"description=Per-provider (and nested per-model) overrides keyed by provider id"`
+	AutoCompactEnabled      *bool                                        `json:"autoCompactEnabled,omitempty" jsonschema:"description=Whether the runtime is allowed to auto-compact the conversation when the context window fills up,default=true"`
+	AutoCompactPercent      *float64                                     `json:"autoCompactPercent,omitempty" jsonschema:"description=Global auto compact trigger as a fraction of the context window (0.05-0.95). Empty lets the runtime derive the trigger from the model's context window.,minimum=0.05,maximum=0.95"`
+	MicrocompactEnabled     *bool                                        `json:"microcompactEnabled,omitempty" jsonschema:"description=Whether microcompact (tool-result trimming within a step) is enabled,default=true"`
+	MicrocompactIdleMinutes int                                          `json:"microcompactIdleMinutes,omitempty" jsonschema:"description=Idle minutes before time-based microcompact runs,default=60,minimum=1"`
+	MicrocompactKeepRecent  int                                          `json:"microcompactKeepRecent,omitempty" jsonschema:"description=Number of most recent messages microcompact always keeps untouched,default=5"`
+	SessionMemoryEnabled    *bool                                        `json:"sessionMemoryEnabled,omitempty" jsonschema:"description=Whether session memory extraction and compaction are enabled,default=true"`
+	SummaryModel            string                                       `json:"summaryModel,omitempty" jsonschema:"description=Model used to generate compact summaries,enum=session,enum=small,default=session"`
+	ProviderOverrides       map[string]ContextGovernanceProviderOverride `json:"providerOverrides,omitempty" jsonschema:"description=Per-provider (and nested per-model) overrides keyed by provider id"`
 }
 
 // ResolvedContextGovernance is the fully-defaulted view of context
@@ -67,10 +74,12 @@ type ResolvedContextGovernance struct {
 	AutoCompactEnabled bool
 	// AutoCompactPercent is nil when the trigger should be derived from the
 	// model's context window formula (no override in effect).
-	AutoCompactPercent     *float64
-	MicrocompactEnabled    bool
-	MicrocompactKeepRecent int
-	SummaryModel           string
+	AutoCompactPercent      *float64
+	MicrocompactEnabled     bool
+	MicrocompactIdleMinutes int
+	MicrocompactKeepRecent  int
+	SessionMemoryEnabled    bool
+	SummaryModel            string
 }
 
 // ContextGovernanceFor resolves the effective context governance settings
@@ -79,11 +88,13 @@ type ResolvedContextGovernance struct {
 // microcompact=true, keepRecent=5, summaryModel=session). c may be nil.
 func (c *ContextGovernanceConfig) ContextGovernanceFor(providerID, modelID string) ResolvedContextGovernance {
 	resolved := ResolvedContextGovernance{
-		AutoCompactEnabled:     true,
-		AutoCompactPercent:     nil,
-		MicrocompactEnabled:    true,
-		MicrocompactKeepRecent: DefaultContextGovernanceMicrocompactKeepRecent,
-		SummaryModel:           ContextGovernanceSummaryModelSession,
+		AutoCompactEnabled:      true,
+		AutoCompactPercent:      nil,
+		MicrocompactEnabled:     true,
+		MicrocompactIdleMinutes: DefaultContextGovernanceMicrocompactIdleMinutes,
+		MicrocompactKeepRecent:  DefaultContextGovernanceMicrocompactKeepRecent,
+		SessionMemoryEnabled:    true,
+		SummaryModel:            ContextGovernanceSummaryModelSession,
 	}
 	if c == nil {
 		return resolved
@@ -97,8 +108,14 @@ func (c *ContextGovernanceConfig) ContextGovernanceFor(providerID, modelID strin
 	if c.MicrocompactEnabled != nil {
 		resolved.MicrocompactEnabled = *c.MicrocompactEnabled
 	}
+	if c.MicrocompactIdleMinutes > 0 {
+		resolved.MicrocompactIdleMinutes = c.MicrocompactIdleMinutes
+	}
 	if c.MicrocompactKeepRecent > 0 {
 		resolved.MicrocompactKeepRecent = c.MicrocompactKeepRecent
+	}
+	if c.SessionMemoryEnabled != nil {
+		resolved.SessionMemoryEnabled = *c.SessionMemoryEnabled
 	}
 	if strings.TrimSpace(c.SummaryModel) != "" {
 		resolved.SummaryModel = c.SummaryModel
@@ -150,6 +167,9 @@ func ValidateContextGovernanceConfig(cfg ContextGovernanceConfig) error {
 	}
 	if cfg.MicrocompactKeepRecent < 0 {
 		return fmt.Errorf("%w: microcompactKeepRecent must not be negative", ErrContextGovernanceInvalid)
+	}
+	if cfg.MicrocompactIdleMinutes < 0 {
+		return fmt.Errorf("%w: microcompactIdleMinutes must not be negative", ErrContextGovernanceInvalid)
 	}
 	for providerID, providerOverride := range cfg.ProviderOverrides {
 		if providerOverride.AutoCompactPercent != nil {

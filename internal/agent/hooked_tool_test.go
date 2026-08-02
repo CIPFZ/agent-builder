@@ -49,30 +49,37 @@ type recordingHookRecorder struct {
 func (r *recordingHookRecorder) HooksDiscovered(context.Context, []RuntimeHookConfig) error {
 	return nil
 }
+
 func (r *recordingHookRecorder) HookExecutionStarted(_ context.Context, e RuntimeHookExecution) error {
 	r.started = append(r.started, e)
 	return nil
 }
+
 func (r *recordingHookRecorder) HookExecutionCompleted(_ context.Context, e RuntimeHookExecution) error {
 	r.completed = append(r.completed, e)
 	return nil
 }
+
 func (r *recordingHookRecorder) HookExecutionSkipped(_ context.Context, e RuntimeHookExecution) error {
 	r.skipped = append(r.skipped, e)
 	return nil
 }
+
 func (r *recordingHookRecorder) HookExecutionBlocked(_ context.Context, e RuntimeHookExecution) error {
 	r.blocked = append(r.blocked, e)
 	return nil
 }
+
 func (r *recordingHookRecorder) HookExecutionFailed(_ context.Context, e RuntimeHookExecution) error {
 	r.failed = append(r.failed, e)
 	return nil
 }
+
 func (r *recordingHookRecorder) HookContextInjected(_ context.Context, e RuntimeHookExecution) error {
 	r.context = append(r.context, e)
 	return nil
 }
+
 func (r *recordingHookRecorder) HookInputRewritten(_ context.Context, e RuntimeHookExecution) error {
 	r.rewritten = append(r.rewritten, e)
 	return nil

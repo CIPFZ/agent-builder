@@ -2,6 +2,7 @@ package shell
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"os"
@@ -354,7 +355,7 @@ func requireUsableBash(t *testing.T) {
 	if err != nil {
 		t.Skipf("bash not in PATH: %v", err)
 	}
-	cmd := exec.Command(bash, "-c", "exit 0")
+	cmd := exec.CommandContext(context.Background(), bash, "-c", "exit 0")
 	if err := cmd.Run(); err != nil {
 		t.Skipf("bash is not usable: %v", err)
 	}

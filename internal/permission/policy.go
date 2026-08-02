@@ -461,13 +461,13 @@ func policyRuleMatches(rule PolicyRule, call scheduler.ToolCall) bool {
 		if rule.MCPServer != "" && !mcpCapabilityPartMatches(parts, 1, rule.MCPServer) {
 			return false
 		}
-		if rule.MCPTool != "" && !(strings.HasPrefix(call.CapabilityID, "mcp:") && mcpCapabilityPartMatches(parts, 2, rule.MCPTool)) {
+		if rule.MCPTool != "" && (!strings.HasPrefix(call.CapabilityID, "mcp:") || !mcpCapabilityPartMatches(parts, 2, rule.MCPTool)) {
 			return false
 		}
-		if rule.MCPResource != "" && !(strings.HasPrefix(call.CapabilityID, "mcp_resource:") && mcpCapabilityPartMatches(parts, 2, rule.MCPResource)) {
+		if rule.MCPResource != "" && (!strings.HasPrefix(call.CapabilityID, "mcp_resource:") || !mcpCapabilityPartMatches(parts, 2, rule.MCPResource)) {
 			return false
 		}
-		if rule.MCPPrompt != "" && !(strings.HasPrefix(call.CapabilityID, "mcp_prompt:") && mcpCapabilityPartMatches(parts, 2, rule.MCPPrompt)) {
+		if rule.MCPPrompt != "" && (!strings.HasPrefix(call.CapabilityID, "mcp_prompt:") || !mcpCapabilityPartMatches(parts, 2, rule.MCPPrompt)) {
 			return false
 		}
 	}
@@ -563,11 +563,12 @@ func rulePrecedence(rule PolicyRule) int {
 		return rule.Precedence
 	}
 	score := 0
-	if rule.Decision == PolicyDeny {
+	switch rule.Decision {
+	case PolicyDeny:
 		score += 3000
-	} else if rule.Decision == PolicyAsk {
+	case PolicyAsk:
 		score += 2000
-	} else {
+	default:
 		score += 1000
 	}
 	for _, value := range []string{rule.CapabilityID, rule.MCPTool, rule.MCPResource, rule.MCPPrompt, rule.Skill, rule.Subagent, rule.TaskScope, rule.ShellRegex} {

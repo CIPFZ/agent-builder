@@ -82,7 +82,7 @@ func Rank(records []Record, bodies map[string]string, req SearchRequest) []Searc
 func keywordSet(value string) map[string]struct{} {
 	out := map[string]struct{}{}
 	for _, field := range strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r >= 0x4e00 && r <= 0x9fff)
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && (r < 0x4e00 || r > 0x9fff)
 	}) {
 		field = strings.TrimSpace(field)
 		if len([]rune(field)) < 2 {

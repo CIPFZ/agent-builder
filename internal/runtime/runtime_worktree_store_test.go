@@ -389,7 +389,7 @@ func createTestGitWorktree(t *testing.T, repo, branch, path string) string {
 
 func runTestGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=")
 	out, err := cmd.CombinedOutput()

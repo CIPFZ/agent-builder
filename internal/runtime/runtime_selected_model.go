@@ -13,7 +13,7 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/modelmeta"
 )
 
-var errSelectedModelMissing = errors.New("model is not selected. Configure a provider and select a model before chatting.")
+var errSelectedModelMissing = errors.New("model is not selected; configure a provider and select a model before chatting")
 
 type runtimeSelectedModelStore struct {
 	db *sql.DB
@@ -113,7 +113,8 @@ func (s runtimeSelectedModelStore) DeleteForConfiguredProvider(ctx context.Conte
 
 func scanSelectedModel(scanner interface {
 	Scan(dest ...any) error
-}) (RuntimeSelectedModel, error) {
+},
+) (RuntimeSelectedModel, error) {
 	var selected RuntimeSelectedModel
 	var projectID, sessionID sql.NullString
 	if err := scanner.Scan(

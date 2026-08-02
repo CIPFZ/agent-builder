@@ -75,7 +75,6 @@ interface WorkspaceProps {
   onInterruptedDiscard: (turnID: string) => Promise<void>;
   onRecoverableErrorRetry: (errorID: string) => Promise<void>;
   onManualCompact?: (instructions?: string) => Promise<void>;
-  onManualSnip?: () => Promise<void>;
   onRunCheckpointResume?: (runID: string, checkpointID: string) => Promise<void>;
   onRunTaskExecute?: (runID: string, taskID: string) => Promise<void>;
   onAgentTaskFollowUp?: (taskID: string, message: string) => Promise<void>;
@@ -109,7 +108,6 @@ export function Workspace({
   onInterruptedDiscard,
   onRecoverableErrorRetry,
   onManualCompact,
-  onManualSnip,
   onRunCheckpointResume,
   onRunTaskExecute,
   onAgentTaskFollowUp,
@@ -840,7 +838,7 @@ export function Workspace({
                   />
                   <RunProjectionPreview run={viewModel.runProjection} onResumeCheckpoint={onRunCheckpointResume} onExecuteTask={onRunTaskExecute} />
                   <ReactCallchainInspector callchain={viewModel.reactCallchain} onHookExecutionLoad={onHookExecutionLoad} />
-                  <ContextDiagnosticsPanel diagnostics={viewModel.contextDiagnostics} contextUsage={viewModel.composer.contextUsage} onManualCompact={onManualCompact} onManualSnip={onManualSnip} />
+                  <ContextDiagnosticsPanel diagnostics={viewModel.contextDiagnostics} contextUsage={viewModel.composer.contextUsage} compactionStatus={viewModel.composer.compactionStatus} onManualCompact={onManualCompact} />
                   <TurnDiagnosticsPanel
                     diagnostics={viewModel.turnDiagnostics}
                     hookExecutions={viewModel.hookExecutions}

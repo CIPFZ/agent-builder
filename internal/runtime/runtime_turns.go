@@ -808,9 +808,10 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 	}
 	r.writeAudit(entry)
 	turnStatus := turnStatusCompleted
-	if entry.Event == "failed" {
+	switch entry.Event {
+	case "failed":
 		turnStatus = turnStatusFailed
-	} else if entry.Event == "cancelled" {
+	case "cancelled":
 		turnStatus = turnStatusCancelled
 	}
 	// Tool-result messages are the durable completion evidence. Reconcile them

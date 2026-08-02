@@ -2,10 +2,17 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/CIPFZ/agent-builder/internal/config"
 )
+
+const contextGovernanceSettingKey = "context_governance"
 
 // RuntimeContextGovernanceModelOverride overrides context governance
 // settings for a single model within a provider.
@@ -26,12 +33,14 @@ type RuntimeContextGovernanceProviderOverride struct {
 // fall back to documented defaults (enabled=true, pct=nil(auto),
 // microcompact=true, keepRecent=5, summaryModel=session).
 type RuntimeContextGovernanceSettings struct {
-	AutoCompactEnabled     *bool                                               `json:"autoCompactEnabled,omitempty"`
-	AutoCompactPercent     *float64                                            `json:"autoCompactPercent,omitempty"`
-	MicrocompactEnabled    *bool                                               `json:"microcompactEnabled,omitempty"`
-	MicrocompactKeepRecent int                                                 `json:"microcompactKeepRecent,omitempty"`
-	SummaryModel           string                                              `json:"summaryModel,omitempty"`
-	ProviderOverrides      map[string]RuntimeContextGovernanceProviderOverride `json:"providerOverrides,omitempty"`
+	AutoCompactEnabled      *bool                                               `json:"autoCompactEnabled,omitempty"`
+	AutoCompactPercent      *float64                                            `json:"autoCompactPercent,omitempty"`
+	MicrocompactEnabled     *bool                                               `json:"microcompactEnabled,omitempty"`
+	MicrocompactIdleMinutes int                                                 `json:"microcompactIdleMinutes,omitempty"`
+	MicrocompactKeepRecent  int                                                 `json:"microcompactKeepRecent,omitempty"`
+	SessionMemoryEnabled    *bool                                               `json:"sessionMemoryEnabled,omitempty"`
+	SummaryModel            string                                              `json:"summaryModel,omitempty"`
+	ProviderOverrides       map[string]RuntimeContextGovernanceProviderOverride `json:"providerOverrides,omitempty"`
 }
 
 // RuntimeContextGovernanceSettingsResponse wraps the persisted settings.
@@ -40,34 +49,63 @@ type RuntimeContextGovernanceSettingsResponse struct {
 }
 
 // ContextGovernanceSettings returns the currently persisted context
-// governance settings (raw, not resolved against a specific model). It
-// mirrors the Hooks() read path: config-store-backed settings require the
-// workspace to be started because they live on the workspace's ConfigStore.
+// governance settings (raw, not resolved against a specific model). Desktop
+// settings have one authority: SQLite application_settings.
 func (r *runtimeService) ContextGovernanceSettings(ctx context.Context) (RuntimeContextGovernanceSettingsResponse, error) {
-	cfg, _, err := r.workspaceConfig(ctx)
+	settings, err := r.loadRuntimeContextGovernanceSettings(ctx)
 	if err != nil {
 		return RuntimeContextGovernanceSettingsResponse{}, err
 	}
-	return RuntimeContextGovernanceSettingsResponse{
-		Settings: runtimeContextGovernanceFromConfig(cfg.Config().ContextGovernance),
-	}, nil
+	return RuntimeContextGovernanceSettingsResponse{Settings: settings}, nil
 }
 
 // SaveContextGovernanceSettings validates and persists the given context
 // governance settings (the PUT body is the whole settings object), then
 // returns the settings as they were saved.
 func (r *runtimeService) SaveContextGovernanceSettings(ctx context.Context, req RuntimeContextGovernanceSettings) (RuntimeContextGovernanceSettingsResponse, error) {
-	cfg, _, err := r.workspaceConfig(ctx)
+	next := req.toConfig()
+	if err := config.ValidateContextGovernanceConfig(next); err != nil {
+		return RuntimeContextGovernanceSettingsResponse{}, err
+	}
+	normalized := runtimeContextGovernanceFromConfig(&next)
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		return RuntimeContextGovernanceSettingsResponse{}, fmt.Errorf("encode context governance settings: %w", err)
+	}
+	conn, err := r.configDB(ctx)
 	if err != nil {
 		return RuntimeContextGovernanceSettingsResponse{}, err
 	}
-	next := req.toConfig()
-	if err := cfg.SaveContextGovernance(next); err != nil {
-		return RuntimeContextGovernanceSettingsResponse{}, err
+	if _, err := conn.ExecContext(ctx, `INSERT INTO application_settings (key, value_json, updated_at) VALUES (?, ?, ?)
+ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`, contextGovernanceSettingKey, string(raw), time.Now().UnixMilli()); err != nil {
+		return RuntimeContextGovernanceSettingsResponse{}, fmt.Errorf("save context governance settings: %w", err)
 	}
 	return RuntimeContextGovernanceSettingsResponse{
-		Settings: runtimeContextGovernanceFromConfig(&next),
+		Settings: normalized,
 	}, nil
+}
+
+func (r *runtimeService) loadRuntimeContextGovernanceSettings(ctx context.Context) (RuntimeContextGovernanceSettings, error) {
+	conn, err := r.configDB(ctx)
+	if err != nil {
+		return RuntimeContextGovernanceSettings{}, err
+	}
+	var raw string
+	err = conn.QueryRowContext(ctx, `SELECT value_json FROM application_settings WHERE key = ?`, contextGovernanceSettingKey).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return RuntimeContextGovernanceSettings{}, nil
+	}
+	if err != nil {
+		return RuntimeContextGovernanceSettings{}, fmt.Errorf("load context governance settings: %w", err)
+	}
+	var settings RuntimeContextGovernanceSettings
+	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+		return RuntimeContextGovernanceSettings{}, fmt.Errorf("decode context governance settings: %w", err)
+	}
+	if err := config.ValidateContextGovernanceConfig(settings.toConfig()); err != nil {
+		return RuntimeContextGovernanceSettings{}, fmt.Errorf("stored context governance settings: %w", err)
+	}
+	return settings, nil
 }
 
 func runtimeContextGovernanceFromConfig(cfg *config.ContextGovernanceConfig) RuntimeContextGovernanceSettings {
@@ -75,11 +113,13 @@ func runtimeContextGovernanceFromConfig(cfg *config.ContextGovernanceConfig) Run
 		return RuntimeContextGovernanceSettings{}
 	}
 	out := RuntimeContextGovernanceSettings{
-		AutoCompactEnabled:     cfg.AutoCompactEnabled,
-		AutoCompactPercent:     cfg.AutoCompactPercent,
-		MicrocompactEnabled:    cfg.MicrocompactEnabled,
-		MicrocompactKeepRecent: cfg.MicrocompactKeepRecent,
-		SummaryModel:           cfg.SummaryModel,
+		AutoCompactEnabled:      cfg.AutoCompactEnabled,
+		AutoCompactPercent:      cfg.AutoCompactPercent,
+		MicrocompactEnabled:     cfg.MicrocompactEnabled,
+		MicrocompactIdleMinutes: cfg.MicrocompactIdleMinutes,
+		MicrocompactKeepRecent:  cfg.MicrocompactKeepRecent,
+		SessionMemoryEnabled:    cfg.SessionMemoryEnabled,
+		SummaryModel:            cfg.SummaryModel,
 	}
 	if len(cfg.ProviderOverrides) > 0 {
 		out.ProviderOverrides = make(map[string]RuntimeContextGovernanceProviderOverride, len(cfg.ProviderOverrides))
@@ -105,11 +145,13 @@ func runtimeContextGovernanceProviderOverrideFromConfig(override config.ContextG
 
 func (s RuntimeContextGovernanceSettings) toConfig() config.ContextGovernanceConfig {
 	out := config.ContextGovernanceConfig{
-		AutoCompactEnabled:     s.AutoCompactEnabled,
-		AutoCompactPercent:     s.AutoCompactPercent,
-		MicrocompactEnabled:    s.MicrocompactEnabled,
-		MicrocompactKeepRecent: s.MicrocompactKeepRecent,
-		SummaryModel:           strings.TrimSpace(s.SummaryModel),
+		AutoCompactEnabled:      s.AutoCompactEnabled,
+		AutoCompactPercent:      s.AutoCompactPercent,
+		MicrocompactEnabled:     s.MicrocompactEnabled,
+		MicrocompactIdleMinutes: s.MicrocompactIdleMinutes,
+		MicrocompactKeepRecent:  s.MicrocompactKeepRecent,
+		SessionMemoryEnabled:    s.SessionMemoryEnabled,
+		SummaryModel:            strings.TrimSpace(s.SummaryModel),
 	}
 	if len(s.ProviderOverrides) > 0 {
 		out.ProviderOverrides = make(map[string]config.ContextGovernanceProviderOverride, len(s.ProviderOverrides))
@@ -139,8 +181,9 @@ func (o RuntimeContextGovernanceProviderOverride) toConfig() config.ContextGover
 // value.
 func (r *runtimeService) contextGovernanceFor(ctx context.Context, sessionID, model string) config.ResolvedContextGovernance {
 	var governance *config.ContextGovernanceConfig
-	if cfg, _, err := r.workspaceConfig(ctx); err == nil && cfg != nil {
-		governance = cfg.Config().ContextGovernance
+	if settings, err := r.loadRuntimeContextGovernanceSettings(ctx); err == nil {
+		cfg := settings.toConfig()
+		governance = &cfg
 	}
 	providerID, modelID := r.resolveRuntimeGovernanceProviderModel(ctx, sessionID, model)
 	return governance.ContextGovernanceFor(providerID, modelID)

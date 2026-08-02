@@ -173,6 +173,7 @@ func TestRuntimeMCPStartupCancelsStaleActionableAuthAndElicitationRequests(t *te
 	service.runtime = runtimeWorkbench
 	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.turns = newRuntimeTurnStore(conn)
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
 	service.permissionStore = newRuntimePermissionStore(conn)
 	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
@@ -326,6 +327,7 @@ func TestRuntimeMCPRequestDecisionsEmitAuditEventsAndReplay(t *testing.T) {
 	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.sessionID = "session-1"
 	service.turns = newRuntimeTurnStore(conn)
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
 	service.permissionStore = newRuntimePermissionStore(conn)
 	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)

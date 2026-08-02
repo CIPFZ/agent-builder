@@ -48,7 +48,7 @@ func TestConnect_MigratesSchemaGenerationMismatchWithoutDroppingData(t *testing.
 	dataDir := t.TempDir()
 	conn, err := openDB(filepath.Join(dataDir, "agent-builder.db"))
 	require.NoError(t, err)
-	_, err = conn.Exec(`CREATE TABLE runtime_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+	_, err = conn.ExecContext(context.Background(), `CREATE TABLE runtime_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
 INSERT INTO runtime_settings (key, value, updated_at) VALUES ('schema_generation', '0', 1);
 CREATE TABLE legacy_data (value TEXT);`)
 	require.NoError(t, err)

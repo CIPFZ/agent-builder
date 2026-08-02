@@ -2,9 +2,11 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
 	"sync"
 
 	"charm.land/fantasy"
+	"github.com/CIPFZ/agent-builder/internal/agent"
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
 	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/permission"
@@ -87,10 +89,10 @@ type RuntimeService interface {
 	ReadObjectContent(context.Context, string) (RuntimeObjectContentResponse, error)
 	TurnCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error)
 	SessionCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error)
+	ContextCompactionStatus(context.Context, string) (RuntimeContextCompactionStatus, error)
 	PromptAssembliesByTurn(context.Context, string) (RuntimePromptAssembliesResponse, error)
 	PromptAssembliesBySession(context.Context, string, int) (RuntimePromptAssembliesResponse, error)
 	ManualCompact(context.Context, RuntimeContextActionRequest) (RuntimeManualCompactResponse, error)
-	ManualSnip(context.Context, RuntimeContextActionRequest) (RuntimeManualSnipResponse, error)
 	Hooks(context.Context) (RuntimeHooksResponse, error)
 	HookExecutions(context.Context, RuntimeHookExecutionsRequest) (RuntimeHookExecutionsResponse, error)
 	HookExecution(context.Context, string) (RuntimeHookExecutionResponse, error)
@@ -184,15 +186,20 @@ type RuntimeService interface {
 
 // runtimeService owns workspace, session, and agent lifecycle.
 type runtimeService struct {
-	mu                     sync.Mutex
-	startMu                sync.Mutex
-	starting               bool
-	runtime                *workbench.Service
-	workspace              *apitypes.Workspace
-	runtimeConfigured      bool
-	runtimeConfigKnown     bool
-	projectPath            string
-	activeProjectID        string
+	mu                 sync.Mutex
+	startMu            sync.Mutex
+	starting           bool
+	runtime            *workbench.Service
+	workspace          *apitypes.Workspace
+	runtimeConfigured  bool
+	runtimeConfigKnown bool
+	projectPath        string
+	activeProjectID    string
+	// desktopDataDir overrides the application-wide SQLite directory for an
+	// explicitly isolated runtime instance. Production leaves it empty.
+	desktopDataDir         string
+	desktopDB              *sql.DB
+	desktopDBDataDir       string
 	sessionID              string
 	runtimeCtx             context.Context
 	cancel                 context.CancelFunc
@@ -235,16 +242,22 @@ type runtimeService struct {
 	conversationV2Deferred map[string]bool
 	conversationV2Pending  map[string]map[int64]RuntimeEvent
 	compactTurnStates      map[string]runtimeTurnCompactState
+	compactOperationMu     sync.Mutex
+	compactOperations      map[string]bool
 	// compactFailureMu guards compactFailures. WP4: the map tracks
 	// consecutive full-compact failures per session so we can open a
 	// per-session circuit breaker after three failures and skip further
 	// auto/reactive compaction until a successful compact or manual
 	// invocation resets the counter (see runtime_prompt_assembly.go).
-	compactFailureMu       sync.Mutex
-	compactFailures        map[string]int
-	diagnosticMu           sync.Mutex
-	persistenceDiagnostics []runtimePersistenceDiagnostic
-	diagnosticChecks       map[string]RuntimeTargetedDiagnostic
+	compactFailureMu        sync.Mutex
+	compactFailures         map[string]int
+	sessionMemoryMu         sync.Mutex
+	sessionMemoryActive     map[string]bool
+	sessionMemoryGenerator  func(context.Context, agent.CompactSummaryRequest) (agent.CompactSummaryResult, error)
+	compactSummaryGenerator func(context.Context, agent.CompactSummaryRequest) (agent.CompactSummaryResult, error)
+	diagnosticMu            sync.Mutex
+	persistenceDiagnostics  []runtimePersistenceDiagnostic
+	diagnosticChecks        map[string]RuntimeTargetedDiagnostic
 }
 
 // runtimeTurnCompactState is the per-(session,turn) in-memory state produced

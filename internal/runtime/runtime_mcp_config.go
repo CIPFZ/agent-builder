@@ -19,12 +19,13 @@ func loadDesktopMCPConfig(layout desktopLayout) (desktopMCPConfig, error) {
 	if err := ensureDesktopLayout(layout); err != nil {
 		return desktopMCPConfig{}, err
 	}
-	conn, err := db.Connect(context.Background(), layout.DataDir)
+	ctx := context.Background()
+	conn, err := db.Connect(ctx, layout.DataDir)
 	if err != nil {
 		return desktopMCPConfig{}, err
 	}
 	defer db.Release(layout.DataDir) //nolint:errcheck
-	rows, err := conn.Query(`SELECT name, config_json FROM mcp_servers WHERE scope = 'global' AND project_id = '' ORDER BY name`)
+	rows, err := conn.QueryContext(ctx, `SELECT name, config_json FROM mcp_servers WHERE scope = 'global' AND project_id = '' ORDER BY name`)
 	if err != nil {
 		return desktopMCPConfig{}, fmt.Errorf("load mcp servers: %w", err)
 	}
@@ -50,17 +51,18 @@ func saveDesktopMCPConfig(layout desktopLayout, cfg desktopMCPConfig) error {
 		return err
 	}
 	cfg.Servers = normalizeMCPs(cfg.Servers)
-	conn, err := db.Connect(context.Background(), layout.DataDir)
+	ctx := context.Background()
+	conn, err := db.Connect(ctx, layout.DataDir)
 	if err != nil {
 		return err
 	}
 	defer db.Release(layout.DataDir) //nolint:errcheck
-	tx, err := conn.Begin()
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
-	if _, err := tx.Exec(`DELETE FROM mcp_servers WHERE scope = 'global' AND project_id = ''`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM mcp_servers WHERE scope = 'global' AND project_id = ''`); err != nil {
 		return err
 	}
 	now := time.Now().UnixMilli()
@@ -69,7 +71,7 @@ func saveDesktopMCPConfig(layout desktopLayout, cfg desktopMCPConfig) error {
 		if err != nil {
 			return fmt.Errorf("encode mcp server %s: %w", name, err)
 		}
-		if _, err := tx.Exec(`INSERT INTO mcp_servers (name, scope, project_id, config_json, updated_at) VALUES (?, 'global', '', ?, ?)`, name, string(data), now); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO mcp_servers (name, scope, project_id, config_json, updated_at) VALUES (?, 'global', '', ?, ?)`, name, string(data), now); err != nil {
 			return err
 		}
 	}

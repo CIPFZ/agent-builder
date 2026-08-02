@@ -21,8 +21,10 @@ const (
 	runtimeRunCheckpointStatusResumable = "resumable"
 )
 
-var errRuntimeRunNotFound = errors.New("runtime run not found")
-var errRuntimeRunCheckpointNotFound = errors.New("runtime run checkpoint not found")
+var (
+	errRuntimeRunNotFound           = errors.New("runtime run not found")
+	errRuntimeRunCheckpointNotFound = errors.New("runtime run checkpoint not found")
+)
 
 type runtimeRunStore struct {
 	db *sql.DB

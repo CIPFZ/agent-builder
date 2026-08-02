@@ -2204,23 +2204,29 @@ type RuntimeReplayRecovery struct {
 }
 
 type RuntimeCompactBoundary struct {
-	ID               string                      `json:"id"`
-	SessionID        string                      `json:"sessionId"`
-	TurnID           string                      `json:"turnId,omitempty"`
-	ProjectionID     string                      `json:"projectionId,omitempty"`
-	Kind             string                      `json:"kind"`
-	Trigger          string                      `json:"trigger"`
-	Status           string                      `json:"status"`
-	BudgetBefore     *RuntimeBudgetReport        `json:"budgetBefore,omitempty"`
-	BudgetAfter      *RuntimeBudgetReport        `json:"budgetAfter,omitempty"`
-	SummaryMessageID string                      `json:"summaryMessageId,omitempty"`
-	SummaryRef       string                      `json:"summaryRef,omitempty"`
-	MessageRefs      []string                    `json:"messageRefs,omitempty"`
-	ToolCallRefs     []RuntimeCompactToolCallRef `json:"toolCallRefs,omitempty"`
-	ReinjectedRefs   []RuntimeReinjectedRef      `json:"reinjectedRefs,omitempty"`
-	Error            string                      `json:"error,omitempty"`
-	CreatedAt        int64                       `json:"createdAt"`
-	CompletedAt      int64                       `json:"completedAt,omitempty"`
+	ID                      string                      `json:"id"`
+	SessionID               string                      `json:"sessionId"`
+	TurnID                  string                      `json:"turnId,omitempty"`
+	ProjectionID            string                      `json:"projectionId,omitempty"`
+	Kind                    string                      `json:"kind"`
+	Trigger                 string                      `json:"trigger"`
+	Status                  string                      `json:"status"`
+	BudgetBefore            *RuntimeBudgetReport        `json:"budgetBefore,omitempty"`
+	BudgetAfter             *RuntimeBudgetReport        `json:"budgetAfter,omitempty"`
+	SummaryMessageID        string                      `json:"summaryMessageId,omitempty"`
+	SummaryRef              string                      `json:"summaryRef,omitempty"`
+	MessageRefs             []string                    `json:"messageRefs,omitempty"`
+	PreservedMessageRefs    []string                    `json:"preservedMessageRefs,omitempty"`
+	BoundaryCutoffMessageID string                      `json:"boundaryCutoffMessageId,omitempty"`
+	SummaryMode             string                      `json:"summaryMode,omitempty"`
+	MemoryRevision          int                         `json:"memoryRevision,omitempty"`
+	WillRetry               bool                        `json:"willRetry,omitempty"`
+	CircuitOpen             bool                        `json:"circuitOpen,omitempty"`
+	ToolCallRefs            []RuntimeCompactToolCallRef `json:"toolCallRefs,omitempty"`
+	ReinjectedRefs          []RuntimeReinjectedRef      `json:"reinjectedRefs,omitempty"`
+	Error                   string                      `json:"error,omitempty"`
+	CreatedAt               int64                       `json:"createdAt"`
+	CompletedAt             int64                       `json:"completedAt,omitempty"`
 }
 
 type RuntimeCompactToolCallRef struct {
@@ -2249,6 +2255,82 @@ type RuntimeReinjectedRef struct {
 
 type RuntimeCompactBoundariesResponse struct {
 	Boundaries []RuntimeCompactBoundary `json:"boundaries"`
+}
+
+// RuntimeContextCompactionStatus is the recoverable session-level snapshot
+// consumed by Wails clients. compact.* events invalidate this snapshot; they
+// are not the source of truth.
+type RuntimeContextCompactionStatus struct {
+	SessionID           string                          `json:"sessionId"`
+	ActiveOperation     *RuntimeCompactOperation        `json:"activeOperation,omitempty"`
+	LatestCompleted     *RuntimeCompactBoundary         `json:"latestCompleted,omitempty"`
+	LatestFailed        *RuntimeCompactBoundary         `json:"latestFailed,omitempty"`
+	CircuitOpen         bool                            `json:"circuitOpen"`
+	ConsecutiveFailures int                             `json:"consecutiveFailures,omitempty"`
+	LatestSessionMemory *RuntimeSessionMemoryRevision   `json:"latestSessionMemory,omitempty"`
+	ResolvedPolicy      RuntimeResolvedCompactionPolicy `json:"resolvedPolicy"`
+	UpdatedAt           int64                           `json:"updatedAt"`
+}
+
+type RuntimeCompactOperation struct {
+	ID            string `json:"id"`
+	SessionID     string `json:"sessionId"`
+	TurnID        string `json:"turnId,omitempty"`
+	Kind          string `json:"kind"`
+	Trigger       string `json:"trigger"`
+	Stage         string `json:"stage"`
+	Status        string `json:"status"`
+	StartedAt     int64  `json:"startedAt"`
+	ElapsedMillis int64  `json:"elapsedMillis,omitempty"`
+	WillRetry     bool   `json:"willRetry,omitempty"`
+}
+
+type RuntimeSessionMemoryRevision struct {
+	ID                      string `json:"id"`
+	SessionID               string `json:"sessionId"`
+	TurnID                  string `json:"turnId,omitempty"`
+	Revision                int    `json:"revision"`
+	Status                  string `json:"status"`
+	LastSummarizedMessageID string `json:"lastSummarizedMessageId,omitempty"`
+	SourceMessageCount      int    `json:"sourceMessageCount"`
+	SourceTokenEstimate     int    `json:"sourceTokenEstimate"`
+	SourceToolCallCount     int    `json:"sourceToolCallCount"`
+	Provider                string `json:"provider,omitempty"`
+	Model                   string `json:"model,omitempty"`
+	CreatedAt               int64  `json:"createdAt"`
+	CompletedAt             int64  `json:"completedAt,omitempty"`
+	Error                   string `json:"error,omitempty"`
+}
+
+type RuntimeResolvedCompactionPolicy struct {
+	AutoCompactEnabled      bool     `json:"autoCompactEnabled"`
+	AutoCompactPercent      *float64 `json:"autoCompactPercent,omitempty"`
+	MicrocompactEnabled     bool     `json:"microcompactEnabled"`
+	MicrocompactIdleMinutes int      `json:"microcompactIdleMinutes"`
+	MicrocompactKeepRecent  int      `json:"microcompactKeepRecent"`
+	SessionMemoryEnabled    bool     `json:"sessionMemoryEnabled"`
+	SummaryModel            string   `json:"summaryModel"`
+}
+
+type RuntimeCompactEventPayload struct {
+	OperationID     string `json:"operationId"`
+	SessionID       string `json:"sessionId"`
+	TurnID          string `json:"turnId,omitempty"`
+	BoundaryID      string `json:"boundaryId,omitempty"`
+	Kind            string `json:"kind"`
+	Trigger         string `json:"trigger"`
+	Stage           string `json:"stage,omitempty"`
+	Status          string `json:"status"`
+	PreTokens       int    `json:"preTokens,omitempty"`
+	PostTokens      int    `json:"postTokens,omitempty"`
+	SavedTokens     int    `json:"savedTokens,omitempty"`
+	SummarizedCount int    `json:"summarizedCount,omitempty"`
+	PreservedCount  int    `json:"preservedCount,omitempty"`
+	MemoryRevision  int    `json:"memoryRevision,omitempty"`
+	WillRetry       bool   `json:"willRetry,omitempty"`
+	CircuitOpen     bool   `json:"circuitOpen,omitempty"`
+	Error           string `json:"error,omitempty"`
+	ElapsedMillis   int64  `json:"elapsedMillis,omitempty"`
 }
 
 type RuntimeBudgetReport struct {
@@ -2317,23 +2399,27 @@ type RuntimePromptSectionSummary struct {
 }
 
 type RuntimeContextBoundary struct {
-	ID               string               `json:"id"`
-	SessionID        string               `json:"sessionId"`
-	TurnID           string               `json:"turnId,omitempty"`
-	ProjectionID     string               `json:"projectionId,omitempty"`
-	Kind             string               `json:"kind"`
-	Trigger          string               `json:"trigger"`
-	Status           string               `json:"status"`
-	SummaryMessageID string               `json:"summaryMessageId,omitempty"`
-	SummaryRef       string               `json:"summaryRef,omitempty"`
-	MessageRefs      []string             `json:"messageRefs,omitempty"`
-	ToolCallRefs     []string             `json:"toolCallRefs,omitempty"`
-	ReinjectedRefs   []string             `json:"reinjectedRefs,omitempty"`
-	BudgetBefore     *RuntimeBudgetReport `json:"budgetBefore,omitempty"`
-	BudgetAfter      *RuntimeBudgetReport `json:"budgetAfter,omitempty"`
-	CreatedAt        int64                `json:"createdAt"`
-	CompletedAt      int64                `json:"completedAt,omitempty"`
-	Error            string               `json:"error,omitempty"`
+	ID                      string               `json:"id"`
+	SessionID               string               `json:"sessionId"`
+	TurnID                  string               `json:"turnId,omitempty"`
+	ProjectionID            string               `json:"projectionId,omitempty"`
+	Kind                    string               `json:"kind"`
+	Trigger                 string               `json:"trigger"`
+	Status                  string               `json:"status"`
+	SummaryMessageID        string               `json:"summaryMessageId,omitempty"`
+	SummaryRef              string               `json:"summaryRef,omitempty"`
+	MessageRefs             []string             `json:"messageRefs,omitempty"`
+	PreservedMessageRefs    []string             `json:"preservedMessageRefs,omitempty"`
+	BoundaryCutoffMessageID string               `json:"boundaryCutoffMessageId,omitempty"`
+	SummaryMode             string               `json:"summaryMode,omitempty"`
+	MemoryRevision          int                  `json:"memoryRevision,omitempty"`
+	ToolCallRefs            []string             `json:"toolCallRefs,omitempty"`
+	ReinjectedRefs          []string             `json:"reinjectedRefs,omitempty"`
+	BudgetBefore            *RuntimeBudgetReport `json:"budgetBefore,omitempty"`
+	BudgetAfter             *RuntimeBudgetReport `json:"budgetAfter,omitempty"`
+	CreatedAt               int64                `json:"createdAt"`
+	CompletedAt             int64                `json:"completedAt,omitempty"`
+	Error                   string               `json:"error,omitempty"`
 }
 
 type RuntimeSnipBoundary struct {
@@ -2366,16 +2452,20 @@ type RuntimeContentReplacement struct {
 }
 
 type RuntimeReactiveCompactAttempt struct {
-	ID           string `json:"id"`
-	SessionID    string `json:"sessionId"`
-	TurnID       string `json:"turnId"`
-	ProjectionID string `json:"projectionId,omitempty"`
-	Attempt      int    `json:"attempt"`
-	Action       string `json:"action"`
-	Status       string `json:"status"`
-	Error        string `json:"error,omitempty"`
-	CreatedAt    int64  `json:"createdAt"`
-	CompletedAt  int64  `json:"completedAt,omitempty"`
+	ID           string               `json:"id"`
+	SessionID    string               `json:"sessionId"`
+	TurnID       string               `json:"turnId"`
+	ProjectionID string               `json:"projectionId,omitempty"`
+	Attempt      int                  `json:"attempt"`
+	Action       string               `json:"action"`
+	Status       string               `json:"status"`
+	Error        string               `json:"error,omitempty"`
+	BudgetBefore *RuntimeBudgetReport `json:"budgetBefore,omitempty"`
+	BudgetAfter  *RuntimeBudgetReport `json:"budgetAfter,omitempty"`
+	WillRetry    bool                 `json:"willRetry"`
+	CircuitOpen  bool                 `json:"circuitOpen"`
+	CreatedAt    int64                `json:"createdAt"`
+	CompletedAt  int64                `json:"completedAt,omitempty"`
 }
 
 type RuntimePromptSystemSummary struct {
@@ -2449,10 +2539,6 @@ type RuntimeContextActionRequest struct {
 
 type RuntimeManualCompactResponse struct {
 	Boundary RuntimeContextBoundary `json:"boundary"`
-}
-
-type RuntimeManualSnipResponse struct {
-	SnipBoundary RuntimeSnipBoundary `json:"snipBoundary"`
 }
 
 type RuntimeRecoveryStatus struct {

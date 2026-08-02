@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,35 +37,30 @@ func (r *runtimeService) ProjectStorageDiagnostics(ctx context.Context, projectI
 	}
 	report := RuntimeProjectStorageDiagnostics{ProjectID: projectID, Root: projectLayout.Root}
 	objectStore := newRuntimeObjectStore(store.db, store.dataDir)
-	rows, err := store.db.QueryContext(ctx, `SELECT id, storage_kind, COALESCE(storage_path, ''), size_bytes FROM objects WHERE project_id = ?`, projectID)
-	if err != nil {
-		return report, fmt.Errorf("list project objects: %w", err)
-	}
 	referenced := map[string]struct{}{}
-	for rows.Next() {
+	if err := queryRuntimeRows(ctx, store.db, `SELECT id, storage_kind, COALESCE(storage_path, ''), size_bytes FROM objects WHERE project_id = ?`, func(rows *sql.Rows) error {
 		var id, storageKind, storagePath string
 		var size int64
 		if err := rows.Scan(&id, &storageKind, &storagePath, &size); err != nil {
-			rows.Close() //nolint:errcheck
-			return report, err
+			return err
 		}
 		report.ObjectCount++
 		report.ObjectBytes += size
 		if storageKind != runtimeObjectStorageFile {
-			continue
+			return nil
 		}
 		abs, err := objectStore.resolveStoragePath(projectID, storagePath)
 		if err != nil {
 			report.MissingObjects = append(report.MissingObjects, id)
-			continue
+			return nil
 		}
 		referenced[filepath.Clean(abs)] = struct{}{}
 		if info, err := os.Stat(abs); err != nil || info.IsDir() {
 			report.MissingObjects = append(report.MissingObjects, id)
 		}
-	}
-	if err := rows.Close(); err != nil {
-		return report, err
+		return nil
+	}, projectID); err != nil {
+		return report, fmt.Errorf("list project objects: %w", err)
 	}
 	if err := filepath.WalkDir(projectLayout.ObjectsDir, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil || entry.IsDir() {
@@ -78,5 +74,5 @@ func (r *runtimeService) ProjectStorageDiagnostics(ctx context.Context, projectI
 	}); err != nil && !os.IsNotExist(err) {
 		return report, err
 	}
-	return report, rows.Err()
+	return report, nil
 }

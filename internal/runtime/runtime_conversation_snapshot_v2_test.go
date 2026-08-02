@@ -115,10 +115,12 @@ func TestSessionConversationMessageContentV2EnforcesSessionOwnership(t *testing.
 }
 
 func TestCanonicalWindowFiltersAfterStableIdentityConstruction(t *testing.T) {
-	s := RuntimeCanonicalConversationSnapshot{Scope: RuntimeConversationScopeFull,
+	s := RuntimeCanonicalConversationSnapshot{
+		Scope:          RuntimeConversationScopeFull,
 		Turns:          []RuntimeCanonicalTurn{{RuntimeConversationEntityMeta: RuntimeConversationEntityMeta{ID: "turn-1"}}, {RuntimeConversationEntityMeta: RuntimeConversationEntityMeta{ID: "turn-2"}}},
 		Messages:       []RuntimeCanonicalMessage{{RuntimeConversationEntityMeta: RuntimeConversationEntityMeta{ID: "message-1", TurnID: "turn-1", ActivitySequence: "12", Revision: "20"}}, {RuntimeConversationEntityMeta: RuntimeConversationEntityMeta{ID: "message-2", TurnID: "turn-2", ActivitySequence: "30", Revision: "31"}}},
-		AssistantSteps: []RuntimeCanonicalAssistantStep{}, ToolCalls: []RuntimeCanonicalToolCall{}, ToolResults: []RuntimeCanonicalToolResult{}, Permissions: []RuntimeCanonicalPermission{}, TodoPlans: []RuntimeCanonicalTodoPlan{}, AgentTasks: []RuntimeCanonicalAgentTask{}, Notices: []RuntimeCanonicalNotice{}}
+		AssistantSteps: []RuntimeCanonicalAssistantStep{}, ToolCalls: []RuntimeCanonicalToolCall{}, ToolResults: []RuntimeCanonicalToolResult{}, Permissions: []RuntimeCanonicalPermission{}, TodoPlans: []RuntimeCanonicalTodoPlan{}, AgentTasks: []RuntimeCanonicalAgentTask{}, Notices: []RuntimeCanonicalNotice{},
+	}
 	applyCanonicalWindow(&s, RuntimeCanonicalConversationSnapshotRequest{Scope: "window", Limit: 1})
 	if len(s.Turns) != 1 || s.Turns[0].ID != "turn-2" || len(s.Messages) != 1 || s.Messages[0].ID != "message-2" {
 		t.Fatalf("window = %#v", s)

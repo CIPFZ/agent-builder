@@ -10,17 +10,35 @@ import (
 	"charm.land/fantasy"
 )
 
-const defaultMicrocompactKeepRecent = 3
+const defaultMicrocompactKeepRecent = 5
 
 func (m *DefaultManager) applyMicrocompact(ctx context.Context, projectionID string, req BuildInputRequest, messages []fantasy.Message, createdAt int64) ([]fantasy.Message, []ContentReplacement, []Boundary, error) {
 	cfg := req.Microcompact
 	if !cfg.Enabled || len(messages) == 0 {
 		return messages, nil, nil, nil
 	}
-	if cfg.KeepRecent <= 0 {
+	if cfg.KeepRecent == 0 {
 		cfg.KeepRecent = defaultMicrocompactKeepRecent
+	} else if cfg.KeepRecent < 0 {
+		// A negative sentinel is used by the final reactive recovery pass to
+		// compact every eligible result. Zero retains its public default.
+		cfg.KeepRecent = 0
 	}
-	candidates := compactableToolResults(messages)
+	if cfg.Trigger != "reactive" && (!cfg.MainTurn || cfg.IdleIntervalMillis <= 0 || cfg.LastAssistantAt <= 0 || createdAt-cfg.LastAssistantAt < cfg.IdleIntervalMillis) {
+		return messages, nil, nil, nil
+	}
+	if cfg.Trigger != "reactive" {
+		boundaries, err := m.store.ListBoundariesBySession(ctx, req.SessionID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		for _, boundary := range boundaries {
+			if boundary.Kind == "micro" && boundary.Status == ProjectionStatusCompleted && boundary.CreatedAt >= cfg.LastAssistantAt {
+				return messages, nil, nil, nil
+			}
+		}
+	}
+	candidates := compactableToolResults(messages, cfg.EligibleToolCallIDs)
 	if len(candidates) <= cfg.KeepRecent {
 		return messages, nil, nil, nil
 	}
@@ -62,7 +80,7 @@ func (m *DefaultManager) applyMicrocompact(ctx context.Context, projectionID str
 	return projected, replacements, []Boundary{storedBoundary}, nil
 }
 
-func compactableToolResults(messages []fantasy.Message) []toolResultCandidate {
+func compactableToolResults(messages []fantasy.Message, eligible map[string]bool) []toolResultCandidate {
 	var out []toolResultCandidate
 	for msgIndex, msg := range messages {
 		if msg.Role != fantasy.MessageRoleTool {
@@ -71,6 +89,9 @@ func compactableToolResults(messages []fantasy.Message) []toolResultCandidate {
 		for partIndex, part := range msg.Content {
 			tr, ok := part.(fantasy.ToolResultPart)
 			if !ok || strings.TrimSpace(tr.ToolCallID) == "" {
+				continue
+			}
+			if eligible != nil && !eligible[tr.ToolCallID] {
 				continue
 			}
 			text, ok := toolResultText(tr)
@@ -90,40 +111,45 @@ func compactableToolResults(messages []fantasy.Message) []toolResultCandidate {
 }
 
 func microcompactTrigger(cfg MicrocompactConfig, candidates []toolResultCandidate, nowMillis int64) string {
+	if cfg.Trigger == "reactive" {
+		return "reactive"
+	}
 	if cfg.IdleIntervalMillis > 0 && cfg.LastAssistantAt > 0 && nowMillis-cfg.LastAssistantAt >= cfg.IdleIntervalMillis {
 		return "idle_time"
-	}
-	if cfg.ToolResultCountLimit > 0 && len(candidates) > cfg.ToolResultCountLimit {
-		return "tool_result_count"
-	}
-	if cfg.ToolResultTokenLimit > 0 {
-		total := 0
-		for _, candidate := range candidates {
-			total += estimateTokens(candidate.text)
-		}
-		if total > cfg.ToolResultTokenLimit {
-			return "tool_result_tokens"
-		}
 	}
 	return ""
 }
 
 func (m *DefaultManager) microcompactToolResult(ctx context.Context, projectionID string, req BuildInputRequest, messages *[]fantasy.Message, candidate toolResultCandidate, trigger string, createdAt int64) (ContentReplacement, error) {
-	if existing, err := m.store.GetContentReplacementByToolCall(ctx, candidate.toolCallID); err == nil && existing.ReplacementText != "" {
+	const replacementKind = "microcompact"
+	if existing, err := m.store.GetContentReplacement(ctx, req.SessionID, candidate.toolCallID, replacementKind); err == nil && existing.ReplacementText != "" {
 		replaceToolResultText(messages, candidate, existing.ReplacementText)
 		return existing, nil
 	} else if err != nil && err != sql.ErrNoRows {
 		return ContentReplacement{}, err
 	}
-	ref := fmt.Sprintf("runtime://context/tool-results/%s/original", stableIDPart(candidate.toolCallID))
+	ref := extractRuntimeObjectRef(candidate.text)
+	if ref == "" {
+		ref, _ = m.store.RuntimeObjectRefForToolCall(ctx, req.SessionID, candidate.toolCallID)
+	}
+	if ref == "" {
+		return ContentReplacement{}, fmt.Errorf("tool result %s is not eligible for microcompact without a runtime object ref", candidate.toolCallID)
+	}
+	exists, err := m.store.RuntimeObjectRefExists(ctx, req.SessionID, ref)
+	if err != nil {
+		return ContentReplacement{}, err
+	}
+	if !exists {
+		return ContentReplacement{}, fmt.Errorf("tool result %s references missing runtime object %s", candidate.toolCallID, ref)
+	}
 	replacementText := fmt.Sprintf("[Old tool result content compacted by projection microcompact; original output preserved at %s]", ref)
 	replacement := ContentReplacement{
-		ID:                         "ctxrepl_" + stableIDPart(candidate.toolCallID),
+		ID:                         "ctxrepl_" + stableIDPart(req.SessionID) + "_" + stableIDPart(candidate.toolCallID) + "_" + replacementKind,
 		SessionID:                  req.SessionID,
 		TurnID:                     req.TurnID,
 		ProjectionID:               projectionID,
 		ToolCallID:                 candidate.toolCallID,
-		Kind:                       "tool_result",
+		Kind:                       replacementKind,
 		OriginalRef:                ref,
 		ReplacementText:            replacementText,
 		OriginalSizeBytes:          int64(len(candidate.text)),

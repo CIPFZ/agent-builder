@@ -16,11 +16,13 @@ import (
 
 	"charm.land/fantasy"
 	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/config"
 	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/db"
 	"github.com/CIPFZ/agent-builder/internal/message"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 	"github.com/CIPFZ/agent-builder/internal/session"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 func (r *runtimeSchedulerRecorder) RecordPromptAssembly(ctx context.Context, snapshot agent.PromptAssemblySnapshot) error {
@@ -35,6 +37,86 @@ func (r *runtimeSchedulerRecorder) BuildModelInput(ctx context.Context, snapshot
 		return agent.ModelInputProjection{Messages: snapshot.Messages}, nil
 	}
 	return r.service.buildModelInputProjection(ctx, snapshot)
+}
+
+func (r *runtimeSchedulerRecorder) ProjectSessionHistory(ctx context.Context, sessionID string, canonical []message.Message) ([]message.Message, error) {
+	if r == nil || r.service == nil {
+		return canonical, nil
+	}
+	return r.service.projectSessionHistory(ctx, sessionID, canonical)
+}
+
+func (r *runtimeService) projectSessionHistory(ctx context.Context, sessionID string, canonical []message.Message) ([]message.Message, error) {
+	if err := r.ensureContextManager(ctx); err != nil {
+		return nil, err
+	}
+	boundaries, err := r.contextStore.ListBoundariesBySession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	var latest *contextmgr.Boundary
+	for i := range boundaries {
+		boundary := &boundaries[i]
+		if boundary.Status != contextmgr.ProjectionStatusCompleted || (boundary.Kind != "full" && boundary.Kind != "session_memory") {
+			continue
+		}
+		if latest == nil || boundary.CompletedAt > latest.CompletedAt || (boundary.CompletedAt == latest.CompletedAt && boundary.CreatedAt > latest.CreatedAt) {
+			latest = boundary
+		}
+	}
+	if latest == nil || strings.TrimSpace(latest.SummaryMessageID) == "" {
+		return canonical, nil
+	}
+	byID := make(map[string]message.Message, len(canonical))
+	indexByID := make(map[string]int, len(canonical))
+	for i, msg := range canonical {
+		byID[msg.ID] = msg
+		indexByID[msg.ID] = i
+	}
+	summary, ok := byID[latest.SummaryMessageID]
+	if !ok {
+		return nil, fmt.Errorf("completed compact boundary %s references missing summary message %s", latest.ID, latest.SummaryMessageID)
+	}
+	summary.Role = message.User
+	cutoffID := latest.BoundaryCutoffMessageID
+	if cutoffID == "" && len(latest.MessageRefs) > 0 {
+		cutoffID = latest.MessageRefs[len(latest.MessageRefs)-1]
+	}
+	cutoffIndex, hasCutoff := indexByID[cutoffID]
+	if !hasCutoff {
+		// Old boundaries did not persist a cutoff. Their summary message was
+		// appended immediately after the summarized prefix.
+		cutoffIndex = indexByID[latest.SummaryMessageID] - 1
+	}
+	projected := make([]message.Message, 0, 1+len(latest.PreservedMessageRefs)+len(canonical)-cutoffIndex)
+	seen := map[string]struct{}{}
+	for _, msg := range canonical {
+		if msg.Role == message.System && indexByID[msg.ID] <= cutoffIndex {
+			projected = append(projected, msg)
+			seen[msg.ID] = struct{}{}
+		}
+	}
+	projected = append(projected, summary)
+	seen[summary.ID] = struct{}{}
+	for _, id := range latest.PreservedMessageRefs {
+		if msg, exists := byID[id]; exists {
+			if _, duplicate := seen[id]; !duplicate && !msg.IsSummaryMessage {
+				projected = append(projected, msg)
+				seen[id] = struct{}{}
+			}
+		}
+	}
+	for i := cutoffIndex + 1; i < len(canonical); i++ {
+		msg := canonical[i]
+		if msg.IsSummaryMessage {
+			continue
+		}
+		if _, duplicate := seen[msg.ID]; duplicate {
+			continue
+		}
+		projected = append(projected, msg)
+	}
+	return projected, nil
 }
 
 // ReactiveCompact implements agent.ReactiveCompactor by delegating to the
@@ -167,6 +249,10 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 }
 
 func (r *runtimeService) runManualFullCompactWithContext(ctx context.Context, req RuntimeContextActionRequest, callCtx manualFullCompactCallContext) (contextmgr.CompactResult, message.Message, error) {
+	if !r.beginCompactOperation(req.SessionID) {
+		return contextmgr.CompactResult{}, message.Message{}, errors.New("该会话正在整理上下文，请等待当前操作完成")
+	}
+	defer r.endCompactOperation(req.SessionID)
 	wsID, err := r.currentWorkspaceID()
 	if err != nil {
 		return contextmgr.CompactResult{}, message.Message{}, err
@@ -281,10 +367,19 @@ func (r *runtimeService) runManualFullCompactWithContext(ctx context.Context, re
 			postTokens += estimateRuntimeTokens(text.Text)
 		}
 	}
+	gov := r.contextGovernanceFor(ctx, req.SessionID, "")
+	limits := r.currentRuntimeModelLimits(ctx, req.SessionID, "")
+	if postTokens >= contextThresholds(limits.ContextWindow, limits.MaxOutputTokens, gov.AutoCompactPercent).AutoCompactAt {
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, errors.New("compact result remains above the safe context threshold"), callCtx)
+	}
 
 	completed := started
 	completed.Status = contextmgr.ProjectionStatusCompleted
 	completed.MessageRefs = messageRefs
+	completed.SummaryMode = summaryMode
+	if len(messageRefs) > 0 {
+		completed.BoundaryCutoffMessageID = messageRefs[len(messageRefs)-1]
+	}
 	completed.ReinjectedRefs = reinjection.refs
 	completed.BudgetBefore = &contextmgr.BudgetReport{TotalEstimatedTokens: preTokens}
 	completed.BudgetAfter = &contextmgr.BudgetReport{TotalEstimatedTokens: postTokens}
@@ -318,15 +413,19 @@ func (r *runtimeService) runManualFullCompactWithContext(ctx context.Context, re
 		_ = tx.Rollback()
 		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err, callCtx)
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET summary_message_id = ?, updated_at = ? WHERE id = ?`, summaryMessage.ID, time.Now().Unix(), req.SessionID); err != nil {
+		_ = tx.Rollback()
+		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err, callCtx)
+	}
 	if err := tx.Commit(); err != nil {
 		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err, callCtx)
 	}
-	// session.SummaryMessageID moves immediately after the transaction; if it
-	// fails the boundary is marked failed so metering never anchors to a
-	// summary the read path does not use.
+	// Keep the workbench cache in sync after the SQLite transaction. Boundary
+	// projection is authoritative, so a cache refresh failure does not turn an
+	// atomically committed compact into a failed boundary.
 	sess.SummaryMessageID = summaryMessage.ID
 	if _, err := r.runtime.SaveSession(ctx, wsID, sess); err != nil {
-		return contextmgr.CompactResult{}, message.Message{}, r.failManualFullCompact(ctx, started, err, callCtx)
+		slog.Warn("Compact: failed to refresh workbench session anchor", "session_id", req.SessionID, "error", err)
 	}
 
 	// filetracker stale: after a successful compact the next turn should
@@ -378,43 +477,68 @@ func (r *runtimeService) runManualFullCompactWithContext(ctx context.Context, re
 	return contextmgr.CompactResult{Boundary: completed}, summaryMessage, nil
 }
 
-// generateCompactSummary drives the model summarizer first, falling back to
-// the deterministic heuristic when the model path is unavailable or fails.
-// The returned mode is "model" for a model-produced summary and
-// "heuristic_fallback" for the heuristic path; callers persist it on the
-// boundary so we can distinguish quality-of-summary at diagnostics time.
+func (r *runtimeService) beginCompactOperation(sessionID string) bool {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return false
+	}
+	r.compactOperationMu.Lock()
+	defer r.compactOperationMu.Unlock()
+	if r.compactOperations == nil {
+		r.compactOperations = make(map[string]bool)
+	}
+	if r.compactOperations[sessionID] {
+		return false
+	}
+	r.compactOperations[sessionID] = true
+	return true
+}
+
+func (r *runtimeService) endCompactOperation(sessionID string) {
+	r.compactOperationMu.Lock()
+	defer r.compactOperationMu.Unlock()
+	delete(r.compactOperations, strings.TrimSpace(sessionID))
+}
+
+func (r *runtimeService) compactOperationActive(sessionID string) bool {
+	r.compactOperationMu.Lock()
+	defer r.compactOperationMu.Unlock()
+	return r.compactOperations[strings.TrimSpace(sessionID)]
+}
+
+// generateCompactSummary drives the model summarizer. A model error, timeout,
+// or empty result is a compact failure; heuristic text must never advance a
+// session boundary.
 func (r *runtimeService) generateCompactSummary(ctx context.Context, req RuntimeContextActionRequest, messages []message.Message, instructions string) (string, string, error) {
 	if len(messages) == 0 {
 		return "", "", errors.New("no messages to summarize")
 	}
-	// The model summarizer is optional: when it is not wired (tests without
-	// coordinator, misconfigured workspace) we go straight to the heuristic
-	// so the compact still succeeds.
-	if r.runtime != nil {
-		wsID, wsErr := r.currentWorkspaceID()
-		if wsErr == nil {
-			modelReq := agent.CompactSummaryRequest{
-				SessionID:    req.SessionID,
-				TurnID:       req.TurnID,
-				Messages:     messages,
-				Instructions: instructions,
-			}
-			result, modelErr := r.runtime.GenerateCompactSummary(ctx, wsID, modelReq)
-			if modelErr == nil && strings.TrimSpace(result.Summary) != "" {
-				return result.Summary, "model", nil
-			}
-			if modelErr != nil {
-				slog.Warn("Compact: model summarizer failed; falling back to heuristic",
-					"session_id", req.SessionID,
-					"turn_id", req.TurnID,
-					"error", modelErr,
-				)
-			}
-		}
+	if r.runtime == nil {
+		return "", "", errors.New("compact summary model is unavailable")
 	}
-	// Heuristic fallback: never fails on well-formed input.
-	summary := buildManualCompactSummary(messages, instructions, r.recentReadFilePaths(ctx, req.SessionID, 10))
-	return summary, "heuristic_fallback", nil
+	wsID, err := r.currentWorkspaceID()
+	if err != nil {
+		return "", "", err
+	}
+	gov := r.contextGovernanceFor(ctx, req.SessionID, "")
+	modelReq := agent.CompactSummaryRequest{
+		SessionID: req.SessionID, TurnID: req.TurnID, Messages: messages, Instructions: instructions,
+		UseSmallModel: gov.SummaryModel == config.ContextGovernanceSummaryModelSmall,
+	}
+	var result agent.CompactSummaryResult
+	if r.compactSummaryGenerator != nil {
+		result, err = r.compactSummaryGenerator(ctx, modelReq)
+	} else {
+		result, err = r.runtime.GenerateCompactSummary(ctx, wsID, modelReq)
+	}
+	if err != nil {
+		return "", "", err
+	}
+	summary := strings.TrimSpace(result.Summary)
+	if summary == "" {
+		return "", "", errors.New("compact summary model returned empty output")
+	}
+	return summary, "model", nil
 }
 
 // startCompactProgress fires an ephemeral compact.progress event every 30s
@@ -459,20 +583,41 @@ func (r *runtimeService) startCompactProgress(sessionID, turnID, boundaryID stri
 // summary message (the visible "read this back" bundle) and the boundary
 // refs recorded for audit.
 type compactReinjectionResult struct {
-	parts []message.ContentPart
-	refs  []string
+	parts  []message.ContentPart
+	refs   []string
+	tokens int
 }
 
 // Budgets follow the plan (§WP2 design 3): 5 files, 5k tok/file, 50k
 // total; skills: 5k/each, 25k total.
 const (
-	compactMaxReinjectedFiles  = 5
-	compactMaxTokensPerFile    = 5_000
-	compactMaxFileTokensTotal  = 50_000
-	compactMaxTokensPerSkill   = 5_000
-	compactMaxSkillTokensTotal = 25_000
-	compactMaxReinjectedSkills = 8
+	compactMaxReinjectedFiles        = 5
+	compactMaxTokensPerFile          = 5_000
+	compactMaxFileTokensTotal        = 50_000
+	compactMaxTokensPerSkill         = 5_000
+	compactMaxSkillTokensTotal       = 25_000
+	compactMaxReinjectedSkills       = 8
+	compactMaxTodoTokensTotal        = 5_000
+	compactMaxTaskTokensTotal        = 5_000
+	compactMaxReinjectionTokensTotal = 80_000
 )
+
+func (r *compactReinjectionResult) appendText(text, ref string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	tokens := estimateRuntimeTokens(text)
+	if tokens <= 0 || r.tokens+tokens > compactMaxReinjectionTokensTotal {
+		return false
+	}
+	r.parts = append(r.parts, message.TextContent{Text: text})
+	if ref != "" {
+		r.refs = append(r.refs, ref)
+	}
+	r.tokens += tokens
+	return true
+}
 
 // buildCompactReinjection assembles the "re-injected context bundle" that
 // rides along with the summary message. Individual sources fail silently
@@ -532,35 +677,34 @@ func (r *runtimeService) buildCompactReinjection(ctx context.Context, wsID, sess
 			staleTag = " (contents changed since last read — re-read for latest)"
 		}
 		block := fmt.Sprintf("<reinjected-file path=\"%s\"%s>\n%s\n</reinjected-file>", entry.Path, staleTag, text)
-		res.parts = append(res.parts, message.TextContent{Text: block})
-		res.refs = append(res.refs, "file://"+filepath.ToSlash(entry.Path))
-		fileTokens += toks
+		blockTokens := estimateRuntimeTokens(block)
+		if fileTokens+blockTokens > compactMaxFileTokensTotal || !res.appendText(block, "file://"+filepath.ToSlash(entry.Path)) {
+			continue
+		}
+		fileTokens += blockTokens
 		filesUsed++
 	}
 
 	// todos: only surface incomplete items so the reinjected block matches
 	// the "what's still pending" contract.
 	if len(sess.Todos) > 0 {
-		if todoBlock := formatCompactTodosBlock(sess.Todos); todoBlock != "" {
-			res.parts = append(res.parts, message.TextContent{Text: todoBlock})
-			res.refs = append(res.refs, "todos")
-		}
+		res.appendText(formatCompactTodosBlock(sess.Todos, compactMaxTodoTokensTotal), "todos")
 	}
 
 	// skills: load the head of every currently-active skill so the model
 	// remembers the tools it has after the compact boundary.
 	if skillsBlock, skillNames := r.compactSkillsBlock(); skillsBlock != "" {
-		res.parts = append(res.parts, message.TextContent{Text: skillsBlock})
-		for _, name := range skillNames {
-			res.refs = append(res.refs, "skill://"+name)
+		if res.appendText(skillsBlock, "") {
+			for _, name := range skillNames {
+				res.refs = append(res.refs, "skill://"+name)
+			}
 		}
 	}
 
 	// agent tasks: list any active/queued runners so the model does not
 	// double-schedule the same work.
 	if taskBlock := r.compactAgentTaskBlock(ctx, sessionID); taskBlock != "" {
-		res.parts = append(res.parts, message.TextContent{Text: taskBlock})
-		res.refs = append(res.refs, "agent-tasks://"+sessionID)
+		res.appendText(taskBlock, "agent-tasks://"+sessionID)
 	}
 
 	return res
@@ -663,10 +807,17 @@ func (r *runtimeService) compactAgentTaskBlock(ctx context.Context, sessionID st
 		return ""
 	}
 	var live []string
+	tokens := estimateRuntimeTokens("<reinjected-agent-tasks>\n</reinjected-agent-tasks>")
 	for _, task := range tasks {
 		switch strings.ToLower(task.Status) {
 		case "running", "queued", "in_progress", "pending":
-			live = append(live, fmt.Sprintf("- %s (status=%s)", task.Name, task.Status))
+			line := fmt.Sprintf("- %s (status=%s)", task.Name, task.Status)
+			lineTokens := estimateRuntimeTokens(line + "\n")
+			if tokens+lineTokens > compactMaxTaskTokensTotal {
+				continue
+			}
+			live = append(live, line)
+			tokens += lineTokens
 		}
 	}
 	if len(live) == 0 {
@@ -690,8 +841,10 @@ type recentReadFileEntry struct {
 }
 
 // recentReadFileEntries returns absolute paths + stored content hashes for
-// the most recent reads in the session. It uses the workspace working dir
-// to reconstruct absolute paths (mirroring filetracker.ListReadFiles).
+// the most recent reads in the session. filetracker persists paths relative
+// to the process working directory, so reconstruction must use that same
+// base (mirroring filetracker.ListReadFiles), even when a workspace itself is
+// rooted in a temporary directory.
 func (r *runtimeService) recentReadFileEntries(ctx context.Context, sessionID string, limit int) []recentReadFileEntry {
 	if limit <= 0 {
 		return nil
@@ -707,13 +860,7 @@ func (r *runtimeService) recentReadFileEntries(ctx context.Context, sessionID st
 	if err != nil {
 		return nil
 	}
-	base := ""
-	if r.workspace != nil {
-		base = r.workspace.Path
-	}
-	if base == "" {
-		base, _ = os.Getwd()
-	}
+	base, _ := os.Getwd()
 	out := make([]recentReadFileEntry, 0, minInt(len(files), limit))
 	for _, file := range files {
 		path := strings.TrimSpace(file.Path)
@@ -734,11 +881,18 @@ func (r *runtimeService) recentReadFileEntries(ctx context.Context, sessionID st
 	return out
 }
 
-func formatCompactTodosBlock(todos []session.Todo) string {
+func formatCompactTodosBlock(todos []session.Todo, tokenLimit int) string {
 	var live []session.Todo
+	tokens := estimateRuntimeTokens("<reinjected-todos>\n</reinjected-todos>")
 	for _, t := range todos {
 		if t.Status != session.TodoStatusCompleted {
+			line := fmt.Sprintf("- [%s] %s\n", t.Status, t.Content)
+			lineTokens := estimateRuntimeTokens(line)
+			if tokenLimit > 0 && tokens+lineTokens > tokenLimit {
+				continue
+			}
 			live = append(live, t)
+			tokens += lineTokens
 		}
 	}
 	if len(live) == 0 {
@@ -805,7 +959,13 @@ const compactCircuitOpenMarker = "[circuit-open] "
 func (r *runtimeService) isCompactCircuitOpen(sessionID string) bool {
 	r.compactFailureMu.Lock()
 	defer r.compactFailureMu.Unlock()
-	return r.compactFailures[sessionID] >= compactCircuitBreakerThreshold
+	count := r.compactFailures[sessionID]
+	if stored, err := r.contextStore.GetCircuitState(context.Background(), sessionID); err == nil {
+		count = maxInt(count, stored.FailureCount)
+		r.compactFailures[sessionID] = count
+		return stored.Open || count >= compactCircuitBreakerThreshold
+	}
+	return count >= compactCircuitBreakerThreshold
 }
 
 // incrementCompactFailure bumps the per-session counter and returns the new
@@ -816,8 +976,16 @@ func (r *runtimeService) incrementCompactFailure(sessionID string) int {
 	if r.compactFailures == nil {
 		r.compactFailures = make(map[string]int)
 	}
-	r.compactFailures[sessionID]++
-	return r.compactFailures[sessionID]
+	count := r.compactFailures[sessionID]
+	if stored, err := r.contextStore.GetCircuitState(context.Background(), sessionID); err == nil {
+		count = maxInt(count, stored.FailureCount)
+	}
+	count++
+	r.compactFailures[sessionID] = count
+	_, _ = r.contextStore.UpsertCircuitState(context.Background(), contextmgr.CircuitState{
+		SessionID: sessionID, FailureCount: count, Open: count >= compactCircuitBreakerThreshold,
+	})
+	return count
 }
 
 // resetCompactFailures clears the counter for the session; called on any
@@ -826,6 +994,7 @@ func (r *runtimeService) resetCompactFailures(sessionID string) {
 	r.compactFailureMu.Lock()
 	defer r.compactFailureMu.Unlock()
 	delete(r.compactFailures, sessionID)
+	_, _ = r.contextStore.UpsertCircuitState(context.Background(), contextmgr.CircuitState{SessionID: sessionID})
 }
 
 func (r *runtimeService) failManualFullCompact(ctx context.Context, boundary contextmgr.Boundary, compactErr error, callCtx manualFullCompactCallContext) error {
@@ -893,38 +1062,6 @@ func (r *runtimeService) currentWorkspaceID() (string, error) {
 		return "", errors.New("runtime workspace is not available")
 	}
 	return r.workspace.ID, nil
-}
-
-func (r *runtimeService) ManualSnip(ctx context.Context, req RuntimeContextActionRequest) (RuntimeManualSnipResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
-		return RuntimeManualSnipResponse{}, err
-	}
-	req.SessionID = strings.TrimSpace(req.SessionID)
-	req.TurnID = strings.TrimSpace(req.TurnID)
-	if req.SessionID == "" {
-		r.mu.Lock()
-		req.SessionID = r.sessionID
-		r.mu.Unlock()
-	}
-	if req.SessionID == "" {
-		return RuntimeManualSnipResponse{}, errors.New("session id is required")
-	}
-	if req.TurnID == "" {
-		return RuntimeManualSnipResponse{}, errors.New("turn id is required")
-	}
-	if err := r.ensureContextManager(ctx); err != nil {
-		return RuntimeManualSnipResponse{}, err
-	}
-	result, err := r.contextManager.ManualSnip(ctx, contextmgr.ManualSnipRequest{
-		SessionID:    req.SessionID,
-		TurnID:       req.TurnID,
-		ProjectionID: req.ProjectionID,
-		Reason:       req.Reason,
-	})
-	if err != nil {
-		return RuntimeManualSnipResponse{}, err
-	}
-	return RuntimeManualSnipResponse{SnipBoundary: runtimeSnipBoundaryFromContext(result.SnipBoundary)}, nil
 }
 
 func (r *runtimeService) recordPromptAssembly(ctx context.Context, snapshot agent.PromptAssemblySnapshot) error {
@@ -1143,7 +1280,11 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 						Reason:       "auto",
 						Instructions: "请直接继续当前任务，不要复述摘要、不要向用户提问。",
 					}
-					if compact, summaryMessage, compactErr := r.runManualFullCompact(ctx, compactReq); compactErr == nil {
+					compact, summaryMessage, compactErr := r.runSessionMemoryCompact(ctx, compactReq, snapshot.Model)
+					if errors.Is(compactErr, errSessionMemoryCompactNotApplicable) {
+						compact, summaryMessage, compactErr = r.runManualFullCompact(ctx, compactReq)
+					}
+					if compactErr == nil {
 						compactState := runtimeTurnCompactState{
 							SummaryMessages:      summaryMessage.ToAIMessage(),
 							TailStartIndex:       pairSafeTailStart(snapshot.Messages, compactKeepTailMessages),
@@ -1193,7 +1334,7 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 	// "clear old tool results and retry", so the override forces it on.
 	reactiveMicroOverride := false
 	if state, hasState := r.compactStateForTurn(snapshot.SessionID, snapshot.TurnID); hasState {
-		if state.ReactiveMicroKeepRecent > 0 {
+		if state.ReactiveMicroKeepRecent != 0 {
 			microKeep = state.ReactiveMicroKeepRecent
 			reactiveMicroOverride = true
 		}
@@ -1202,6 +1343,13 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 			reactiveMicroOverride = true
 		}
 	}
+	microTrigger := "time_based"
+	if reactiveMicroOverride {
+		microTrigger = "reactive"
+	}
+	mainTurn := !isCompactGuardedTurn(snapshot.TurnID, snapshot.Source) && firstNonEmpty(snapshot.Source, contextmgr.ProjectionSourceMainTurn) == contextmgr.ProjectionSourceMainTurn
+	lastAssistantAt := r.lastCompletedMainAssistantAt(ctx, snapshot.SessionID)
+	eligibleToolCalls := r.microcompactEligibleToolCalls(ctx, snapshot.Messages)
 	result, err := r.contextManager.BuildModelInput(ctx, contextmgr.BuildInputRequest{
 		SessionID:     snapshot.SessionID,
 		TurnID:        snapshot.TurnID,
@@ -1210,10 +1358,19 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 		Model:         snapshot.Model,
 		Source:        firstNonEmpty(snapshot.Source, contextmgr.ProjectionSourceMainTurn),
 		ModelMessages: snapshot.Messages,
+		ToolResultBudget: contextmgr.ToolResultBudgetConfig{
+			MaxSingleResultChars: config.DefaultToolResultMaxChars,
+			MessageBudgetChars:   config.DefaultToolResultMessageBudget,
+		},
 		Microcompact: contextmgr.MicrocompactConfig{
 			Enabled:              gov.MicrocompactEnabled || reactiveMicroOverride,
+			Trigger:              microTrigger,
+			MainTurn:             mainTurn,
+			IdleIntervalMillis:   int64(gov.MicrocompactIdleMinutes) * int64(time.Minute/time.Millisecond),
+			LastAssistantAt:      lastAssistantAt,
 			KeepRecent:           microKeep,
 			ToolResultTokenLimit: microTokenLimit,
+			EligibleToolCallIDs:  eligibleToolCalls,
 		},
 	})
 	if err != nil {
@@ -1229,6 +1386,80 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 		CanonicalMessageCount: result.Projection.CanonicalMessageCount,
 		ProjectedMessageCount: result.Projection.ProjectedMessageCount,
 	}, nil
+}
+
+func (r *runtimeService) lastCompletedMainAssistantAt(ctx context.Context, sessionID string) int64 {
+	if r == nil || r.runtime == nil || r.workspace == nil {
+		return 0
+	}
+	ws, err := r.runtime.GetWorkspace(r.workspace.ID)
+	if err != nil {
+		return 0
+	}
+	messages, err := ws.Messages.List(ctx, sessionID)
+	if err != nil {
+		return 0
+	}
+	var latest int64
+	for i := range messages {
+		msg := &messages[i]
+		if msg.Role != message.Assistant || msg.IsSummaryMessage || !msg.IsFinished() {
+			continue
+		}
+		reason := msg.FinishReason()
+		if reason != message.FinishReasonEndTurn && reason != message.FinishReasonMaxTokens {
+			continue
+		}
+		completedAt := msg.CreatedAt * 1000
+		if finish := msg.FinishPart(); finish != nil && finish.Time > 0 {
+			completedAt = finish.Time * 1000
+		}
+		if completedAt > latest {
+			latest = completedAt
+		}
+	}
+	return latest
+}
+
+func (r *runtimeService) microcompactEligibleToolCalls(ctx context.Context, messages []fantasy.Message) map[string]bool {
+	eligible := map[string]bool{}
+	if r == nil || r.toolCalls == nil {
+		return eligible
+	}
+	for _, msg := range messages {
+		for _, part := range msg.Content {
+			result, ok := part.(fantasy.ToolResultPart)
+			if !ok || result.ToolCallID == "" {
+				continue
+			}
+			call, err := r.toolCalls.GetCall(ctx, result.ToolCallID)
+			if err != nil || call.Status != scheduler.ToolCallCompleted || !microcompactCapabilityEligible(call.CapabilityID) {
+				continue
+			}
+			if _, err := r.contextStore.RuntimeObjectRefForToolCall(ctx, call.SessionID, result.ToolCallID); err != nil {
+				continue
+			}
+			eligible[result.ToolCallID] = true
+		}
+	}
+	return eligible
+}
+
+func microcompactCapabilityEligible(capabilityID string) bool {
+	capabilityID = strings.ToLower(strings.TrimSpace(capabilityID))
+	if strings.HasPrefix(capabilityID, "shell:") {
+		return true
+	}
+	if !strings.HasPrefix(capabilityID, "builtin:") {
+		return false
+	}
+	category := strings.TrimPrefix(capabilityID, "builtin:")
+	for _, prefix := range []string{"view", "read", "ls", "grep", "glob", "rg", "search", "fetch", "web_", "sourcegraph", "edit", "multiedit", "write", "download"} {
+		if strings.HasPrefix(category, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func isCompactGuardedTurn(turnID, source string) bool {
@@ -1307,29 +1538,29 @@ func (r *runtimeService) runReactiveCompact(ctx context.Context, snapshot agent.
 	if sessionID == "" || turnID == "" {
 		return agent.ReactiveCompactResult{}, errors.New("reactive compact requires session and turn ids")
 	}
+	if err := r.ensureContextManager(ctx); err != nil {
+		return agent.ReactiveCompactResult{}, err
+	}
 	projectionID := contextmgr.ProjectionID(turnID, firstPositiveInt(snapshot.Step, 1))
-
-	// Record the attempt regardless of circuit state so diagnostics show
-	// each recovery attempt the agent tried.
-	if err := r.ensureContextManager(ctx); err == nil && r.contextManager != nil {
-		_, _ = r.contextManager.ReactiveCompact(ctx, contextmgr.ReactiveCompactRequest{
-			SessionID:    sessionID,
-			TurnID:       turnID,
-			ProjectionID: projectionID,
-			Attempt:      snapshot.Attempt,
-			Error:        snapshot.Error,
-		})
+	attemptNumber := maxInt(1, snapshot.Attempt)
+	preBudget := r.reactiveBudgetReport(ctx, sessionID, snapshot.Model, snapshot.Messages)
+	attempt := contextmgr.ReactiveAttempt{
+		ID:        fmt.Sprintf("ctxreact_%s_%03d", stableRuntimeIDPart(turnID), attemptNumber),
+		SessionID: sessionID, TurnID: turnID, ProjectionID: projectionID,
+		Attempt: attemptNumber, Status: contextmgr.ProjectionStatusStarted,
+		Error: snapshot.Error, BudgetBefore: preBudget, CreatedAt: time.Now().UTC().UnixMilli(),
 	}
 
 	if r.isCompactCircuitOpen(sessionID) {
-		attempt := snapshot.Attempt
-		if attempt <= 0 {
-			attempt = 1
-		}
+		attempt.Action = "none"
+		attempt.Status = "skipped"
+		attempt.CircuitOpen = true
+		attempt.CompletedAt = time.Now().UTC().UnixMilli()
+		_, _ = r.contextStore.UpsertReactiveAttempt(ctx, attempt)
 		r.emitCompactEvent(runtimeapi.EventCompactFailed, sessionID, turnID, map[string]any{
 			"kind":         "full",
 			"trigger":      "reactive",
-			"attempt":      attempt,
+			"attempt":      attemptNumber,
 			"will_retry":   false,
 			"circuit_open": true,
 			"summary":      "reactive compact skipped (circuit open)",
@@ -1338,15 +1569,46 @@ func (r *runtimeService) runReactiveCompact(ctx context.Context, snapshot agent.
 		return agent.ReactiveCompactResult{CircuitOpen: true}, nil
 	}
 
-	if snapshot.Attempt <= 1 {
+	if attemptNumber == 1 {
 		// Attempt 1: strengthen microcompact for this turn only. Halve the
 		// tool-result token limit and clamp KeepRecent=1 so the next Stream
 		// call re-issues the same history through a tighter projection.
 		r.setReactiveProjectionOverride(sessionID, turnID, 1, 2)
+		attempt.Action = "projection_reduction"
+		attempt.Status = contextmgr.ProjectionStatusCompleted
+		attempt.WillRetry = true
+		attempt.BudgetAfter = r.estimatedReactiveReductionBudget(ctx, sessionID, snapshot.Model, snapshot.Messages, 1)
+		attempt.CompletedAt = time.Now().UTC().UnixMilli()
+		_, _ = r.contextStore.UpsertReactiveAttempt(ctx, attempt)
 		return agent.ReactiveCompactResult{Action: "projection_reduction"}, nil
 	}
+	if attemptNumber >= maxRuntimeReactiveAttempts {
+		if !r.hasReactiveProjectionReductionRoom(ctx, snapshot.Messages) {
+			err := errors.New("reactive recovery has no additional safe projection reduction")
+			attempt.Action = "none"
+			attempt.Status = contextmgr.ProjectionStatusFailed
+			attempt.Error = err.Error()
+			attempt.CompletedAt = time.Now().UTC().UnixMilli()
+			_, _ = r.contextStore.UpsertReactiveAttempt(ctx, attempt)
+			r.emitCompactEvent(runtimeapi.EventCompactFailed, sessionID, turnID, map[string]any{
+				"kind": "projection", "trigger": "reactive", "attempt": attemptNumber,
+				"will_retry": false, "circuit_open": false, "error": err.Error(), "summary": err.Error(),
+			})
+			return agent.ReactiveCompactResult{}, err
+		}
+		r.setReactiveProjectionOverride(sessionID, turnID, -1, 4)
+		attempt.Action = "projection_reduction_final"
+		attempt.Status = contextmgr.ProjectionStatusCompleted
+		attempt.WillRetry = true
+		attempt.BudgetAfter = r.estimatedReactiveReductionBudget(ctx, sessionID, snapshot.Model, snapshot.Messages, 0)
+		attempt.CompletedAt = time.Now().UTC().UnixMilli()
+		_, _ = r.contextStore.UpsertReactiveAttempt(ctx, attempt)
+		return agent.ReactiveCompactResult{Action: attempt.Action}, nil
+	}
 
-	// Attempt 2+: full compact under the reactive trigger. WillRetry is
+	// Attempt 2 uses the shared compact coordinator: a valid Session Memory
+	// revision is preferred, with model-backed Full Compact as the fallback.
+	// WillRetry is
 	// true if the agent will still have another attempt to spare after this
 	// one succeeds/fails and the circuit does not open.
 	callCtx := manualFullCompactCallContext{
@@ -1360,12 +1622,24 @@ func (r *runtimeService) runReactiveCompact(ctx context.Context, snapshot agent.
 		Reason:       "reactive",
 		Instructions: "上下文超出模型限制，已执行反应式压缩。请直接继续当前任务，不要复述摘要、不要向用户提问。",
 	}
-	_, summaryMessage, err := r.runManualFullCompactWithContext(ctx, compactReq, callCtx)
+	compact, summaryMessage, err := r.runSessionMemoryCompact(ctx, compactReq, snapshot.Model)
+	action := "session_memory_compact"
+	if err != nil {
+		compact, summaryMessage, err = r.runManualFullCompactWithContext(ctx, compactReq, callCtx)
+		action = "full_compact"
+	}
 	if err != nil {
 		// failManualFullCompact already emitted compact.failed with real
 		// attempt / will_retry / circuit_open fields, and incremented the
 		// circuit-breaker counter.
-		return agent.ReactiveCompactResult{CircuitOpen: r.isCompactCircuitOpen(sessionID)}, err
+		attempt.Action = action
+		attempt.Status = contextmgr.ProjectionStatusFailed
+		attempt.WillRetry = callCtx.WillRetry && !r.isCompactCircuitOpen(sessionID)
+		attempt.CircuitOpen = r.isCompactCircuitOpen(sessionID)
+		attempt.Error = err.Error()
+		attempt.CompletedAt = time.Now().UTC().UnixMilli()
+		_, _ = r.contextStore.UpsertReactiveAttempt(ctx, attempt)
+		return agent.ReactiveCompactResult{CircuitOpen: attempt.CircuitOpen}, err
 	}
 	// Install the boundary-anchored turn projection so the next PrepareStep
 	// in this turn sends summary + pairing-safe tail instead of the full
@@ -1388,7 +1662,51 @@ func (r *runtimeService) runReactiveCompact(ctx context.Context, snapshot agent.
 		}
 		r.setCompactTurnState(sessionID, turnID, state)
 	}
-	return agent.ReactiveCompactResult{Action: "full_compact"}, nil
+	attempt.Action = action
+	attempt.Status = contextmgr.ProjectionStatusCompleted
+	attempt.WillRetry = true
+	attempt.BudgetAfter = compact.Boundary.BudgetAfter
+	attempt.CompletedAt = time.Now().UTC().UnixMilli()
+	_, _ = r.contextStore.UpsertReactiveAttempt(ctx, attempt)
+	return agent.ReactiveCompactResult{Action: action}, nil
+}
+
+func (r *runtimeService) reactiveBudgetReport(ctx context.Context, sessionID, model string, messages []fantasy.Message) *contextmgr.BudgetReport {
+	encoded, _ := json.Marshal(messages)
+	limits := r.currentRuntimeModelLimits(ctx, sessionID, model)
+	return &contextmgr.BudgetReport{TotalEstimatedTokens: maxInt(1, len(encoded)/4), ContextWindow: limits.ContextWindow, Model: model}
+}
+
+func (r *runtimeService) hasReactiveProjectionReductionRoom(ctx context.Context, messages []fantasy.Message) bool {
+	eligible := r.microcompactEligibleToolCalls(ctx, messages)
+	for _, msg := range messages {
+		for _, part := range msg.Content {
+			if result, ok := part.(fantasy.ToolResultPart); ok && eligible[result.ToolCallID] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (r *runtimeService) estimatedReactiveReductionBudget(ctx context.Context, sessionID, model string, messages []fantasy.Message, keepRecent int) *contextmgr.BudgetReport {
+	report := r.reactiveBudgetReport(ctx, sessionID, model, messages)
+	eligible := r.microcompactEligibleToolCalls(ctx, messages)
+	var sizes []int
+	for _, msg := range messages {
+		for _, part := range msg.Content {
+			if result, ok := part.(fantasy.ToolResultPart); ok && eligible[result.ToolCallID] {
+				encoded, _ := json.Marshal(result)
+				sizes = append(sizes, maxInt(1, len(encoded)/4))
+			}
+		}
+	}
+	cutoff := maxInt(0, len(sizes)-keepRecent)
+	for _, size := range sizes[:cutoff] {
+		report.TotalEstimatedTokens -= maxInt(0, size-32)
+	}
+	report.TotalEstimatedTokens = maxInt(1, report.TotalEstimatedTokens)
+	return report
 }
 
 // maxRuntimeReactiveAttempts mirrors the agent-side cap so failManualFullCompact
@@ -1439,7 +1757,7 @@ func (r *runtimeService) setReactiveProjectionOverride(sessionID, turnID string,
 	}
 	key := compactTurnStateKey(sessionID, turnID)
 	state := r.compactTurnStates[key]
-	if keepRecent > 0 {
+	if keepRecent != 0 {
 		state.ReactiveMicroKeepRecent = keepRecent
 	}
 	if tokenDivisor > 1 {
@@ -1556,23 +1874,27 @@ func runtimeBudgetToContextBudget(report RuntimeBudgetReport) *contextmgr.Budget
 
 func runtimeContextBoundaryFromContext(boundary contextmgr.Boundary) RuntimeContextBoundary {
 	return RuntimeContextBoundary{
-		ID:               boundary.ID,
-		SessionID:        boundary.SessionID,
-		TurnID:           boundary.TurnID,
-		ProjectionID:     boundary.ProjectionID,
-		Kind:             boundary.Kind,
-		Trigger:          boundary.Trigger,
-		Status:           boundary.Status,
-		SummaryMessageID: boundary.SummaryMessageID,
-		SummaryRef:       boundary.SummaryRef,
-		MessageRefs:      append([]string(nil), boundary.MessageRefs...),
-		ToolCallRefs:     append([]string(nil), boundary.ToolCallRefs...),
-		ReinjectedRefs:   append([]string(nil), boundary.ReinjectedRefs...),
-		BudgetBefore:     runtimeBudgetFromContextBudget(boundary.BudgetBefore),
-		BudgetAfter:      runtimeBudgetFromContextBudget(boundary.BudgetAfter),
-		CreatedAt:        boundary.CreatedAt,
-		CompletedAt:      boundary.CompletedAt,
-		Error:            boundary.Error,
+		ID:                      boundary.ID,
+		SessionID:               boundary.SessionID,
+		TurnID:                  boundary.TurnID,
+		ProjectionID:            boundary.ProjectionID,
+		Kind:                    boundary.Kind,
+		Trigger:                 boundary.Trigger,
+		Status:                  boundary.Status,
+		SummaryMessageID:        boundary.SummaryMessageID,
+		SummaryRef:              boundary.SummaryRef,
+		MessageRefs:             append([]string(nil), boundary.MessageRefs...),
+		PreservedMessageRefs:    append([]string(nil), boundary.PreservedMessageRefs...),
+		BoundaryCutoffMessageID: boundary.BoundaryCutoffMessageID,
+		SummaryMode:             boundary.SummaryMode,
+		MemoryRevision:          boundary.MemoryRevision,
+		ToolCallRefs:            append([]string(nil), boundary.ToolCallRefs...),
+		ReinjectedRefs:          append([]string(nil), boundary.ReinjectedRefs...),
+		BudgetBefore:            runtimeBudgetFromContextBudget(boundary.BudgetBefore),
+		BudgetAfter:             runtimeBudgetFromContextBudget(boundary.BudgetAfter),
+		CreatedAt:               boundary.CreatedAt,
+		CompletedAt:             boundary.CompletedAt,
+		Error:                   boundary.Error,
 	}
 }
 
@@ -1619,6 +1941,10 @@ func runtimeReactiveAttemptFromContext(attempt contextmgr.ReactiveAttempt) Runti
 		Action:       attempt.Action,
 		Status:       attempt.Status,
 		Error:        attempt.Error,
+		BudgetBefore: runtimeBudgetFromContextBudget(attempt.BudgetBefore),
+		BudgetAfter:  runtimeBudgetFromContextBudget(attempt.BudgetAfter),
+		WillRetry:    attempt.WillRetry,
+		CircuitOpen:  attempt.CircuitOpen,
 		CreatedAt:    attempt.CreatedAt,
 		CompletedAt:  attempt.CompletedAt,
 	}
@@ -1662,87 +1988,6 @@ func firstPositiveInt(values ...int) int {
 	return 0
 }
 
-func buildManualCompactSummary(messages []message.Message, instructions string, readFiles []string) string {
-	var userMessages []string
-	var errors []string
-	var currentWork []string
-	for _, msg := range messages {
-		if msg.IsSummaryMessage || msg.Role == message.System {
-			continue
-		}
-		text := compactMessageText(msg)
-		if text == "" {
-			continue
-		}
-		switch msg.Role {
-		case message.User:
-			userMessages = append(userMessages, compactClip(text, 600))
-			currentWork = append(currentWork, compactClip(text, 300))
-		case message.Assistant:
-			if strings.Contains(strings.ToLower(text), "error") || strings.Contains(text, "失败") {
-				errors = append(errors, compactClip(text, 400))
-			}
-		case message.Tool:
-			for _, part := range msg.Parts {
-				if result, ok := part.(message.ToolResult); ok && result.IsError {
-					errors = append(errors, compactClip(result.Content, 400))
-				}
-			}
-		}
-	}
-	files := make([]string, 0, len(readFiles))
-	for _, path := range readFiles {
-		path = strings.TrimSpace(path)
-		if path == "" {
-			continue
-		}
-		files = append(files, compactClip(path, 240))
-		if len(files) >= 10 {
-			break
-		}
-	}
-	var b strings.Builder
-	b.WriteString("## Primary Request and Intent\n")
-	if len(userMessages) > 0 {
-		b.WriteString("- Preserve and continue the user's latest requested task.\n")
-	} else {
-		b.WriteString("- Continue the current conversation from the compacted context.\n")
-	}
-	b.WriteString("\n## Key Technical Concepts\n- Context compaction, append-only transcript, runtime projection, and session continuity.\n")
-	b.WriteString("\n## Files and Code Sections\n")
-	writeCompactList(&b, files, "- No specific file list was available from the compacted messages.")
-	b.WriteString("\n## Errors and Fixes\n")
-	writeCompactList(&b, errors, "- No explicit errors were captured in the compacted messages.")
-	b.WriteString("\n## Problem Solving\n- Earlier conversation content has been compacted into this summary so the next model input can continue without replaying every prior message.\n")
-	b.WriteString("\n## All User Messages\n")
-	writeCompactList(&b, userMessages, "- No user message text was available.")
-	b.WriteString("\n## Pending Tasks\n")
-	if trimmed := strings.TrimSpace(instructions); trimmed != "" {
-		b.WriteString("- Manual compact instructions: ")
-		b.WriteString(compactClip(trimmed, 1000))
-		b.WriteString("\n")
-	} else {
-		b.WriteString("- Continue from the current task state without asking the user to restate prior context.\n")
-	}
-	b.WriteString("\n## Current Work\n")
-	if len(currentWork) > 0 {
-		b.WriteString("- Latest user direction: ")
-		b.WriteString(currentWork[len(currentWork)-1])
-		b.WriteString("\n")
-	} else {
-		b.WriteString("- Resume the conversation after this compact summary.\n")
-	}
-	b.WriteString("\n## Optional Next Step\n")
-	if len(userMessages) > 0 {
-		b.WriteString("- Continue with the latest user request: \"")
-		b.WriteString(compactClip(userMessages[len(userMessages)-1], 500))
-		b.WriteString("\"\n")
-	} else {
-		b.WriteString("- Continue the current task using the compact summary above.\n")
-	}
-	return strings.TrimSpace(b.String())
-}
-
 func compactSummaryMessageText(summary, trigger string) string {
 	prefix := "本会话由早前对话压缩延续，以下摘要覆盖此前内容。"
 	suffix := "如需早前细节，可查看完整会话记录。"
@@ -1750,51 +1995,4 @@ func compactSummaryMessageText(summary, trigger string) string {
 		suffix += " 请直接继续当前任务，不要复述摘要、不要向用户提问。"
 	}
 	return prefix + "\n\n" + strings.TrimSpace(summary) + "\n\n" + suffix
-}
-
-func compactMessageText(msg message.Message) string {
-	var parts []string
-	for _, part := range msg.Parts {
-		switch p := part.(type) {
-		case message.TextContent:
-			parts = append(parts, p.Text)
-		case message.ImageURLContent:
-			parts = append(parts, "[image]")
-		case message.BinaryContent:
-			parts = append(parts, "[document]")
-		case message.ToolCall:
-			parts = append(parts, "tool_call:"+p.Name)
-		case message.ToolResult:
-			parts = append(parts, firstNonEmpty(p.Content, p.Data, p.Metadata))
-		}
-	}
-	return strings.TrimSpace(strings.Join(parts, "\n"))
-}
-
-func writeCompactList(b *strings.Builder, values []string, fallback string) {
-	if len(values) == 0 {
-		b.WriteString(fallback)
-		b.WriteString("\n")
-		return
-	}
-	limit := minInt(len(values), 20)
-	start := maxInt(0, len(values)-limit)
-	for _, value := range values[start:] {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		b.WriteString("- ")
-		b.WriteString(value)
-		b.WriteString("\n")
-	}
-}
-
-func compactClip(value string, limit int) string {
-	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
-	if limit <= 0 || len([]rune(value)) <= limit {
-		return value
-	}
-	runes := []rune(value)
-	return string(runes[:limit]) + "..."
 }

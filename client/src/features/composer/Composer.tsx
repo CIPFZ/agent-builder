@@ -73,6 +73,13 @@ export function Composer({
   const isBusy = Boolean(composer.busy);
   const contextUsage = showContextUsage ? composer.contextUsage : undefined;
   const showContextWarning = contextUsage && contextUsage.level !== 'ok';
+  const compactionMessage = composer.compactionStatus?.circuitOpen
+    ? '自动压缩已暂停，可手动 /compact 或切换模型'
+    : composer.compactionStatus?.activeOperation
+      ? composer.compactionStatus.activeOperation.trigger === 'reactive'
+        ? '上下文超限，正在缩减并重试'
+        : '正在整理上下文'
+      : undefined;
   const requiresSelectedModel = (prompt: string) => !prompt.trim().startsWith('/');
   const warnMissingModel = () => {
     void messageApi.warning('请先在 设置 - 服务商 中配置并选择模型后再使用');
@@ -171,7 +178,7 @@ export function Composer({
       </div>
 
       <div className={styles.rightControls}>
-        <ContextUsageIndicator usage={contextUsage} />
+        <ContextUsageIndicator usage={contextUsage} compaction={composer.compactionStatus} />
         <Dropdown
           menu={modelMenu}
           open={modelMenuOpen}
@@ -226,20 +233,20 @@ export function Composer({
   return (
     <div ref={composerRef} className={styles.composerWrap} data-testid="composer">
       {messageContextHolder}
-      {showContextWarning && (
+      {(showContextWarning || compactionMessage) && (
         <div
           className={`${styles.contextWarningBar} ${
-            contextUsage.autoCompactEnabled
+            !composer.compactionStatus?.circuitOpen && contextUsage?.autoCompactEnabled
               ? ''
-              : contextUsage.level === 'error'
+              : contextUsage?.level === 'error' || composer.compactionStatus?.circuitOpen
                 ? styles.contextWarningError
                 : styles.contextWarningWarn
           }`}
           data-testid="composer-context-warning"
         >
-          {contextUsage.autoCompactEnabled
+          {compactionMessage ?? (contextUsage?.autoCompactEnabled
             ? `距自动压缩还剩 ${contextUsage.percentLeft}%`
-            : `上下文即将用尽（剩余 ${contextUsage.percentLeft}%），请使用 /compact 手动压缩`}
+            : `上下文即将用尽（剩余 ${contextUsage?.percentLeft ?? 0}%），请使用 /compact 手动压缩`)}
         </div>
       )}
       <div className={`${styles.composerShell} ${showProjectContext || draftTarget ? styles.composerShellWithContext : ''}`}>

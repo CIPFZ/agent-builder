@@ -698,6 +698,7 @@ func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 	service.turns = newRuntimeTurnStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	service.permissionStore = newRuntimePermissionStore(conn)
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
 	service.hookExecutions = newRuntimeHookExecutionStore(conn)
 
@@ -828,6 +829,7 @@ func TestRuntimeSessionActivityExposesHookHaltStopReason(t *testing.T) {
 	service.turns = newRuntimeTurnStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	service.permissionStore = newRuntimePermissionStore(conn)
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
 	service.hookExecutions = newRuntimeHookExecutionStore(conn)
 
@@ -965,6 +967,7 @@ func TestRuntimeSessionActivityCursorWindowPreservesMixedEvidenceParity(t *testi
 	service.turns = newRuntimeTurnStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	service.permissionStore = newRuntimePermissionStore(conn)
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
 
 	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "cursor-window")

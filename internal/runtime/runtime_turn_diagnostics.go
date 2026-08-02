@@ -14,8 +14,10 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
-var explicitArtifactPathPattern = regexp.MustCompile(`(?i)(?:[A-Z]:[\\/]|/[A-Za-z0-9._ -]+[\\/])(?:[^\s"'<>|:*?]+[\\/])*[^\s"'<>|:*?]+\.(?:md|txt|json|yaml|yml|csv|tsv|html|css|js|jsx|ts|tsx|go|py|rs|java|kt|c|cc|cpp|h|hpp|cs|xml|toml|ini|sql|sh|ps1|bat|cmd|docx|xlsx|pptx|pdf)`)
-var shellRedirectArtifactPattern = regexp.MustCompile(`(?i)(?:^|[\s;&|])(?:>|>>|1>|1>>)\s*("[A-Z]:[\\/][^"<>\r\n|?*]+\.[A-Za-z0-9]{1,12}"|'[A-Z]:[\\/][^'<>\r\n|?*]+\.[A-Za-z0-9]{1,12}'|[A-Z]:[\\/][^\s"<>\r\n|?*]+\.[A-Za-z0-9]{1,12})`)
+var (
+	explicitArtifactPathPattern  = regexp.MustCompile(`(?i)(?:[A-Z]:[\\/]|/[A-Za-z0-9._ -]+[\\/])(?:[^\s"'<>|:*?]+[\\/])*[^\s"'<>|:*?]+\.(?:md|txt|json|yaml|yml|csv|tsv|html|css|js|jsx|ts|tsx|go|py|rs|java|kt|c|cc|cpp|h|hpp|cs|xml|toml|ini|sql|sh|ps1|bat|cmd|docx|xlsx|pptx|pdf)`)
+	shellRedirectArtifactPattern = regexp.MustCompile(`(?i)(?:^|[\s;&|])(?:>|>>|1>|1>>)\s*("[A-Z]:[\\/][^"<>\r\n|?*]+\.[A-Za-z0-9]{1,12}"|'[A-Z]:[\\/][^'<>\r\n|?*]+\.[A-Za-z0-9]{1,12}'|[A-Z]:[\\/][^\s"<>\r\n|?*]+\.[A-Za-z0-9]{1,12})`)
+)
 
 func buildRuntimeTurnDiagnostics(turn RuntimeTurn, messages []RuntimeMessage, toolCalls []RuntimeToolCall, permissions []RuntimePermissionRequest, events []RuntimeEvent, hooks ...[]RuntimeHookExecution) RuntimeTurnDiagnostics {
 	now := time.Now().UTC().UnixMilli()
@@ -505,9 +507,7 @@ func producedArtifactsFromToolCall(call RuntimeToolCall) []string {
 	if target := normalizeArtifactPath(call.Display.Target); target != "" {
 		paths = append(paths, target)
 	}
-	for _, path := range explicitArtifactPathsFromToolInput(call.InputSummary, []string{"file_path", "filepath", "path", "file", "target"}) {
-		paths = append(paths, path)
-	}
+	paths = append(paths, explicitArtifactPathsFromToolInput(call.InputSummary, []string{"file_path", "filepath", "path", "file", "target"})...)
 	return uniqueSortedStrings(paths)
 }
 
@@ -569,9 +569,7 @@ func shellCreatedArtifactPaths(command string) []string {
 		if !strings.Contains(lower, verb) {
 			continue
 		}
-		for _, path := range extractExplicitArtifactPaths(command) {
-			paths = append(paths, path)
-		}
+		paths = append(paths, extractExplicitArtifactPaths(command)...)
 	}
 	return uniqueSortedStrings(paths)
 }

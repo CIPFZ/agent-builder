@@ -3059,6 +3059,16 @@ func TestRuntimeDeleteActiveSessionReturnsToDraft(t *testing.T) {
 	service.runtime = runtime
 	service.workspace = &apitypes.Workspace{ID: workspace.ID}
 	service.sessionID = first.ID
+	conn, err := db.Connect(context.Background(), workspace.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Release(workspace.DataDir) })
+	service.turns = newRuntimeTurnStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
 
 	resp, err := service.DeleteSession(context.Background(), first.ID)
 	if err != nil {
@@ -5025,6 +5035,7 @@ func (s *recordingRuntimeService) SaveTerminalSettings(context.Context, RuntimeT
 func (s *recordingRuntimeService) OpenTargetSettings(context.Context) (RuntimeOpenTargetSettingsResponse, error) {
 	return RuntimeOpenTargetSettingsResponse{}, nil
 }
+
 func (s *recordingRuntimeService) SaveOpenTargetSettings(context.Context, RuntimeOpenTargetSettings) (RuntimeOpenTargetSettingsResponse, error) {
 	return RuntimeOpenTargetSettingsResponse{}, nil
 }
@@ -5134,10 +5145,6 @@ func (s *recordingRuntimeService) ManualCompact(context.Context, RuntimeContextA
 	return RuntimeManualCompactResponse{}, nil
 }
 
-func (s *recordingRuntimeService) ManualSnip(context.Context, RuntimeContextActionRequest) (RuntimeManualSnipResponse, error) {
-	return RuntimeManualSnipResponse{}, nil
-}
-
 func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, error) {
 	return s.runs, nil
 }
@@ -5245,6 +5252,10 @@ func (s *recordingRuntimeService) TurnCompactBoundaries(context.Context, string)
 
 func (s *recordingRuntimeService) SessionCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error) {
 	return s.compactBoundaries, nil
+}
+
+func (s *recordingRuntimeService) ContextCompactionStatus(context.Context, string) (RuntimeContextCompactionStatus, error) {
+	return RuntimeContextCompactionStatus{}, nil
 }
 
 func (s *recordingRuntimeService) Worktrees(context.Context) (RuntimeWorktreesResponse, error) {
@@ -5398,6 +5409,7 @@ func (s *recordingRuntimeService) SessionConversationSnapshotV2(_ context.Contex
 func (s *recordingRuntimeService) SessionConversationEventsV2(_ context.Context, sessionID string, req RuntimeCanonicalConversationEventsRequestV2) (RuntimeCanonicalConversationEventsResponseV2, error) {
 	return RuntimeCanonicalConversationEventsResponseV2{SchemaVersion: 2, SessionID: sessionID, AfterCursor: req.After, Cursor: req.After, Events: []RuntimeConversationEntityEventV2{}}, nil
 }
+
 func (s *recordingRuntimeService) SubscribeSessionConversationEventsV2(context.Context, string, string) (<-chan RuntimeCanonicalConversationEventBatchV2, func()) {
 	ch := make(chan RuntimeCanonicalConversationEventBatchV2)
 	return ch, func() { close(ch) }

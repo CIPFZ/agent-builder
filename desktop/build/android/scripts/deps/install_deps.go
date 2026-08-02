@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -103,7 +104,7 @@ func main() {
 
 	// Check for AVD (Android Virtual Device)
 	if checkCommand("emulator", "-list-avds") {
-		cmd := exec.Command("emulator", "-list-avds")
+		cmd := exec.CommandContext(context.Background(), "emulator", "-list-avds")
 		output, err := cmd.Output()
 		if err == nil && len(strings.TrimSpace(string(output))) > 0 {
 			avds := strings.Split(strings.TrimSpace(string(output)), "\n")
@@ -144,7 +145,7 @@ func main() {
 }
 
 func checkCommand(name string, args ...string) bool {
-	cmd := exec.Command(name, args...)
+	cmd := exec.CommandContext(context.Background(), name, args...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	return cmd.Run() == nil

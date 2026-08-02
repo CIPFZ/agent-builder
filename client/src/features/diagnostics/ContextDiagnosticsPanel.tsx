@@ -1,7 +1,7 @@
 import { Alert, Button, Tag, Tooltip, Typography } from 'antd';
-import { ApiOutlined, CompressOutlined, DatabaseOutlined, FileSearchOutlined, ProfileOutlined, ToolOutlined } from '@ant-design/icons';
+import { ApiOutlined, CompressOutlined, CopyOutlined, DatabaseOutlined, FileSearchOutlined, ProfileOutlined, ToolOutlined } from '@ant-design/icons';
 import { useState, type ReactNode } from 'react';
-import type { BudgetBucketViewModel, ContextDiagnosticsViewModel, ContextUsageViewModel } from '../../runtime/workbenchTypes.ts';
+import type { BudgetBucketViewModel, ContextCompactionStatusViewModel, ContextDiagnosticsViewModel, ContextUsageViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './ContextDiagnosticsPanel.module.css';
 
 const { Text } = Typography;
@@ -13,16 +13,16 @@ interface ContextDiagnosticsPanelProps {
   // number/percentage share one source of truth instead of the indicator
   // and this panel drifting apart on separate estimates.
   contextUsage?: ContextUsageViewModel;
+  compactionStatus?: ContextCompactionStatusViewModel;
   onManualCompact?: () => Promise<void>;
-  onManualSnip?: () => Promise<void>;
 }
 
-export function ContextDiagnosticsPanel({ diagnostics, contextUsage, onManualCompact, onManualSnip }: ContextDiagnosticsPanelProps) {
-  const [runningAction, setRunningAction] = useState<'compact' | 'snip' | undefined>();
+export function ContextDiagnosticsPanel({ diagnostics, contextUsage, compactionStatus, onManualCompact }: ContextDiagnosticsPanelProps) {
+  const [runningAction, setRunningAction] = useState<'compact' | undefined>();
   if (!diagnostics) {
     return null;
   }
-  const runAction = async (action: 'compact' | 'snip', handler?: () => Promise<void>) => {
+  const runAction = async (action: 'compact', handler?: () => Promise<void>) => {
     if (!handler || runningAction) {
       return;
     }
@@ -35,16 +35,16 @@ export function ContextDiagnosticsPanel({ diagnostics, contextUsage, onManualCom
   };
 
   return (
-    <aside className={styles.panel} data-testid="context-diagnostics-panel" aria-label="Context diagnostics">
+    <aside className={styles.panel} data-testid="context-diagnostics-panel" aria-label="上下文诊断">
       <div className={styles.header}>
         <span className={styles.heading}>
           <ProfileOutlined />
-          <span>Context</span>
+          <span>上下文诊断</span>
         </span>
         <div className={styles.headerActions}>
-          <Tooltip title="Record manual compact boundary">
+          <Tooltip title="手动整理上下文">
             <Button
-              aria-label="Record manual compact boundary"
+              aria-label="手动整理上下文"
               disabled={!onManualCompact}
               icon={<CompressOutlined />}
               loading={runningAction === 'compact'}
@@ -53,43 +53,37 @@ export function ContextDiagnosticsPanel({ diagnostics, contextUsage, onManualCom
               onClick={() => void runAction('compact', onManualCompact)}
             />
           </Tooltip>
-          <Tooltip title="Record manual snip boundary">
-            <Button
-              aria-label="Record manual snip boundary"
-              disabled={!onManualSnip}
-              icon={<FileSearchOutlined />}
-              loading={runningAction === 'snip'}
-              size="small"
-              type="text"
-              onClick={() => void runAction('snip', onManualSnip)}
-            />
+          <Tooltip title="复制不含正文的诊断摘要">
+            <Button aria-label="复制诊断摘要" icon={<CopyOutlined />} size="small" type="text" onClick={() => void copyDiagnosticSummary(diagnostics, contextUsage, compactionStatus)} />
           </Tooltip>
           <Tag color={diagnostics.system.redacted ? 'blue' : 'warning'}>{diagnostics.system.redacted ? 'summary' : 'check'}</Tag>
         </div>
       </div>
 
       {diagnostics.warnings.length ? (
-        <Alert type="warning" showIcon message="Context warnings" description={diagnostics.warnings.join(' / ')} className={styles.alert} />
+        <Alert type="warning" showIcon message="上下文警告" description={diagnostics.warnings.join(' / ')} className={styles.alert} />
       ) : null}
 
       <div className={styles.modelLine}>
-        <Text type="secondary">Model</Text>
-        <Text className={styles.truncate}>{[diagnostics.provider, diagnostics.model].filter(Boolean).join(' / ') || 'unknown'}</Text>
+        <Text type="secondary">模型</Text>
+        <Text className={styles.truncate}>{[diagnostics.provider, diagnostics.model].filter(Boolean).join(' / ') || '未知'}</Text>
       </div>
       {diagnostics.projectionId ? (
         <div className={styles.modelLine}>
-          <Text type="secondary">Projection</Text>
+          <Text type="secondary">投影</Text>
           <Text className={styles.truncate}>{diagnostics.projectionId}</Text>
         </div>
       ) : null}
 
       <div className={styles.metrics}>
-        <Metric icon={<DatabaseOutlined />} label="Budget" value={budgetHeaderValue(diagnostics, contextUsage)} />
-        <Metric icon={<ToolOutlined />} label="Tools" value={`${diagnostics.tools.selectedCount} selected / ${diagnostics.tools.omittedCount} omitted`} />
-        <Metric icon={<FileSearchOutlined />} label="Sections" value={`${diagnostics.sections.length} prompt`} />
+        <Metric icon={<DatabaseOutlined />} label="当前预算" value={budgetHeaderValue(diagnostics, contextUsage)} />
+        <Metric icon={<ToolOutlined />} label="工具" value={`${diagnostics.tools.selectedCount} 已选 / ${diagnostics.tools.omittedCount} 省略`} />
+        <Metric icon={<FileSearchOutlined />} label="提示词" value={`${diagnostics.sections.length} 段`} />
       </div>
 
-      <Section title="Prompt sections">
+      {compactionStatus ? <CompactionOverview status={compactionStatus} /> : null}
+
+      <Section title="当前预算">
         {diagnostics.sections.length ? (
           diagnostics.sections.map((section) => (
             <div key={section.id} className={styles.sourceRow}>
@@ -109,18 +103,18 @@ export function ContextDiagnosticsPanel({ diagnostics, contextUsage, onManualCom
             </div>
           ))
         ) : (
-          <Text type="secondary">No prompt sections recorded.</Text>
+          <Text type="secondary">暂无提示词分段记录。</Text>
         )}
       </Section>
 
-      <Section title="Budget">
-        <BudgetRow label="Messages" bucket={diagnostics.budget.messages} />
-        <BudgetRow label="Context" bucket={diagnostics.budget.contextSources} />
-        <BudgetRow label="Tools" bucket={diagnostics.budget.selectedToolSchemas} />
-        <BudgetRow label="Outputs" bucket={diagnostics.budget.toolOutputs} />
+      <Section title="投影优化">
+        <BudgetRow label="消息" bucket={diagnostics.budget.messages} />
+        <BudgetRow label="上下文来源" bucket={diagnostics.budget.contextSources} />
+        <BudgetRow label="工具定义" bucket={diagnostics.budget.selectedToolSchemas} />
+        <BudgetRow label="工具输出" bucket={diagnostics.budget.toolOutputs} />
       </Section>
 
-      <Section title="Tools">
+      <Section title="工具投影">
         <TagList values={diagnostics.tools.selected} fallback={`${diagnostics.tools.selectedCount} selected`} color="blue" />
         {diagnostics.tools.omitted.length ? <TagList values={diagnostics.tools.omitted} color="default" /> : null}
         <Text type="secondary" className={styles.detailLine}>
@@ -128,7 +122,7 @@ export function ContextDiagnosticsPanel({ diagnostics, contextUsage, onManualCom
         </Text>
       </Section>
 
-      <Section title="Skills and MCP">
+      <Section title="Skills 与 MCP">
         <div className={styles.inlineTags}>
           <Tooltip title={diagnostics.skills.xmlHash || 'No skill instruction hash'}>
             <Tag color={diagnostics.skills.xmlPresent ? 'green' : 'default'}>{diagnostics.skills.loadedCount} skills</Tag>
@@ -140,7 +134,7 @@ export function ContextDiagnosticsPanel({ diagnostics, contextUsage, onManualCom
         <TagList values={[...diagnostics.skills.loadedNames, ...diagnostics.mcp.servers]} fallback="No loaded instruction sources" />
       </Section>
 
-      <Section title="Context sources">
+      <Section title="上下文来源">
         {diagnostics.contextSources.length ? (
           diagnostics.contextSources.map((source) => (
             <div key={source.id} className={styles.sourceRow}>
@@ -156,12 +150,12 @@ export function ContextDiagnosticsPanel({ diagnostics, contextUsage, onManualCom
             </div>
           ))
         ) : (
-          <Text type="secondary">No context sources recorded.</Text>
+          <Text type="secondary">暂无上下文来源记录。</Text>
         )}
       </Section>
 
       {diagnostics.compactBoundaries.length ? (
-        <Section title="Compact">
+        <Section title="最近压缩">
           {diagnostics.compactBoundaries.map((boundary) => (
             <div key={boundary.id} className={styles.compactRow}>
               <CompressOutlined />
@@ -180,7 +174,7 @@ export function ContextDiagnosticsPanel({ diagnostics, contextUsage, onManualCom
       ) : null}
 
       {diagnostics.snipBoundaries.length || diagnostics.replacements.length || diagnostics.reactiveAttempts.length ? (
-        <Section title="Governance">
+        <Section title="恢复尝试">
           {diagnostics.snipBoundaries.map((boundary) => (
             <div key={boundary.id} className={styles.compactRow}>
               <CompressOutlined />
@@ -222,6 +216,51 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       {children}
     </section>
   );
+}
+
+function CompactionOverview({ status }: { status: ContextCompactionStatusViewModel }) {
+  const completed = status.latestCompleted;
+  const memory = status.latestSessionMemory;
+  return (
+    <>
+      <Section title="最近压缩">
+        {status.activeOperation ? <Text>正在整理上下文：{status.activeOperation.kind} / {status.activeOperation.trigger}</Text> : null}
+        {completed ? (
+          <Text type="secondary" className={styles.detailLine}>
+            {completed.kind} / {completed.trigger}，{completed.preTokens} → {completed.postTokens} tokens，节省 {completed.savedTokens}
+          </Text>
+        ) : <Text type="secondary">尚无已完成的压缩。</Text>}
+        {status.latestFailed ? <Text type="danger" className={styles.detailLine}>最近失败：{status.latestFailed.error || status.latestFailed.kind}</Text> : null}
+        {status.circuitOpen ? <Alert type="error" showIcon message="自动压缩已暂停" description={`连续失败 ${status.consecutiveFailures} 次，可手动压缩或切换模型。`} /> : null}
+      </Section>
+      <Section title="Session Memory">
+        {memory ? (
+          <Text type={memory.status === 'failed' ? 'danger' : 'secondary'} className={styles.detailLine}>
+            revision {memory.revision} / {memory.status}，覆盖 {memory.sourceMessageCount} 条消息，约 {memory.sourceTokenEstimate} tokens
+          </Text>
+        ) : <Text type="secondary">尚未生成 Session Memory。</Text>}
+      </Section>
+      <Section title="恢复尝试">
+        <Text type="secondary">{status.circuitOpen ? '熔断已打开，Runtime 不会继续消耗摘要模型调用。' : '恢复链路可用：投影缩减 → Session Memory / Full Compact。'}</Text>
+      </Section>
+    </>
+  );
+}
+
+async function copyDiagnosticSummary(
+  diagnostics: ContextDiagnosticsViewModel,
+  usage?: ContextUsageViewModel,
+  status?: ContextCompactionStatusViewModel,
+) {
+  const summary = [
+    `模型: ${[diagnostics.provider, diagnostics.model].filter(Boolean).join(' / ') || '未知'}`,
+    `预算: ${usage ? `${usage.usedTokens}/${usage.contextWindow} (${usage.percentUsed}%)` : diagnostics.budget.totalEstimatedTokens}`,
+    `压缩: ${status?.latestCompleted ? `${status.latestCompleted.kind}/${status.latestCompleted.trigger}, saved=${status.latestCompleted.savedTokens}` : 'none'}`,
+    `Session Memory: ${status?.latestSessionMemory ? `revision=${status.latestSessionMemory.revision}, status=${status.latestSessionMemory.status}` : 'none'}`,
+    `恢复: circuit_open=${Boolean(status?.circuitOpen)}, failures=${status?.consecutiveFailures ?? 0}`,
+    `投影: replacements=${diagnostics.replacements.length}, attempts=${diagnostics.reactiveAttempts.length}`,
+  ].join('\n');
+  await navigator.clipboard?.writeText(summary);
 }
 
 function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {

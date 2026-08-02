@@ -24,6 +24,9 @@ const canonicalMessageContentLimit = 64 * 1024
 // persisted stores. It deliberately does not call the legacy output/activity
 // projection, which may include active in-memory state and UI grouping policy.
 func (r *runtimeService) SessionConversationSnapshotV2(ctx context.Context, sessionID string, req RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error) {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
+		return RuntimeCanonicalConversationSnapshot{}, err
+	}
 	r.conversationV2Mu.Lock()
 	semantic, err := r.buildSessionConversationSnapshotV2(ctx, sessionID, RuntimeCanonicalConversationSnapshotRequest{})
 	if err != nil {
@@ -95,13 +98,33 @@ func (r *runtimeService) SessionConversationSnapshotV2(ctx context.Context, sess
 }
 
 func (r *runtimeService) buildSessionConversationSnapshotV2(ctx context.Context, sessionID string, req RuntimeCanonicalConversationSnapshotRequest) (RuntimeCanonicalConversationSnapshot, error) {
+	// Explicit snapshot/delete flows may attach a workbench directly before
+	// the runtime store fields have been populated. Bind all canonical stores
+	// to that workspace database here. Event projection calls the At variant
+	// directly and therefore never enters this bootstrap path.
+	if r.eventStore.db == nil {
+		conn, err := r.workspaceDB(ctx)
+		if err != nil {
+			return RuntimeCanonicalConversationSnapshot{}, err
+		}
+		if r.turns.db == nil {
+			r.turns = newRuntimeTurnStore(conn)
+		}
+		if r.toolCalls == nil {
+			r.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+		}
+		if r.permissionStore.db == nil {
+			r.permissionStore = newRuntimePermissionStore(conn)
+		}
+		if r.agentTasks.db == nil {
+			r.agentTasks = newRuntimeAgentTaskStore(conn)
+		}
+		r.eventStore = newRuntimeEventStore(conn)
+	}
 	return r.buildSessionConversationSnapshotV2At(ctx, sessionID, req, 0, nil)
 }
 
 func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Context, sessionID string, req RuntimeCanonicalConversationSnapshotRequest, maxRawSequence int64, pending *RuntimeEvent) (RuntimeCanonicalConversationSnapshot, error) {
-	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
-		return RuntimeCanonicalConversationSnapshot{}, err
-	}
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return RuntimeCanonicalConversationSnapshot{}, errors.New("session id is required")
@@ -122,26 +145,59 @@ func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Contex
 		return RuntimeCanonicalConversationSnapshot{}, errors.New("canonical conversation before and around are mutually exclusive")
 	}
 
-	turns, err := r.turns.ListBySession(ctx, sessionID)
+	// Ambient event projection must use already-attached persistence only. A
+	// focused runtime may install just the store it mutates, so fill missing
+	// canonical stores from the same event-store connection without starting
+	// the desktop workspace.
+	turnStore := r.turns
+	permissionStore := r.permissionStore
+	agentTaskStore := r.agentTasks
+	toolCallStore := r.toolCalls
+	if conn := r.eventStore.db; conn != nil {
+		if turnStore.db == nil {
+			turnStore = newRuntimeTurnStore(conn)
+		}
+		if permissionStore.db == nil {
+			permissionStore = newRuntimePermissionStore(conn)
+		}
+		if agentTaskStore.db == nil {
+			agentTaskStore = newRuntimeAgentTaskStore(conn)
+		}
+		if toolCallStore == nil {
+			toolCallStore = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+		}
+	}
+
+	turns, err := turnStore.ListBySession(ctx, sessionID)
 	if err != nil {
 		return RuntimeCanonicalConversationSnapshot{}, err
 	}
-	messagesResp, err := r.SessionMessages(ctx, sessionID)
-	if err != nil {
-		return RuntimeCanonicalConversationSnapshot{}, err
+	messagesResp := RuntimeMessagesResponse{}
+	r.mu.Lock()
+	runtimeWorkbench := r.runtime
+	workspaceID := ""
+	if r.workspace != nil {
+		workspaceID = r.workspace.ID
 	}
-	calls := make([]scheduler.ToolCall, 0)
-	if r.toolCalls != nil {
-		calls, err = r.toolCalls.ListSessionCalls(ctx, sessionID)
+	r.mu.Unlock()
+	if runtimeWorkbench != nil && workspaceID != "" {
+		messagesResp, err = r.sessionMessages(ctx, workspaceID, sessionID)
 		if err != nil {
 			return RuntimeCanonicalConversationSnapshot{}, err
 		}
 	}
-	permissions, err := r.permissionStore.ListBySession(ctx, sessionID)
+	calls := make([]scheduler.ToolCall, 0)
+	if toolCallStore != nil {
+		calls, err = toolCallStore.ListSessionCalls(ctx, sessionID)
+		if err != nil {
+			return RuntimeCanonicalConversationSnapshot{}, err
+		}
+	}
+	permissions, err := permissionStore.ListBySession(ctx, sessionID)
 	if err != nil {
 		return RuntimeCanonicalConversationSnapshot{}, err
 	}
-	tasks, err := r.agentTasks.ListBySession(ctx, sessionID)
+	tasks, err := agentTaskStore.ListBySession(ctx, sessionID)
 	if err != nil {
 		return RuntimeCanonicalConversationSnapshot{}, err
 	}
@@ -404,10 +460,12 @@ func canonicalMeta(kind, id, sid, tid string, created, updated int64, ranges map
 	v := ranges[kind+":"+id]
 	return RuntimeConversationEntityMeta{ID: id, SessionID: sid, TurnID: tid, ActivitySequence: strconv.FormatInt(v.first, 10), Revision: strconv.FormatInt(v.last, 10), CreatedAt: created, UpdatedAt: max64(created, updated)}
 }
+
 func canonicalDerivedMeta(parent RuntimeConversationEntityMeta, kind, id string) RuntimeConversationEntityMeta {
 	parent.ID = id
 	return parent
 }
+
 func canonicalFinalMessageID(turn RuntimeTurn, messages []RuntimeMessage) string {
 	if !canonicalTurnTerminal(turn.Status) || turn.LatestAssistantMessageID == "" {
 		return ""
@@ -453,6 +511,7 @@ func canonicalTurnTerminal(status string) bool {
 	}
 	return false
 }
+
 func assignMessagesToTurns(messages []RuntimeMessage, turns []RuntimeTurn, owners map[string]string) {
 	for _, m := range messages {
 		if owners[m.ID] != "" {
@@ -467,6 +526,7 @@ func assignMessagesToTurns(messages []RuntimeMessage, turns []RuntimeTurn, owner
 		}
 	}
 }
+
 func canonicalTodoPlans(events []RuntimeEvent, sid string, ranges map[string]canonicalEventRange, turns map[string]RuntimeTurn) []RuntimeCanonicalTodoPlan {
 	latest := map[string]RuntimeEvent{}
 	first := map[string]RuntimeEvent{}
@@ -597,6 +657,13 @@ func canonicalNoticeIdentity(event RuntimeEvent) (string, string, bool) {
 		// source (skills, AGENTS.md probes, missing optional files, etc.).
 		return "", "", false
 	case strings.HasPrefix(event.Type, "compact.") && event.Type != runtimeapi.EventCompactProgress:
+		if stringFromMap(event.Payload, "trigger") == "reactive" {
+			if event.Type == runtimeapi.EventCompactStarted || (event.Type == runtimeapi.EventCompactFailed && boolFromMap(event.Payload, "will_retry")) {
+				// Reactive intermediate work belongs in the Assistant process
+				// state. Only the final success/failure becomes a timeline notice.
+				return "", "", false
+			}
+		}
 		kind, sourceID = "compact", firstNonEmpty(stringFromMap(event.Payload, "boundary_id"), stringFromMap(event.Payload, "compact_boundary_id"))
 	case strings.HasPrefix(event.Type, "recovery."):
 		kind, sourceID = "recovery", firstNonEmpty(stringFromMap(event.Payload, "error_id"), stringFromMap(event.Payload, "recovery_id"))
@@ -629,6 +696,7 @@ func canonicalNoticeSummary(event RuntimeEvent) string {
 func canonicalNoticeRefs(payload map[string]any) []string {
 	return nonEmptyStrings(stringFromMap(payload, "source_id"), stringFromMap(payload, "error_id"), stringFromMap(payload, "boundary_id"), stringFromMap(payload, "execution_id"))
 }
+
 func parseRuntimeEventMillis(v string) int64 {
 	t, err := time.Parse(time.RFC3339Nano, v)
 	if err != nil {
@@ -636,6 +704,7 @@ func parseRuntimeEventMillis(v string) int64 {
 	}
 	return t.UnixMilli()
 }
+
 func canonicalSortSnapshot(s *RuntimeCanonicalConversationSnapshot) {
 	sort.SliceStable(s.Turns, func(i, j int) bool {
 		return canonicalLess(s.Turns[i].RuntimeConversationEntityMeta, s.Turns[j].RuntimeConversationEntityMeta)
@@ -665,6 +734,7 @@ func canonicalSortSnapshot(s *RuntimeCanonicalConversationSnapshot) {
 		return canonicalLess(s.Notices[i].RuntimeConversationEntityMeta, s.Notices[j].RuntimeConversationEntityMeta)
 	})
 }
+
 func canonicalLess(a, b RuntimeConversationEntityMeta) bool {
 	ai, _ := strconv.ParseInt(a.ActivitySequence, 10, 64)
 	bi, _ := strconv.ParseInt(b.ActivitySequence, 10, 64)
@@ -676,6 +746,7 @@ func canonicalLess(a, b RuntimeConversationEntityMeta) bool {
 	}
 	return a.ID < b.ID
 }
+
 func applyCanonicalWindow(s *RuntimeCanonicalConversationSnapshot, req RuntimeCanonicalConversationSnapshotRequest) {
 	if req.Scope != "window" && req.Limit <= 0 {
 		return
@@ -732,6 +803,7 @@ func applyCanonicalWindow(s *RuntimeCanonicalConversationSnapshot, req RuntimeCa
 	s.TodoPlans = filterTodos(s.TodoPlans, ids)
 	s.AgentTasks = filterTasks(s.AgentTasks, ids)
 }
+
 func filterMessages(v []RuntimeCanonicalMessage, ids map[string]bool) []RuntimeCanonicalMessage {
 	o := []RuntimeCanonicalMessage{}
 	for _, x := range v {
@@ -741,6 +813,7 @@ func filterMessages(v []RuntimeCanonicalMessage, ids map[string]bool) []RuntimeC
 	}
 	return o
 }
+
 func filterSteps(v []RuntimeCanonicalAssistantStep, ids map[string]bool) []RuntimeCanonicalAssistantStep {
 	o := []RuntimeCanonicalAssistantStep{}
 	for _, x := range v {
@@ -750,6 +823,7 @@ func filterSteps(v []RuntimeCanonicalAssistantStep, ids map[string]bool) []Runti
 	}
 	return o
 }
+
 func filterCalls(v []RuntimeCanonicalToolCall, ids map[string]bool) []RuntimeCanonicalToolCall {
 	o := []RuntimeCanonicalToolCall{}
 	for _, x := range v {
@@ -759,6 +833,7 @@ func filterCalls(v []RuntimeCanonicalToolCall, ids map[string]bool) []RuntimeCan
 	}
 	return o
 }
+
 func filterResults(v []RuntimeCanonicalToolResult, c []RuntimeCanonicalToolCall) []RuntimeCanonicalToolResult {
 	ids := map[string]bool{}
 	for _, x := range c {
@@ -772,6 +847,7 @@ func filterResults(v []RuntimeCanonicalToolResult, c []RuntimeCanonicalToolCall)
 	}
 	return o
 }
+
 func filterPermissions(v []RuntimeCanonicalPermission, ids map[string]bool) []RuntimeCanonicalPermission {
 	o := []RuntimeCanonicalPermission{}
 	for _, x := range v {
@@ -781,6 +857,7 @@ func filterPermissions(v []RuntimeCanonicalPermission, ids map[string]bool) []Ru
 	}
 	return o
 }
+
 func filterTodos(v []RuntimeCanonicalTodoPlan, ids map[string]bool) []RuntimeCanonicalTodoPlan {
 	o := []RuntimeCanonicalTodoPlan{}
 	for _, x := range v {
@@ -790,6 +867,7 @@ func filterTodos(v []RuntimeCanonicalTodoPlan, ids map[string]bool) []RuntimeCan
 	}
 	return o
 }
+
 func filterTasks(v []RuntimeCanonicalAgentTask, ids map[string]bool) []RuntimeCanonicalAgentTask {
 	o := []RuntimeCanonicalAgentTask{}
 	for _, x := range v {
@@ -799,12 +877,14 @@ func filterTasks(v []RuntimeCanonicalAgentTask, ids map[string]bool) []RuntimeCa
 	}
 	return o
 }
+
 func boundedPreview(v string, n int) string {
 	if len(v) <= n {
 		return v
 	}
 	return v[:n]
 }
+
 func boundedUTF8Content(v string, n int) (string, bool) {
 	if len(v) <= n {
 		return v, false
@@ -815,6 +895,7 @@ func boundedUTF8Content(v string, n int) (string, bool) {
 	}
 	return v[:end], true
 }
+
 func validJSONObjectOrEmpty(v string) string {
 	var decoded any
 	if strings.TrimSpace(v) == "" || json.Unmarshal([]byte(v), &decoded) != nil {
@@ -822,6 +903,7 @@ func validJSONObjectOrEmpty(v string) string {
 	}
 	return v
 }
+
 func nonEmptyStrings(v ...string) []string {
 	o := []string{}
 	for _, x := range v {
@@ -831,12 +913,14 @@ func nonEmptyStrings(v ...string) []string {
 	}
 	return o
 }
+
 func max64(a, b int64) int64 {
 	if b > a {
 		return b
 	}
 	return a
 }
+
 func maxDecimal(a, b string) string {
 	av, _ := strconv.ParseUint(a, 10, 64)
 	bv, _ := strconv.ParseUint(b, 10, 64)
@@ -848,6 +932,7 @@ func maxDecimal(a, b string) string {
 	}
 	return a
 }
+
 func ternary[T any](c bool, a, b T) T {
 	if c {
 		return a

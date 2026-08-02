@@ -160,7 +160,7 @@ func (m *Tool) Run(ctx context.Context, params fantasy.ToolCall) (fantasy.ToolRe
 
 func looksLikeStructuredMCPText(content string) bool {
 	trimmed := strings.TrimSpace(content)
-	if !(strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")) {
+	if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
 		return false
 	}
 	var decoded any

@@ -17,8 +17,10 @@ import (
 // hookApprovalKey is the unexported context key used to mark a tool call as
 // pre-approved by a PreToolUse hook. The value is the tool call ID so an
 // approval can't be reused across calls that happen to share a context.
-type hookApprovalKey struct{}
-type turnIDContextKey struct{}
+type (
+	hookApprovalKey  struct{}
+	turnIDContextKey struct{}
+)
 
 func WithTurnID(ctx context.Context, turnID string) context.Context {
 	return context.WithValue(ctx, turnIDContextKey{}, turnID)

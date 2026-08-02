@@ -47,7 +47,20 @@ func ClassifyProviderError(err error) ProviderErrorClassification {
 		classification.Details["title"] = providerErr.Title
 		classification.Details["message"] = providerErr.Message
 		message = strings.ToLower(providerErr.Title + " " + providerErr.Message + " " + err.Error())
+		structuredCode := strings.ToLower(strings.TrimSpace(providerErr.Title))
+		switch structuredCode {
+		case "context_length_exceeded", "context_window_exceeded", "prompt_too_long", "input_too_long":
+			classification.Kind = ProviderErrorContextLengthExceeded
+			classification.CompactEligible = true
+			classification.UserAction = "compact_context"
+			return classification
+		}
 		switch providerErr.StatusCode {
+		case http.StatusRequestEntityTooLarge:
+			classification.Kind = ProviderErrorContextLengthExceeded
+			classification.CompactEligible = true
+			classification.UserAction = "compact_context"
+			return classification
 		case http.StatusUnauthorized, http.StatusForbidden:
 			classification.Kind = ProviderErrorAuthExpired
 			classification.RefreshAuth = true
@@ -69,13 +82,13 @@ func ClassifyProviderError(err error) ProviderErrorClassification {
 		}
 	}
 	var netErr net.Error
-	if errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary()) {
+	if errors.As(err, &netErr) && netErr.Timeout() {
 		classification.Kind = ProviderErrorNetworkTransient
 		classification.Retryable = true
 		return classification
 	}
 	switch {
-	case strings.Contains(message, "context length") || strings.Contains(message, "maximum context") || strings.Contains(message, "prompt is too long") || strings.Contains(message, "too many tokens"):
+	case strings.Contains(message, "context length") || strings.Contains(message, "context_length") || strings.Contains(message, "maximum context") || strings.Contains(message, "prompt is too long") || strings.Contains(message, "prompt too long") || strings.Contains(message, "prompt_too_long") || strings.Contains(message, "too many tokens"):
 		classification.Kind = ProviderErrorContextLengthExceeded
 		classification.CompactEligible = true
 		classification.UserAction = "compact_context"

@@ -17,28 +17,36 @@ type fakeAgentTaskToolRuntime struct {
 func (f *fakeAgentTaskToolRuntime) ListAgentTasksForTool(context.Context, AgentTaskToolListRequest) (AgentTaskToolListResponse, error) {
 	return AgentTaskToolListResponse{Tasks: []AgentTaskToolTask{{ID: "task-1", Status: "running"}}}, nil
 }
+
 func (f *fakeAgentTaskToolRuntime) GetAgentTaskForTool(context.Context, AgentTaskToolGetRequest) (AgentTaskToolGetResponse, error) {
 	return AgentTaskToolGetResponse{Task: AgentTaskToolTask{ID: "task-1", Status: "running"}}, nil
 }
+
 func (f *fakeAgentTaskToolRuntime) SendAgentTaskMessageForTool(_ context.Context, req AgentTaskToolSendMessageRequest) (AgentTaskToolSendMessageResponse, error) {
 	f.sent = req
 	return AgentTaskToolSendMessageResponse{Success: true, Message: "sent", TaskID: req.TaskID, Status: "processed", Record: AgentTaskToolMessage{ID: "msg-1", Status: "processed"}}, nil
 }
+
 func (f *fakeAgentTaskToolRuntime) StopAgentTaskForTool(context.Context, AgentTaskToolStopRequest) (AgentTaskToolStopResponse, error) {
 	return AgentTaskToolStopResponse{Success: true, Message: "stopped", Task: AgentTaskToolTask{ID: "task-1", Status: "cancelled"}}, nil
 }
+
 func (f *fakeAgentTaskToolRuntime) GetAgentTaskOutputForTool(context.Context, AgentTaskToolOutputRequest) (AgentTaskToolOutputResponse, error) {
 	return AgentTaskToolOutputResponse{TaskID: "task-1", Status: "completed", Summary: "done", OutputRefs: []string{"runtime://objects/ref-1"}}, nil
 }
+
 func (f *fakeAgentTaskToolRuntime) AgentTaskStarted(context.Context, AgentTaskRecord) error {
 	return nil
 }
+
 func (f *fakeAgentTaskToolRuntime) AgentTaskProgress(context.Context, AgentTaskRecord) error {
 	return nil
 }
+
 func (f *fakeAgentTaskToolRuntime) AgentTaskCompleted(context.Context, AgentTaskRecord) error {
 	return nil
 }
+
 func (f *fakeAgentTaskToolRuntime) AgentTaskFailed(context.Context, AgentTaskRecord) error {
 	return nil
 }

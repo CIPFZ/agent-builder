@@ -65,18 +65,14 @@ func purgeRuntimeProject(ctx context.Context, db *sql.DB, projectID string, data
 		return err
 	}
 	var sessionIDs []string
-	for rows.Next() {
+	if err := consumeRuntimeRows(rows, func(rows *sql.Rows) error {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close() //nolint:errcheck
 			return err
 		}
 		sessionIDs = append(sessionIDs, id)
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	if err := rows.Err(); err != nil {
+		return nil
+	}); err != nil {
 		return err
 	}
 	var allRefs []string
@@ -115,6 +111,7 @@ func purgeRuntimeSessionTx(ctx context.Context, tx *sql.Tx, sessionID string, da
 	}
 	statements := []string{
 		`DELETE FROM runtime_recovery_links WHERE source_turn_id IN (SELECT id FROM runtime_turns WHERE session_id = ?) OR resumed_turn_id IN (SELECT id FROM runtime_turns WHERE session_id = ?)`,
+		`DELETE FROM runtime_context_circuit_states WHERE session_id = ?`,
 		`DELETE FROM runtime_context_reactive_attempts WHERE session_id = ?`,
 		`DELETE FROM runtime_context_warnings WHERE session_id = ?`,
 		`DELETE FROM runtime_context_reinjections WHERE session_id = ?`,
@@ -122,6 +119,7 @@ func purgeRuntimeSessionTx(ctx context.Context, tx *sql.Tx, sessionID string, da
 		`DELETE FROM runtime_context_snip_boundaries WHERE session_id = ?`,
 		`DELETE FROM runtime_context_content_replacements WHERE session_id = ?`,
 		`DELETE FROM runtime_context_boundaries WHERE session_id = ?`,
+		`DELETE FROM runtime_session_memory_revisions WHERE session_id = ?`,
 		`DELETE FROM runtime_context_projection_messages WHERE session_id = ?`,
 		`DELETE FROM runtime_context_projections WHERE session_id = ?`,
 		`DELETE FROM runtime_prompt_assemblies WHERE session_id = ?`,

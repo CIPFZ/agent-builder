@@ -105,7 +105,10 @@ func runtimeCompactBoundaryFromContextBoundary(boundary contextmgr.Boundary) Run
 		Status: boundary.Status, BudgetBefore: runtimeBudgetFromContextBudget(boundary.BudgetBefore),
 		BudgetAfter: runtimeBudgetFromContextBudget(boundary.BudgetAfter), SummaryMessageID: boundary.SummaryMessageID,
 		SummaryRef: boundary.SummaryRef, MessageRefs: append([]string(nil), boundary.MessageRefs...),
-		Error: boundary.Error, CreatedAt: boundary.CreatedAt, CompletedAt: boundary.CompletedAt,
+		PreservedMessageRefs:    append([]string(nil), boundary.PreservedMessageRefs...),
+		BoundaryCutoffMessageID: boundary.BoundaryCutoffMessageID, SummaryMode: boundary.SummaryMode,
+		MemoryRevision: boundary.MemoryRevision,
+		Error:          boundary.Error, CreatedAt: boundary.CreatedAt, CompletedAt: boundary.CompletedAt,
 	}
 }
 

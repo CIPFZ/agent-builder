@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -40,31 +41,24 @@ func (r *runtimeService) SearchSessionConversationV2(ctx context.Context, sessio
 		limit = runtimeConversationSearchLimit
 	}
 	ftsQuery := `"` + strings.ReplaceAll(req.Query, `"`, `""`) + `"`
-	rows, err := conn.QueryContext(ctx, `
+	candidates := make([]RuntimeConversationSearchResultV2, 0, limit)
+	err = queryRuntimeRows(ctx, conn, `
 SELECT f.message_id, COALESCE(e.turn_id, ''), f.role, CAST(f.created_at AS INTEGER)
 FROM message_search_fts AS f
 LEFT JOIN conversation_entities_v2 AS e
   ON e.session_id = f.session_id AND e.entity_type = 'message' AND e.entity_id = f.message_id
 WHERE f.session_id = ? AND message_search_fts MATCH ?
 ORDER BY bm25(message_search_fts), CAST(f.created_at AS INTEGER) DESC
-LIMIT ?`, sessionID, ftsQuery, limit)
-	if err != nil {
-		return RuntimeConversationSearchResponseV2{}, fmt.Errorf("failed to search conversation: %w", err)
-	}
-	candidates := make([]RuntimeConversationSearchResultV2, 0, limit)
-	for rows.Next() {
+LIMIT ?`, func(rows *sql.Rows) error {
 		var result RuntimeConversationSearchResultV2
 		if err := rows.Scan(&result.MessageID, &result.TurnID, &result.Role, &result.CreatedAt); err != nil {
-			return RuntimeConversationSearchResponseV2{}, err
+			return err
 		}
 		candidates = append(candidates, result)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return RuntimeConversationSearchResponseV2{}, err
-	}
-	if err := rows.Close(); err != nil {
-		return RuntimeConversationSearchResponseV2{}, err
+		return nil
+	}, sessionID, ftsQuery, limit)
+	if err != nil {
+		return RuntimeConversationSearchResponseV2{}, fmt.Errorf("failed to search conversation: %w", err)
 	}
 	results := make([]RuntimeConversationSearchResultV2, 0, len(candidates))
 	for _, result := range candidates {

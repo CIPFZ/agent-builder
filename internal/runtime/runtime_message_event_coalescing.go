@@ -9,8 +9,10 @@ import (
 
 // runtimeMessageUpdateCoalesceWindow limits persisted message.updated write
 // amplification. Ephemeral deltas still keep the canonical stream live.
-const runtimeMessageUpdateCoalesceWindow = 250 * time.Millisecond
-const runtimeOutputTextDeltaWindow = 50 * time.Millisecond
+const (
+	runtimeMessageUpdateCoalesceWindow = 250 * time.Millisecond
+	runtimeOutputTextDeltaWindow       = 50 * time.Millisecond
+)
 
 func (r *runtimeService) deriveOutputTextDeltasLocked(msg apitypes.Message, turnID string, now time.Time) []RuntimeEvent {
 	if r == nil || r.messageStream == nil || msg.ID == "" || msg.Role != apitypes.Assistant {

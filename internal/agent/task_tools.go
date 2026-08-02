@@ -57,7 +57,7 @@ func (c *coordinator) taskRuntimeTools() []fantasy.AgentTool {
 			if strings.TrimSpace(params.TaskID) == "" {
 				return fantasy.NewTextErrorResponse("task_id is required"), nil
 			}
-			resp, err := runtime.GetAgentTaskForTool(ctx, AgentTaskToolGetRequest{TaskID: params.TaskID})
+			resp, err := runtime.GetAgentTaskForTool(ctx, AgentTaskToolGetRequest(params))
 			return taskToolResponse(resp, err)
 		}),
 		fantasy.NewAgentTool(TaskMessageToolName, "Send a follow-up instruction to an active runtime AgentTask.", func(ctx context.Context, params taskMessageParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
@@ -92,7 +92,7 @@ func (c *coordinator) taskRuntimeTools() []fantasy.AgentTool {
 			if strings.TrimSpace(params.TaskID) == "" {
 				return fantasy.NewTextErrorResponse("task_id is required"), nil
 			}
-			resp, err := runtime.GetAgentTaskOutputForTool(ctx, AgentTaskToolOutputRequest{TaskID: params.TaskID})
+			resp, err := runtime.GetAgentTaskOutputForTool(ctx, AgentTaskToolOutputRequest(params))
 			return taskToolResponse(resp, err)
 		}),
 	}

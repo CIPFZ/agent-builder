@@ -131,10 +131,48 @@ export interface ComposerViewModel {
   modelLabel: string;
   capabilityLabel: string;
   contextUsage?: ContextUsageViewModel;
+  compactionStatus?: ContextCompactionStatusViewModel;
   selectedModel?: RuntimeModelOptionViewModel;
   modelOptions: RuntimeModelOptionViewModel[];
   busy?: boolean;
   activeTurnId?: string;
+}
+
+export interface ContextCompactionStatusViewModel {
+  sessionId: string;
+  activeOperation?: CompactOperationViewModel;
+  latestCompleted?: CompactBoundaryStatusViewModel;
+  latestFailed?: CompactBoundaryStatusViewModel;
+  circuitOpen: boolean;
+  consecutiveFailures: number;
+  latestSessionMemory?: SessionMemoryRevisionViewModel;
+  resolvedPolicy: ResolvedCompactionPolicyViewModel;
+  updatedAt: number;
+}
+
+export interface CompactOperationViewModel {
+  id: string; kind: string; trigger: string; stage: string; status: string;
+  startedAt: number; elapsedMillis: number; willRetry: boolean;
+}
+
+export interface CompactBoundaryStatusViewModel {
+  id: string; kind: string; trigger: string; status: string;
+  preTokens: number; postTokens: number; savedTokens: number;
+  summarizedCount: number; preservedCount: number;
+  memoryRevision?: number; error?: string; createdAt: number; completedAt?: number;
+  willRetry: boolean; circuitOpen: boolean;
+}
+
+export interface SessionMemoryRevisionViewModel {
+  id: string; revision: number; status: string; lastSummarizedMessageId?: string;
+  sourceMessageCount: number; sourceTokenEstimate: number; sourceToolCallCount: number;
+  provider?: string; model?: string; createdAt: number; completedAt?: number; error?: string;
+}
+
+export interface ResolvedCompactionPolicyViewModel {
+  autoCompactEnabled: boolean; autoCompactPercent?: number;
+  microcompactEnabled: boolean; microcompactIdleMinutes: number; microcompactKeepRecent: number;
+  sessionMemoryEnabled: boolean; summaryModel: string;
 }
 
 export interface ContextUsageViewModel {
@@ -1254,7 +1292,8 @@ export interface SettingsViewModel {
 // RuntimeContextGovernanceSettings DTO exposed through Wails bindings.
 // Every field is optional; an absent field means "use the documented
 // default" (autoCompactEnabled=true, autoCompactPercent=auto,
-// microcompactEnabled=true, microcompactKeepRecent=5, summaryModel=session).
+// microcompactEnabled=true, idle=60, keepRecent=5, sessionMemoryEnabled=true,
+// summaryModel=session).
 export interface ContextGovernanceModelOverrideViewModel {
   autoCompactPercent?: number;
 }
@@ -1268,7 +1307,9 @@ export interface ContextGovernanceSettingsViewModel {
   autoCompactEnabled?: boolean;
   autoCompactPercent?: number;
   microcompactEnabled?: boolean;
+  microcompactIdleMinutes?: number;
   microcompactKeepRecent?: number;
+  sessionMemoryEnabled?: boolean;
   summaryModel?: 'session' | 'small' | string;
   providerOverrides?: Record<string, ContextGovernanceProviderOverrideViewModel>;
 }
@@ -1394,7 +1435,6 @@ export interface WorkbenchAdapter {
   discardInterruptedTurn: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;
   retryRecoverableError: (current: WorkbenchViewModel, errorID: string) => Promise<WorkbenchViewModel>;
   manualCompact: (current: WorkbenchViewModel, instructions?: string) => Promise<WorkbenchViewModel>;
-  manualSnip: (current: WorkbenchViewModel, reason?: string) => Promise<WorkbenchViewModel>;
   resumeRunCheckpoint: (current: WorkbenchViewModel, runID: string, checkpointID: string) => Promise<WorkbenchViewModel>;
   readRunSchedulerPlan: (
     current: WorkbenchViewModel,

@@ -24,13 +24,16 @@ type scriptedSummarizerModel struct {
 func (m *scriptedSummarizerModel) Generate(context.Context, fantasy.Call) (*fantasy.Response, error) {
 	return nil, fmt.Errorf("Generate is not implemented")
 }
+
 func (m *scriptedSummarizerModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
 	m.calls++
 	return m.streamFunc(ctx, call)
 }
+
 func (m *scriptedSummarizerModel) GenerateObject(context.Context, fantasy.ObjectCall) (*fantasy.ObjectResponse, error) {
 	return nil, fmt.Errorf("GenerateObject is not implemented")
 }
+
 func (m *scriptedSummarizerModel) StreamObject(context.Context, fantasy.ObjectCall) (fantasy.ObjectStreamResponse, error) {
 	return nil, fmt.Errorf("StreamObject is not implemented")
 }

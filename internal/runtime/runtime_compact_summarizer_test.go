@@ -15,11 +15,9 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/session"
 )
 
-// TestGenerateCompactSummaryFallsBackToHeuristic verifies that when the
-// coordinator (r.runtime) is not wired to a real workspace with an agent,
-// the compact path silently falls back to the heuristic summarizer and the
-// boundary is tagged summary_mode=heuristic_fallback.
-func TestGenerateCompactSummaryFallsBackToHeuristic(t *testing.T) {
+// A missing summary model is a failed compact and cannot move the session
+// anchor or create a synthetic success message.
+func TestGenerateCompactSummaryFailureDoesNotUseHeuristic(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -57,31 +55,19 @@ func TestGenerateCompactSummaryFallsBackToHeuristic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := service.ManualCompact(ctx, RuntimeContextActionRequest{
+	_, err = service.ManualCompact(ctx, RuntimeContextActionRequest{
 		SessionID: sess.ID,
 		TurnID:    "turn-heuristic",
 	})
-	if err != nil {
-		t.Fatalf("ManualCompact err = %v", err)
+	if err == nil {
+		t.Fatal("expected ManualCompact to fail without a summary model")
 	}
-	if resp.Boundary.SummaryMessageID == "" {
-		t.Fatal("expected summary message id")
-	}
-	// The runtime coordinator is not wired in this test so the model path
-	// short-circuits to the heuristic. We can inspect the summary message
-	// metadata to prove it.
-	summary, err := ws.Messages.Get(ctx, resp.Boundary.SummaryMessageID)
+	updated, err := runtimeWorkbench.GetSession(ctx, workspace.ID, sess.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The compact code path may not attach summary_mode to metadata in
-	// pre-existing rows; the point is the compact succeeded via heuristic.
-	if !summary.IsSummaryMessage {
-		t.Fatalf("expected IsSummaryMessage=true, got %#v", summary)
-	}
-	// The heuristic summary contains the fixed section headings.
-	if !strings.Contains(summary.Content().Text, "Primary Request and Intent") {
-		t.Fatalf("heuristic summary missing section header: %q", summary.Content().Text)
+	if updated.SummaryMessageID != "" {
+		t.Fatalf("summary anchor moved to %q", updated.SummaryMessageID)
 	}
 }
 

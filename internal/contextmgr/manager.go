@@ -18,23 +18,24 @@ type Store interface {
 	UpsertProjectionMessage(context.Context, ProjectionMessage) (ProjectionMessage, error)
 	ListProjectionMessages(context.Context, string) ([]ProjectionMessage, error)
 	UpsertBoundary(context.Context, Boundary) (Boundary, error)
+	ListBoundariesBySession(context.Context, string) ([]Boundary, error)
 	UpsertContentReplacement(context.Context, ContentReplacement) (ContentReplacement, error)
-	GetContentReplacementByToolCall(context.Context, string) (ContentReplacement, error)
+	GetContentReplacement(context.Context, string, string, string) (ContentReplacement, error)
+	RuntimeObjectRefExists(context.Context, string, string) (bool, error)
+	RuntimeObjectRefForToolCall(context.Context, string, string) (string, error)
 	UpsertSnipBoundary(context.Context, SnipBoundary) (SnipBoundary, error)
 	UpsertWarning(context.Context, Warning) (Warning, error)
 	UpsertReactiveAttempt(context.Context, ReactiveAttempt) (ReactiveAttempt, error)
 }
 
 type ManagerOptions struct {
-	Store      Store
-	Summarizer CompactSummarizer
-	Now        func() time.Time
+	Store Store
+	Now   func() time.Time
 }
 
 type DefaultManager struct {
-	store      Store
-	summarizer CompactSummarizer
-	now        func() time.Time
+	store Store
+	now   func() time.Time
 }
 
 func NewManager(opts ManagerOptions) *DefaultManager {
@@ -42,7 +43,7 @@ func NewManager(opts ManagerOptions) *DefaultManager {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &DefaultManager{store: opts.Store, summarizer: opts.Summarizer, now: now}
+	return &DefaultManager{store: opts.Store, now: now}
 }
 
 func (m *DefaultManager) BuildModelInput(ctx context.Context, req BuildInputRequest) (BuildInputResult, error) {
@@ -83,26 +84,6 @@ func (m *DefaultManager) BuildModelInput(ctx context.Context, req BuildInputRequ
 		req.ModelMessages = microMessages
 	}
 	replacements = append(replacements, microReplacements...)
-	snippedMessages, snipBoundaries, err := m.applySnip(ctx, projectionID, req, req.ModelMessages, now.UnixMilli())
-	if err != nil {
-		return BuildInputResult{}, err
-	}
-	if snippedMessages != nil {
-		req.ModelMessages = snippedMessages
-	}
-	fullConfig, autoWarnings, err := m.applyAutoCompact(ctx, projectionID, req, req.ModelMessages, now.UnixMilli())
-	if err != nil {
-		return BuildInputResult{}, err
-	}
-	req.FullCompact = fullConfig
-	fullMessages, fullBoundaries, err := m.applyFullCompact(ctx, projectionID, req, req.ModelMessages, now.UnixMilli())
-	if err != nil {
-		return BuildInputResult{}, err
-	}
-	if fullMessages != nil {
-		req.ModelMessages = fullMessages
-	}
-	boundaries = append(boundaries, fullBoundaries...)
 	canonicalCount := req.CanonicalMessages
 	if canonicalCount == 0 {
 		canonicalCount = len(req.Messages)
@@ -179,83 +160,13 @@ func (m *DefaultManager) BuildModelInput(ctx context.Context, req BuildInputRequ
 		}
 	}
 	return BuildInputResult{
-		Messages:       append([]message.Message(nil), req.Messages...),
-		ModelMessages:  append([]fantasy.Message(nil), req.ModelMessages...),
-		Projection:     stored,
-		Boundaries:     boundaries,
-		Replacements:   replacements,
-		Warnings:       autoWarnings,
-		SnipBoundaries: snipBoundaries,
+		Messages:      append([]message.Message(nil), req.Messages...),
+		ModelMessages: append([]fantasy.Message(nil), req.ModelMessages...),
+		Projection:    stored,
+		Boundaries:    boundaries,
+		Replacements:  replacements,
+		Warnings:      nil,
 	}, nil
-}
-
-func (m *DefaultManager) ManualCompact(ctx context.Context, req ManualCompactRequest) (CompactResult, error) {
-	if m == nil || m.store == nil {
-		return CompactResult{}, errors.New("context manager store is not available")
-	}
-	req.SessionID = strings.TrimSpace(req.SessionID)
-	req.TurnID = strings.TrimSpace(req.TurnID)
-	req.ProjectionID = strings.TrimSpace(req.ProjectionID)
-	if req.SessionID == "" {
-		return CompactResult{}, errors.New("manual compact session id is required")
-	}
-	if req.TurnID == "" {
-		return CompactResult{}, errors.New("manual compact turn id is required")
-	}
-	now := m.now().UnixMilli()
-	reason := strings.TrimSpace(req.Reason)
-	if reason == "" {
-		reason = "manual_compact"
-	}
-	boundary, err := m.store.UpsertBoundary(ctx, Boundary{
-		ID:           fmt.Sprintf("ctxmanual_compact_%s_%d", strings.ReplaceAll(req.TurnID, ":", "_"), now),
-		SessionID:    req.SessionID,
-		TurnID:       req.TurnID,
-		ProjectionID: req.ProjectionID,
-		Kind:         "manual",
-		Trigger:      reason,
-		Status:       "recorded",
-		SummaryRef:   fmt.Sprintf("runtime://turns/%s/context/manual-compact", req.TurnID),
-		CreatedAt:    now,
-		CompletedAt:  now,
-	})
-	if err != nil {
-		return CompactResult{}, err
-	}
-	return CompactResult{Boundary: boundary}, nil
-}
-
-func (m *DefaultManager) ManualSnip(ctx context.Context, req ManualSnipRequest) (SnipResult, error) {
-	if m == nil || m.store == nil {
-		return SnipResult{}, errors.New("context manager store is not available")
-	}
-	req.SessionID = strings.TrimSpace(req.SessionID)
-	req.TurnID = strings.TrimSpace(req.TurnID)
-	req.ProjectionID = strings.TrimSpace(req.ProjectionID)
-	if req.SessionID == "" {
-		return SnipResult{}, errors.New("manual snip session id is required")
-	}
-	if req.TurnID == "" {
-		return SnipResult{}, errors.New("manual snip turn id is required")
-	}
-	now := m.now().UnixMilli()
-	reason := strings.TrimSpace(req.Reason)
-	if reason == "" {
-		reason = "manual_snip"
-	}
-	snip, err := m.store.UpsertSnipBoundary(ctx, SnipBoundary{
-		ID:           fmt.Sprintf("ctxmanual_snip_%s_%d", strings.ReplaceAll(req.TurnID, ":", "_"), now),
-		SessionID:    req.SessionID,
-		TurnID:       req.TurnID,
-		ProjectionID: req.ProjectionID,
-		SummaryRef:   fmt.Sprintf("runtime://turns/%s/context/manual-snip", req.TurnID),
-		Reason:       reason,
-		CreatedAt:    now,
-	})
-	if err != nil {
-		return SnipResult{}, err
-	}
-	return SnipResult{SnipBoundary: snip}, nil
 }
 
 func ProjectionID(turnID string, step int) string {

@@ -63,6 +63,7 @@ type recordingStartedTaskCoordinator struct {
 func (c *recordingStartedTaskCoordinator) Run(context.Context, string, string, string, ...message.Attachment) (*fantasy.AgentResult, error) {
 	return nil, nil
 }
+
 func (c *recordingStartedTaskCoordinator) RunWithMetadata(ctx context.Context, sessionID, turnID, prompt string, _ map[string]string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
 	return c.Run(ctx, sessionID, turnID, prompt, attachments...)
 }
@@ -80,12 +81,13 @@ func (c *recordingStartedTaskCoordinator) Summarize(context.Context, string) err
 func (c *recordingStartedTaskCoordinator) GenerateCompactSummary(context.Context, agent.CompactSummaryRequest) (agent.CompactSummaryResult, error) {
 	return agent.CompactSummaryResult{}, nil
 }
+
 func (c *recordingStartedTaskCoordinator) RunCompactHooks(context.Context, string, string, string, string) (agent.CompactHookResult, error) {
 	return agent.CompactHookResult{}, nil
 }
-func (c *recordingStartedTaskCoordinator) Model() agent.Model                      { return agent.Model{} }
-func (c *recordingStartedTaskCoordinator) UpdateModels(context.Context) error      { return nil }
-func (c *recordingStartedTaskCoordinator) RefreshSkills(context.Context) error     { return nil }
+func (c *recordingStartedTaskCoordinator) Model() agent.Model                  { return agent.Model{} }
+func (c *recordingStartedTaskCoordinator) UpdateModels(context.Context) error  { return nil }
+func (c *recordingStartedTaskCoordinator) RefreshSkills(context.Context) error { return nil }
 func (c *recordingStartedTaskCoordinator) ExecuteConfiguredStartedAgentTask(_ context.Context, req agent.StartedAgentTaskExecutionRequest) (agent.StartedAgentTaskExecutionResult, error) {
 	c.calls++
 	c.last = req

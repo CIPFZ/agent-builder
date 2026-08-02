@@ -12,6 +12,7 @@ import (
 	"github.com/CIPFZ/agent-builder/internal/db"
 	"github.com/CIPFZ/agent-builder/internal/message"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 func TestRuntimeRunSchedulerDelegateAllowsLinkedUserTurn(t *testing.T) {
@@ -355,7 +356,10 @@ func TestRuntimeRunSchedulerDelegateTaskTurnActivityParityAndRecorderEvidence(t 
 	service := newRuntimeService()
 	service.runtime = runtimeWorkbench
 	service.workspace = &workspace
+	service.activeProjectID = workspace.ID
 	service.turns = newRuntimeTurnStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
 	service.runs = newRuntimeRunStore(conn)
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)

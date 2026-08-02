@@ -17,10 +17,10 @@ import (
 // pure input/output boundary: no persistence happens inside the summarizer,
 // so callers own where the resulting text is stored.
 type CompactSummaryRequest struct {
-	SessionID    string
-	TurnID       string
-	Messages     []message.Message
-	Instructions string
+	SessionID     string
+	TurnID        string
+	Messages      []message.Message
+	Instructions  string
 	UseSmallModel bool
 }
 
@@ -223,7 +223,7 @@ func extractCompactSummaryText(resp *fantasy.AgentResult) string {
 	text := strings.TrimSpace(resp.Response.Content.Text())
 	if text == "" {
 		for i := len(resp.Steps) - 1; i >= 0; i-- {
-			if candidate := strings.TrimSpace(resp.Steps[i].Response.Content.Text()); candidate != "" {
+			if candidate := strings.TrimSpace(resp.Steps[i].Content.Text()); candidate != "" {
 				text = candidate
 				break
 			}

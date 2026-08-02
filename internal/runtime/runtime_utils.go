@@ -11,8 +11,10 @@ import (
 	"time"
 )
 
-const auditPreviewLimit = 600
-const runtimePartPreviewLimit = 4000
+const (
+	auditPreviewLimit       = 600
+	runtimePartPreviewLimit = 4000
+)
 
 func preview(value string, limit int) string {
 	value = strings.TrimSpace(value)

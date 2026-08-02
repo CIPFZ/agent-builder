@@ -128,6 +128,8 @@ func TestClassifyToolCallRiskUsesSource(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			if got := ClassifyToolCallRisk(tt.call); got != tt.want {
 				t.Fatalf("ClassifyToolCallRisk = %s, want %s", got, tt.want)
 			}
@@ -330,6 +332,8 @@ func TestClassifyShellCommandRiskHardening(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			result := ClassifyShellCommand(tt.command)
 			if result.Risk != RiskDestructive {
 				t.Fatalf("risk = %#v, want destructive", result)
@@ -367,6 +371,8 @@ func TestClassifyShellCommandStderrRedirectIsNotOverwrite(t *testing.T) {
 	}
 	for _, input := range cases {
 		t.Run(input, func(t *testing.T) {
+			t.Parallel()
+
 			result := ClassifyShellCommand(input)
 			if result.Risk != RiskExecute {
 				t.Fatalf("risk = %#v, want execute", result)

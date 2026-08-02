@@ -72,6 +72,11 @@ func (h *runtimeScenarioHarness) restartedService() *runtimeService {
 	restarted.runs = newRuntimeRunStore(h.service.turns.db)
 	restarted.transitions = newRuntimeRunTransitionStore(h.service.turns.db)
 	restarted.policy = h.service.policy
+	if maxSequence, err := restarted.eventStore.MaxSequence(h.ctx); err != nil {
+		h.t.Fatal(err)
+	} else {
+		restarted.nextEventSequence = maxSequence
+	}
 	return restarted
 }
 
@@ -210,6 +215,11 @@ func TestRuntimeScenarioHarnessPolicyToolShellGolden(t *testing.T) {
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			h := newRuntimeScenarioHarness(t)
+			// These policy scenarios intentionally exercise the headless
+			// fail-closed path and only assert the in-memory replay projection.
+			// A persistent event store would invoke the canonical projector,
+			// whose product path assumes an explicitly attached workspace.
+			h.service.eventStore = runtimeEventStore{}
 			scenario.run(t, h)
 			turnID := "turn-" + strings.Split(scenario.name, " ")[0]
 			switch {

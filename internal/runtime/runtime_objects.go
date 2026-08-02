@@ -462,8 +462,12 @@ func (r *runtimeService) ensureRuntimeObjectStore(ctx context.Context) (runtimeO
 func (r *runtimeService) createRuntimeObject(ctx context.Context, req runtimeObjectCreateRequest) (RuntimeObject, error) {
 	r.mu.Lock()
 	projectID := r.activeProjectID
+	workspaceID := ""
+	if r.workspace != nil {
+		workspaceID = r.workspace.ID
+	}
 	r.mu.Unlock()
-	req.ProjectID = firstNonEmpty(req.ProjectID, projectID)
+	req.ProjectID = firstNonEmpty(req.ProjectID, projectID, workspaceID)
 	store, err := r.ensureRuntimeObjectStore(ctx)
 	if err != nil {
 		return RuntimeObject{}, err

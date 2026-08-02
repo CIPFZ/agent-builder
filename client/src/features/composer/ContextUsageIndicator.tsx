@@ -1,12 +1,13 @@
 import { Popover, Tag } from 'antd';
-import type { ContextUsageViewModel } from '../../runtime/workbenchTypes.ts';
+import type { ContextCompactionStatusViewModel, ContextUsageViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './ContextUsageIndicator.module.css';
 
 interface ContextUsageIndicatorProps {
   usage?: ContextUsageViewModel;
+  compaction?: ContextCompactionStatusViewModel;
 }
 
-export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
+export function ContextUsageIndicator({ usage, compaction }: ContextUsageIndicatorProps) {
   if (!usage || usage.contextWindow <= 0) {
     return null;
   }
@@ -23,12 +24,12 @@ export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
             <div>
               <div className={styles.model}>{usage.model || '模型'}</div>
               <div className={styles.total}>
-                上下文估算 {formatTokens(usage.usedTokens)} / {formatTokens(usage.contextWindow)}
+                上下文 {formatTokens(usage.usedTokens)} / {formatTokens(usage.contextWindow)}
               </div>
             </div>
-            <Tag>{usage.estimated ? '全部估算' : '含模型用量'}</Tag>
+            <Tag>{usage.estimated ? '估算' : '模型实测'}</Tag>
           </div>
-          <div className={styles.leftText}>距自动压缩还剩 {usage.percentLeft}%</div>
+          <div className={styles.leftText}>{compactionStateLabel(compaction) ?? `距自动压缩还剩 ${usage.percentLeft}%`}</div>
           <div className={styles.breakdown}>
             {categories.map((category) => (
               <div className={styles.category} key={category.key}>
@@ -40,12 +41,13 @@ export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
               </div>
             ))}
           </div>
-          {reserved && <div className={styles.reserved}>预留用于输出与压缩缓冲：{formatTokens(reserved.tokens)}</div>}
+          {reserved && <div className={styles.reserved}>输出与安全缓冲：{formatTokens(reserved.tokens)}</div>}
+          {compaction?.latestCompleted ? <div className={styles.footer}>最近压缩节省 {formatTokens(compaction.latestCompleted.savedTokens)}</div> : null}
           <div className={styles.footer}>{usage.updatedAt ? `更新于 ${new Date(usage.updatedAt).toLocaleTimeString()}` : ''}</div>
         </div>
       }
     >
-      <button className={`${styles.trigger} ${levelClass} ${usage.estimated ? styles.estimated : ''}`} type="button" aria-label={`上下文估算已用 ${usage.percentUsed}%`}>
+      <button className={`${styles.trigger} ${levelClass} ${usage.estimated ? styles.estimated : ''}`} type="button" aria-label={`上下文已用 ${usage.percentUsed}%${compactionStateLabel(compaction) ? `，${compactionStateLabel(compaction)}` : ''}`}>
         <span
           aria-hidden="true"
           className={styles.usageRing}
@@ -77,6 +79,12 @@ function rankedBreakdown(categories: ContextUsageViewModel['breakdown']) {
     ...ranked.slice(0, 5),
     { key: 'other', label: '其他', tokens: otherTokens, estimated: rest.some((category) => category.estimated) },
   ];
+}
+
+function compactionStateLabel(status?: ContextCompactionStatusViewModel) {
+  if (status?.circuitOpen) return '自动压缩已暂停，可手动压缩或切换模型';
+  if (!status?.activeOperation) return undefined;
+  return status.activeOperation.trigger === 'reactive' ? '上下文超限，正在缩减并重试' : '正在整理上下文';
 }
 
 function formatTokens(tokens: number) {

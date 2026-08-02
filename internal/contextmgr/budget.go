@@ -9,11 +9,12 @@ import (
 	"unicode/utf8"
 
 	"charm.land/fantasy"
+	"github.com/CIPFZ/agent-builder/internal/config"
 )
 
 const (
-	defaultMaxSingleToolResultChars = 16000
-	defaultMessageToolResultBudget  = 200000
+	defaultMaxSingleToolResultChars = config.DefaultToolResultMaxChars
+	defaultMessageToolResultBudget  = config.DefaultToolResultMessageBudget
 )
 
 type toolResultCandidate struct {
@@ -101,21 +102,35 @@ func (m *DefaultManager) applyToolResultBudget(ctx context.Context, projectionID
 }
 
 func (m *DefaultManager) replaceToolResult(ctx context.Context, projectionID string, req BuildInputRequest, messages *[]fantasy.Message, candidate toolResultCandidate, createdAt int64) (ContentReplacement, error) {
-	if existing, err := m.store.GetContentReplacementByToolCall(ctx, candidate.toolCallID); err == nil && existing.ReplacementText != "" {
+	const replacementKind = "tool_result_budget"
+	if existing, err := m.store.GetContentReplacement(ctx, req.SessionID, candidate.toolCallID, replacementKind); err == nil && existing.ReplacementText != "" {
 		replaceToolResultText(messages, candidate, existing.ReplacementText)
 		return existing, nil
 	} else if err != nil && err != sql.ErrNoRows {
 		return ContentReplacement{}, err
 	}
-	ref := fmt.Sprintf("runtime://context/tool-results/%s/original", stableIDPart(candidate.toolCallID))
+	ref := extractRuntimeObjectRef(candidate.text)
+	if ref == "" {
+		ref, _ = m.store.RuntimeObjectRefForToolCall(ctx, req.SessionID, candidate.toolCallID)
+	}
+	if ref == "" {
+		return ContentReplacement{}, fmt.Errorf("tool result %s exceeds the provider budget but has no readable runtime object ref", candidate.toolCallID)
+	}
+	exists, err := m.store.RuntimeObjectRefExists(ctx, req.SessionID, ref)
+	if err != nil {
+		return ContentReplacement{}, err
+	}
+	if !exists {
+		return ContentReplacement{}, fmt.Errorf("tool result %s references missing runtime object %s", candidate.toolCallID, ref)
+	}
 	replacementText := buildToolResultReplacement(candidate.text, ref)
 	replacement := ContentReplacement{
-		ID:                         "ctxrepl_" + stableIDPart(candidate.toolCallID),
+		ID:                         "ctxrepl_" + stableIDPart(req.SessionID) + "_" + stableIDPart(candidate.toolCallID) + "_" + replacementKind,
 		SessionID:                  req.SessionID,
 		TurnID:                     req.TurnID,
 		ProjectionID:               projectionID,
 		ToolCallID:                 candidate.toolCallID,
-		Kind:                       "tool_result",
+		Kind:                       replacementKind,
 		OriginalRef:                ref,
 		ReplacementText:            replacementText,
 		OriginalSizeBytes:          int64(len(candidate.text)),
@@ -130,6 +145,24 @@ func (m *DefaultManager) replaceToolResult(ctx context.Context, projectionID str
 	}
 	replaceToolResultText(messages, candidate, stored.ReplacementText)
 	return stored, nil
+}
+
+func extractRuntimeObjectRef(text string) string {
+	const prefix = "runtime://objects/"
+	start := strings.Index(text, prefix)
+	if start < 0 {
+		return ""
+	}
+	end := start + len(prefix)
+	for end < len(text) {
+		switch text[end] {
+		case ' ', '\t', '\r', '\n', '<', '>', '"', '\'':
+			return text[start:end]
+		default:
+			end++
+		}
+	}
+	return text[start:end]
 }
 
 func toolResultText(part fantasy.ToolResultPart) (string, bool) {

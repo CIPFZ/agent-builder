@@ -79,7 +79,7 @@ func runtimeOpenTargetAvailable(id string, options []RuntimeOpenTargetOption) bo
 
 func runtimeOpenPathInTarget(path, targetID string) error {
 	if command := runtimeOpenTargetCommand(targetID); command != "" {
-		return exec.Command(command, path).Start()
+		return exec.CommandContext(context.Background(), command, path).Start()
 	}
 	return runtimeOpenPathInFileManager(path)
 }

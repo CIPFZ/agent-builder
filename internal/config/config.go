@@ -554,13 +554,18 @@ type ToolResultGuardConfig struct {
 	PerTool            map[string]int `json:"per_tool" yaml:"per_tool"`
 }
 
+const (
+	DefaultToolResultMaxChars      = 50000
+	DefaultToolResultMessageBudget = 200000
+)
+
 // DefaultToolResultGuardConfig returns the default configuration for the
 // tool result guard pipeline.
 func DefaultToolResultGuardConfig() ToolResultGuardConfig {
 	return ToolResultGuardConfig{
 		Enabled:            true,
-		MaxResultChars:     16000,
-		TurnBudget:         200000,
+		MaxResultChars:     DefaultToolResultMaxChars,
+		TurnBudget:         DefaultToolResultMessageBudget,
 		KeepLastAssistants: 3,
 		ExemptTools:        []string{"view"},
 		PerTool:            map[string]int{},

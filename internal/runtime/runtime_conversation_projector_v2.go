@@ -118,6 +118,7 @@ func (r *runtimeService) removePendingCanonicalRaw(raw RuntimeEvent) {
 	}
 	r.mu.Unlock()
 }
+
 func (r *runtimeService) removePendingCanonicalThrough(sessionID string, sequence int64) {
 	r.mu.Lock()
 	if pending := r.conversationV2Pending[sessionID]; pending != nil {

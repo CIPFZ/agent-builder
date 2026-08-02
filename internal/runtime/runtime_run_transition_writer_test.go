@@ -408,6 +408,7 @@ func runtimeRunTransitionWriterTestService(t *testing.T) (*runtimeService, func(
 		t.Fatal(err)
 	}
 	service := newRuntimeService()
+	service.activeProjectID = "workspace-1"
 	service.turns = newRuntimeTurnStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	service.permissionStore = newRuntimePermissionStore(conn)
