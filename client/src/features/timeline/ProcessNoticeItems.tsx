@@ -13,7 +13,10 @@ export function WorkflowNoticeRow({ item }: { item: ConversationTimelineItemView
 export function CompactTraceRow({ item }: { item: ConversationTimelineItemViewModel }) {
   const compact = item.compact;
   const failed = item.status === 'failed' || Boolean(item.error || compact?.error);
-  const compacting = item.status === 'compacting' || item.status === 'started';
+  // Canonical notices normalize all *.started events to "running". Keep the
+  // legacy labels for older snapshots, but treat the canonical value as the
+  // primary in-flight state so auto compact is visible while it is executing.
+  const compacting = item.status === 'running' || item.status === 'compacting' || item.status === 'started';
   const error = item.error || compact?.error;
   const meta = <>{(compact?.trigger || item.title) && <Tag>{compactTriggerLabel(compact?.trigger || item.title || '')}</Tag>}{item.status && <Tag color={failed ? 'error' : compacting ? 'processing' : 'success'}>{compactStatusLabel(item.status)}</Tag>}{!failed && !compacting && typeof compact?.preTokens === 'number' && typeof compact?.postTokens === 'number' && <span>{formatTokenCount(compact.preTokens)} -&gt; {formatTokenCount(compact.postTokens)} tokens</span>}{!failed && !compacting && typeof compact?.summarizedCount === 'number' && compact.summarizedCount > 0 && <span>{compact.summarizedCount} messages</span>}</>;
   return (
@@ -49,7 +52,7 @@ function compactTraceTitle(item: ConversationTimelineItemViewModel, compacting: 
 }
 
 function compactStatusLabel(status: string) {
-  return status === 'started' ? '进行中' : status === 'completed' ? '已完成' : status === 'failed' ? '失败' : status;
+  return status === 'running' || status === 'compacting' || status === 'started' ? '进行中' : status === 'completed' ? '已完成' : status === 'failed' ? '失败' : status;
 }
 
 function compactTriggerLabel(trigger: string) {

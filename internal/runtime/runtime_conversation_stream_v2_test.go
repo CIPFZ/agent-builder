@@ -185,6 +185,90 @@ func TestCanonicalConversationStreamForwardsEphemeralTextDeltaWithoutPersistingI
 	}
 }
 
+func TestCanonicalConversationStreamConvergesCompactNoticeAndTerminalTodoWithoutReactivation(t *testing.T) {
+	h := newRuntimeScenarioHarness(t)
+	h.attachBackend()
+	session, err := h.service.runtime.CreateSession(h.ctx, h.service.workspace.ID, "compact live convergence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := RuntimeTurn{ID: "turn-compact-live", SessionID: session.ID, Status: "running", StartedAt: time.Now().UnixMilli()}
+	if _, err = h.service.turns.Upsert(h.ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	h.service.publishRuntimeEvent(RuntimeEvent{Type: runtimeapi.EventTurnStarted, SessionID: session.ID, TurnID: turn.ID})
+	h.service.publishRuntimeEvent(RuntimeEvent{
+		Type: runtimeapi.EventTodoUpdated, SessionID: session.ID, TurnID: turn.ID,
+		Payload: map[string]any{
+			"plan_id": "plan-compact-live",
+			"todos": []any{
+				map[string]any{"id": "todo-1", "content": "Inspect", "status": "in_progress"},
+				map[string]any{"id": "todo-2", "content": "Summarize", "status": "pending"},
+			},
+		},
+	})
+	base, err := h.service.SessionConversationSnapshotV2(h.ctx, session.ID, RuntimeCanonicalConversationSnapshotRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, stop := h.service.SubscribeSessionConversationEventsV2(h.ctx, session.ID, base.Cursor)
+	defer stop()
+	readBatch := func() RuntimeCanonicalConversationEventBatchV2 {
+		t.Helper()
+		select {
+		case batch, ok := <-stream:
+			if !ok {
+				t.Fatal("canonical stream closed before convergence")
+			}
+			return batch
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for canonical live batch")
+			return RuntimeCanonicalConversationEventBatchV2{}
+		}
+	}
+	_ = readBatch() // initial catch-up watermark
+
+	boundaryID := "boundary-compact-live"
+	h.service.publishRuntimeEvent(RuntimeEvent{Type: runtimeapi.EventCompactStarted, SessionID: session.ID, TurnID: turn.ID, Payload: map[string]any{"boundary_id": boundaryID, "kind": "full", "trigger": "auto"}})
+	started := readBatch()
+	if len(started.Events) != 1 || started.Events[0].Notice == nil || started.Events[0].Notice.ID != "notice:compact:"+boundaryID || started.Events[0].Notice.Status != "running" {
+		t.Fatalf("compact started batch = %#v", started)
+	}
+
+	h.service.publishRuntimeEvent(RuntimeEvent{Type: runtimeapi.EventCompactCompleted, SessionID: session.ID, TurnID: turn.ID, Payload: map[string]any{"boundary_id": boundaryID, "kind": "full", "trigger": "auto", "pre_tokens": 120, "post_tokens": 40}})
+	completed := readBatch()
+	if len(completed.Events) != 1 || completed.Events[0].Notice == nil || completed.Events[0].Notice.ID != "notice:compact:"+boundaryID || completed.Events[0].Notice.Status != "completed" {
+		t.Fatalf("compact completed batch = %#v", completed)
+	}
+	if completed.Events[0].Notice.Revision == started.Events[0].Notice.Revision {
+		t.Fatalf("compact lifecycle did not advance revision: started=%s completed=%s", started.Events[0].Notice.Revision, completed.Events[0].Notice.Revision)
+	}
+
+	turn.Status = "completed"
+	turn.FinishedAt = time.Now().UnixMilli()
+	if _, err = h.service.turns.Upsert(h.ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	h.service.publishRuntimeEvent(RuntimeEvent{Type: runtimeapi.EventTurnCompleted, SessionID: session.ID, TurnID: turn.ID})
+	terminal := readBatch()
+	var terminalTurn *RuntimeCanonicalTurn
+	var terminalTodo *RuntimeCanonicalTodoPlan
+	for _, event := range terminal.Events {
+		if event.Turn != nil {
+			terminalTurn = event.Turn
+		}
+		if event.TodoPlan != nil {
+			terminalTodo = event.TodoPlan
+		}
+	}
+	if terminalTurn == nil || terminalTurn.Status != "completed" {
+		t.Fatalf("terminal turn batch = %#v", terminal)
+	}
+	if terminalTodo == nil || terminalTodo.OwnerTurnID != turn.ID || terminalTodo.Status != "abandoned" {
+		t.Fatalf("terminal todo batch = %#v", terminal)
+	}
+}
+
 func TestCanonicalConversationBatchesKeepRawSequenceAtomicAndAdvanceEmptyWatermark(t *testing.T) {
 	h := newRuntimeScenarioHarness(t)
 	h.attachBackend()

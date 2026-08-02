@@ -1,4 +1,4 @@
-import { applyCanonicalConversationBatch, applyCanonicalConversationDeltas, hydrateCanonicalConversationStore, type CanonicalConversationStore } from './canonicalConversationStore.ts';
+import { applyCanonicalConversationBatch, applyCanonicalConversationDeltas, compareDecimal, hydrateCanonicalConversationStore, type CanonicalConversationStore } from './canonicalConversationStore.ts';
 import type { CanonicalConversationEventBatch, CanonicalConversationSnapshot, CanonicalConversationSnapshotRequest } from './canonicalConversationTypes.ts';
 
 const INITIAL_TURN_WINDOW = 30;
@@ -9,10 +9,12 @@ export interface CanonicalConversationCoordinatorDeps {
   subscribe: (sessionId: string, after: string, handlers: { onBatch: (batch: CanonicalConversationEventBatch) => void; onTransportFailure: () => void }) => Promise<() => void> | (() => void);
   onStore: (store: CanonicalConversationStore) => void;
   retryDelayMs?: (attempt: number) => number;
+  cursorGraceMs?: number;
 }
 
 export interface CanonicalConversationCoordinator {
   activate: (sessionId: string) => void;
+  ensureCursor: (sessionId: string, cursor: string) => void;
   loadEarlier: (sessionId: string) => Promise<boolean>;
   loadAround: (sessionId: string, turnId: string) => Promise<boolean>;
   evict: (sessionId: string) => void;
@@ -28,6 +30,8 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
   let recovering = false;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let retryAttempt = 0;
+  let cursorCheckTimer: ReturnType<typeof setTimeout> | undefined;
+  let expectedCursor = '0';
   const loadingEarlier = new Set<string>();
 
   const remember = (sessionId: string, store: CanonicalConversationStore) => {
@@ -42,6 +46,7 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
 
   const stopStream = () => { const current = close; close = undefined; current?.(); };
   const clearRetry = () => { if (retryTimer) clearTimeout(retryTimer); retryTimer = undefined; };
+  const clearCursorCheck = () => { if (cursorCheckTimer) clearTimeout(cursorCheckTimer); cursorCheckTimer = undefined; expectedCursor = '0'; };
   const current = (sessionId: string, gen: number) => activeSessionId === sessionId && generation === gen;
 
   const connect = async (sessionId: string, gen: number, store: CanonicalConversationStore) => {
@@ -94,6 +99,7 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
   return {
     activate(sessionId) {
       clearRetry();
+      clearCursorCheck();
       stopStream();
       // Historical pagination deliberately grows only the active Session.
       // Once the user leaves it, do not retain that expanded history in the
@@ -123,6 +129,24 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
       } else {
         void recover(sessionId, gen);
       }
+    },
+    ensureCursor(sessionId, cursor) {
+      if (sessionId !== activeSessionId || !/^\d+$/.test(cursor) || cursor === '0') return;
+      if (compareDecimal(cursor, expectedCursor) > 0) expectedCursor = cursor;
+      if (cursorCheckTimer) clearTimeout(cursorCheckTimer);
+      const gen = generation;
+      cursorCheckTimer = setTimeout(() => {
+        cursorCheckTimer = undefined;
+        if (!current(sessionId, gen)) return;
+        const expected = expectedCursor;
+        expectedCursor = '0';
+        const store = cache.get(sessionId);
+        // The general Runtime stream is an independent Wails invalidation
+        // channel. If it observed a durable event that the canonical stream
+        // has not delivered, recover from the authoritative SQLite snapshot
+        // instead of leaving the active Session stale until it is re-opened.
+        if (!store || compareDecimal(store.cursor, expected) < 0) void recover(sessionId, gen);
+      }, deps.cursorGraceMs ?? 500);
     },
     async loadEarlier(sessionId) {
       if (sessionId !== activeSessionId || loadingEarlier.has(sessionId)) return false;
@@ -157,7 +181,7 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
       return true;
     },
     evict(sessionId) { loadingEarlier.delete(sessionId); cache.delete(sessionId); },
-    stop() { activeSessionId = ''; recovering = false; retryAttempt = 0; generation += 1; clearRetry(); stopStream(); },
+    stop() { activeSessionId = ''; recovering = false; retryAttempt = 0; generation += 1; clearRetry(); clearCursorCheck(); stopStream(); },
     cached(sessionId) { return cache.get(sessionId); },
   };
 }

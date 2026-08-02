@@ -1813,15 +1813,25 @@ function loadRuntimeBridge() {
 
   // Wails dev also serves generated bindings through Vite. Try them first so
   // the desktop WebView uses Wails bindings and events exclusively.
-  runtimeBridgePromise ??= Promise.race([
-    import(
-      /* @vite-ignore */
-      runtimeBridgePath
-    ).then((module) => module as RuntimeBridgeModule),
-    new Promise<null>((resolve) => {
-      window.setTimeout(() => resolve(null), runtimeBridgeTimeoutMS);
-    }),
-  ]).catch(() => null);
+  if (!runtimeBridgePromise) {
+    const pending = Promise.race([
+      import(
+        /* @vite-ignore */
+        runtimeBridgePath
+      ).then((module) => module as RuntimeBridgeModule),
+      new Promise<null>((resolve) => {
+        window.setTimeout(() => resolve(null), runtimeBridgeTimeoutMS);
+      }),
+    ]).catch(() => null);
+    runtimeBridgePromise = pending;
+    void pending.then((bridge) => {
+      // A transient Vite/Wails binding delay must not poison every later
+      // desktop action with "runtime unavailable" for the lifetime of the
+      // WebView. The module import itself is browser-cached, so the next call
+      // can retry cheaply once the generated binding becomes available.
+      if (!bridge && runtimeBridgePromise === pending) runtimeBridgePromise = undefined;
+    });
+  }
 
   return runtimeBridgePromise;
 }

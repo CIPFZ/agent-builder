@@ -785,6 +785,24 @@ binding、adapter mapper 和契约 fixture；WP8 再完成组件呈现、交互�
   测试通过实例级 data directory 隔离，不再依赖进程级环境变量或 JSON fallback；
 - Windows 日志 lint 使用 Go AST 检查器，保持原有规则强度并避免 `.sh` 执行依赖。
 
+### 11.2 实施修订（2026-08-02，桌面手测回归修复）
+
+桌面手测发现 canonical notice 状态和值域、Wails 实时流恢复仍需进一步收口。为满足 WP8
+“当前 Session 无需切换即可收敛”的验收条件，实施约束补充为：
+
+- Runtime 将所有 `*.started` canonical notice 规范化为 `running`；前端必须把 `running`
+  作为压缩处理中主状态，同时仅兼容旧快照中的 `started`/`compacting`；
+- general Runtime event stream 作为独立的 Wails invalidation channel：若它已经观察到某个
+  Session 的 durable sequence，而 canonical conversation stream 在 500ms 宽限期内没有推进到
+  对应 cursor，前端 coordinator 必须从 Runtime/SQLite canonical snapshot 恢复；React 不据此
+  推断 Turn、Todo 或压缩终态；
+- Runtime refresh 与 canonical stream 合并后必须同步更新 shell ref，避免后续异步动作以陈旧
+  view model 为基线；
+- Wails binding 动态加载超时只允许令当前调用失败，不得把 `null` 永久缓存到 WebView 生命周期，
+  后续调用必须可以重试本地生成 binding；
+- 回归测试必须覆盖 `compact.started -> compact.completed -> turn.completed` 的同一 Session
+  实时序列、Notice 原位更新、terminal Todo 隐藏，以及 missed canonical wakeup 的 snapshot 恢复。
+
 ## 12. 全阶段完成标准
 
 第一阶段只有在以下条件全部满足后才算完成：

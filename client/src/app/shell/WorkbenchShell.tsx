@@ -169,7 +169,11 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
         const nextViewModel = await adapter.refresh({ ...viewModelRef.current, mode: modeRef.current });
         if (!cancelled && sessionMutationSeqRef.current === epoch) {
           setMode(nextViewModel.mode);
-          setViewModel((current) => preserveCanonicalConversation(nextViewModel, current));
+          setViewModel((current) => {
+            const merged = preserveCanonicalConversation(nextViewModel, current);
+            viewModelRef.current = merged;
+            return merged;
+          });
         }
       } catch {
         // Polling remains active while busy; event refresh is an opportunistic fast path.
@@ -193,6 +197,10 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
 
     const streamHandlesEvent = Boolean(adapter.subscribeCanonicalConversation);
     void Promise.resolve(adapter.subscribeRuntimeEvents((event) => {
+      const target = viewModelRef.current.conversationTarget;
+      if (streamHandlesEvent && target.kind === 'session' && event.sessionId === target.sessionId && typeof event.sequence === 'number' && Number.isFinite(event.sequence) && event.sequence > 0) {
+        canonicalCoordinator?.ensureCursor(target.sessionId, String(Math.trunc(event.sequence)));
+      }
       // The canonical per-session stream owns conversation changes; general
       // Runtime refreshes only update non-conversation workbench state.
       if (streamHandlesEvent && runtimeEventCoveredByOutputStream(event)) {
@@ -218,7 +226,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
       }
       unsubscribe?.();
     };
-  }, [adapter]);
+  }, [adapter, canonicalCoordinator]);
 
   const activeSessionID = viewModel.conversationTarget.kind === 'session' ? viewModel.conversationTarget.sessionId : undefined;
 
@@ -306,7 +314,11 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
           return;
         }
         setMode(nextViewModel.mode);
-        setViewModel((current) => preserveCanonicalConversation(nextViewModel, current));
+        setViewModel((current) => {
+          const merged = preserveCanonicalConversation(nextViewModel, current);
+          viewModelRef.current = merged;
+          return merged;
+        });
         if (nextViewModel.composer.busy || nextViewModel.sessions.some((session) => session.busy)) {
           timer = window.setTimeout(refreshUntilIdle, busyIntervalMs);
         }

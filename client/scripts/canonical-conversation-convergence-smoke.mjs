@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createCanonicalConversationCoordinator } from '../src/runtime/canonicalConversationCoordinator.ts';
 import { subscribeCanonicalConversation } from '../src/runtime/canonicalConversationStream.ts';
-import { applyCanonicalConversationDeltas, hydrateCanonicalConversationStore } from '../src/runtime/canonicalConversationStore.ts';
+import { applyCanonicalConversationBatch, applyCanonicalConversationDeltas, hydrateCanonicalConversationStore } from '../src/runtime/canonicalConversationStore.ts';
 import { selectCanonicalConversationTurnViewModels } from '../src/runtime/canonicalConversationView.ts';
+import { selectCanonicalStructuredActivity } from '../src/runtime/canonicalStructuredActivity.ts';
+import { todoDisplayModel } from '../src/features/todos/todoDisplayPolicy.ts';
 
 const wait = () => new Promise((resolve) => setTimeout(resolve, 0));
 const snapshot = (sessionId, cursor, toolStatus = 'running') => ({ schemaVersion: 2, sessionId, cursor, scope: 'full', turns: [{ id: 'turn-1', sessionId, activitySequence: '1', revision: '1', createdAt: 1, updatedAt: 1, status: 'running' }], messages: [], assistantSteps: [], toolCalls: [{ id: 'tool-1', sessionId, turnId: 'turn-1', activitySequence: '2', revision: cursor, createdAt: 1, updatedAt: 1, name: 'shell', source: 'builtin', status: toolStatus }], toolResults: [], permissions: [], todoPlans: [], agentTasks: [], notices: [] });
@@ -40,6 +42,24 @@ const retryCoordinator = createCanonicalConversationCoordinator({ fetchSnapshot:
 retryCoordinator.activate('R'); await wait(); await wait(); await wait();
 assert.equal(retryFetches, 2, 'transient recovery failure retries with generation-aware backoff');
 retryCoordinator.stop();
+
+let cursorGuardFetches = 0; let cursorGuardSnapshotCursor = '1'; let cursorGuardHandlers;
+const cursorGuardCoordinator = createCanonicalConversationCoordinator({
+  fetchSnapshot: async () => { cursorGuardFetches += 1; return snapshot('CURSOR-GUARD', cursorGuardSnapshotCursor); },
+  subscribe: (_sessionId, _after, nextHandlers) => { cursorGuardHandlers = nextHandlers; return () => undefined; },
+  onStore: () => undefined,
+  cursorGraceMs: 0,
+});
+cursorGuardCoordinator.activate('CURSOR-GUARD'); await wait(); await wait();
+cursorGuardCoordinator.ensureCursor('CURSOR-GUARD', '2');
+cursorGuardHandlers.onBatch(upsertBatch('CURSOR-GUARD', '1', '2'));
+await wait(); await wait();
+assert.equal(cursorGuardFetches, 1, 'a canonical batch satisfying the Runtime invalidation avoids redundant snapshot recovery');
+cursorGuardSnapshotCursor = '3';
+cursorGuardCoordinator.ensureCursor('CURSOR-GUARD', '3');
+await wait(); await wait();
+assert.equal(cursorGuardFetches, 2, 'a missed canonical wakeup recovers the active Session without requiring a Session switch');
+cursorGuardCoordinator.stop();
 
 const pageRequests = []; const pageStores = [];
 const pageSnapshot = (turnId, hasMoreBefore) => ({ ...snapshot('P', '20'), scope: 'window', turns: [{ id: turnId, sessionId: 'P', activitySequence: turnId === 'turn-new' ? '10' : '1', revision: '1', createdAt: 1, updatedAt: 1, status: 'completed' }], toolCalls: [], window: { turnIds: [turnId], hasMoreBefore } });
@@ -116,6 +136,24 @@ durableLiveSnapshot.messages[0].reasoningContentLength = Buffer.byteLength('æ€è
 liveStore = hydrateCanonicalConversationStore(durableLiveSnapshot, liveStore);
 assert.equal(liveStore.streamingByMessageId['message-live'], undefined, 'durable canonical content retires the matching live overlay');
 
+const compactLifecycleSnapshot = snapshot('COMPACT-LIVE', '1');
+compactLifecycleSnapshot.toolCalls = [];
+compactLifecycleSnapshot.todoPlans = [{ id: 'plan-1', sessionId: 'COMPACT-LIVE', turnId: 'turn-1', ownerTurnId: 'turn-1', activitySequence: '1', revision: '1', createdAt: 1, updatedAt: 1, status: 'active', items: [{ id: 'todo-1', order: 0, status: 'in_progress', content: 'Inspect' }] }];
+let compactLifecycleStore = hydrateCanonicalConversationStore(compactLifecycleSnapshot);
+const compactNotice = (status, revision) => ({ id: 'notice:compact:boundary-1', sessionId: 'COMPACT-LIVE', turnId: 'turn-1', activitySequence: '2', revision, createdAt: 2, updatedAt: Number(revision), kind: 'compact', status, summary: status, dataJson: JSON.stringify({ boundary_id: 'boundary-1', trigger: 'auto' }) });
+compactLifecycleStore = applyCanonicalConversationBatch(compactLifecycleStore, { schemaVersion: 2, sessionId: 'COMPACT-LIVE', afterCursor: '1', cursor: '2', events: [{ schemaVersion: 2, id: 'compact-started', sessionId: 'COMPACT-LIVE', turnId: 'turn-1', sequence: '2', createdAt: 2, entityType: 'notice', entityId: 'notice:compact:boundary-1', operation: 'upsert', revision: '2', notice: compactNotice('running', '2') }] });
+assert.equal(selectCanonicalConversationTurnViewModels(compactLifecycleStore)[0].process.items.find((item) => item.kind === 'compact_boundary')?.status, 'running', 'auto compact started is visible on the active Session');
+compactLifecycleStore = applyCanonicalConversationBatch(compactLifecycleStore, { schemaVersion: 2, sessionId: 'COMPACT-LIVE', afterCursor: '2', cursor: '3', events: [{ schemaVersion: 2, id: 'compact-completed', sessionId: 'COMPACT-LIVE', turnId: 'turn-1', sequence: '3', createdAt: 3, entityType: 'notice', entityId: 'notice:compact:boundary-1', operation: 'upsert', revision: '3', notice: compactNotice('completed', '3') }] });
+assert.equal(selectCanonicalConversationTurnViewModels(compactLifecycleStore)[0].process.items.find((item) => item.kind === 'compact_boundary')?.status, 'completed', 'auto compact completion replaces the running notice in place');
+const terminalTurn = { ...compactLifecycleStore.turnsById['turn-1'], turnId: 'turn-1', revision: '4', updatedAt: 4, status: 'completed', finishedAt: 4 };
+const terminalTodo = { ...compactLifecycleStore.todoPlansById['plan-1'], revision: '4', updatedAt: 4, status: 'abandoned' };
+compactLifecycleStore = applyCanonicalConversationBatch(compactLifecycleStore, { schemaVersion: 2, sessionId: 'COMPACT-LIVE', afterCursor: '3', cursor: '4', events: [
+  { schemaVersion: 2, id: 'turn-completed', sessionId: 'COMPACT-LIVE', turnId: 'turn-1', sequence: '4', createdAt: 4, entityType: 'turn', entityId: 'turn-1', operation: 'upsert', revision: '4', turn: terminalTurn },
+  { schemaVersion: 2, id: 'todo-terminal', sessionId: 'COMPACT-LIVE', turnId: 'turn-1', sequence: '4', createdAt: 4, entityType: 'todoPlan', entityId: 'plan-1', operation: 'upsert', revision: '4', todoPlan: terminalTodo },
+] });
+const terminalStructured = selectCanonicalStructuredActivity(compactLifecycleStore);
+assert.equal(todoDisplayModel(terminalStructured.todoPlansByTurnId['turn-1'], compactLifecycleStore.turnsById['turn-1'].status).state, 'hidden', 'terminal Turn hides its Todo capsule without a Session switch');
+
 const earlyDeltaSnapshot = snapshot('EARLY', '1');
 earlyDeltaSnapshot.messages = [];
 earlyDeltaSnapshot.toolCalls = [];
@@ -149,6 +187,7 @@ const permissionSource = await readFile(new URL('../src/features/permissions/Per
 const workspaceSource = await readFile(new URL('../src/features/workspace/Workspace.tsx', import.meta.url), 'utf8');
 const coordinatorSource = await readFile(new URL('../src/runtime/canonicalConversationCoordinator.ts', import.meta.url), 'utf8');
 const toolCardSource = await readFile(new URL('../src/features/tools/ToolCallCard.tsx', import.meta.url), 'utf8');
+const processNoticeSource = await readFile(new URL('../src/features/timeline/ProcessNoticeItems.tsx', import.meta.url), 'utf8');
 const dockStyles = await readFile(new URL('../src/features/conversationDock/ConversationDock.module.css', import.meta.url), 'utf8');
 const traceStyles = await readFile(new URL('../src/features/timeline/TraceRow.module.css', import.meta.url), 'utf8');
 const toolStyles = await readFile(new URL('../src/features/tools/ToolCallCard.module.css', import.meta.url), 'utf8');
@@ -157,6 +196,7 @@ assert.ok(shellSource.includes('createCanonicalConversationCoordinator'), 'canon
 assert.match(shellSource, /const commitConversationAction[\s\S]*?preserveCanonicalConversation\(nextViewModel, current\)/, 'conversation action hydration cannot overwrite a newer canonical stream store');
 assert.match(shellSource, /const decidePermission[\s\S]*?commitConversationAction\(nextViewModel\)/, 'permission decisions use the canonical-safe action commit');
 assert.equal(adapterSource.includes('bridge.SessionOutput?.(activeSessionID, { snapshot: true'), false, 'workbench refresh cannot fetch legacy conversation snapshot');
+assert.match(adapterSource, /if \(!bridge && runtimeBridgePromise === pending\) runtimeBridgePromise = undefined;/, 'a transient Wails binding timeout does not permanently poison later Runtime calls');
 assert.doesNotMatch(adapterSource, /async submitUserInput[\s\S]*?catch \(error\)[\s\S]*?conversationTarget: target/, 'submit errors propagate to the Shell optimistic error boundary');
 assert.match(timelineSource, /shouldRenderProcess\(block\)/, 'canonical Turn lifecycle rendering is not gated on the first process entity');
 assert.match(timelineSource, /isFailedProcessStatus\(block\.status\)/, 'a failed canonical Turn remains visible even when it has no process entities');
@@ -165,6 +205,7 @@ assert.match(permissionSource, /decisionInFlight\.current/, 'permission decision
 assert.match(coordinatorSource, /connect\(sessionId, gen, cached\)\.catch/, 'cached Session stream reconnect failures enter snapshot recovery');
 assert.match(adapterSource, /ReadObjectContent\(refID\)/, 'Runtime Object content is read through the Wails binding');
 assert.match(toolCardSource, /onObjectContentLoad\(outputRef\)/, 'tool details load full output from its canonical Object ref');
+assert.match(processNoticeSource, /item\.status === 'running'[\s\S]*?<LoadingOutlined spin \/>/, 'canonical running compact notices render as an in-flight spinner');
 assert.doesNotMatch(dockSource, /action\.key === 'jump-to-bottom'/, 'dock layout does not special-case a business action key');
 assert.match(dockSource, /<ConversationActions actions=\{activeActions\}/, 'all visible dock actions share the centered action rail');
 assert.doesNotMatch(dockStyles, /\.floatingActions\s*\{/, 'jump action is not rendered in a separate absolute layer');
