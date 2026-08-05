@@ -14,7 +14,7 @@ import { createConversationSubmitQueue } from '../../runtime/conversationSubmitQ
 import { createCanonicalConversationCoordinator } from '../../runtime/canonicalConversationCoordinator.ts';
 import { selectOwnedClientRequestIds } from '../../runtime/canonicalConversationSelectors.ts';
 import { installWebviewCursorRecovery, nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
-import { runtimeEventCoveredByOutputStream, runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
+import { applyRuntimeSessionStatusEvent, runtimeEventCoveredByOutputStream, runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
 import { loadSidebarPreferences, saveSidebarCollapsedPreference } from '../../runtime/sidebarPreferences.ts';
 import { PluginCenter } from '../../features/plugins/PluginCenter.tsx';
 import { Sidebar } from '../../features/sidebar/Sidebar.tsx';
@@ -22,6 +22,7 @@ import { SettingsPanel } from '../../features/settings/SettingsPanel.tsx';
 import { Workspace } from '../../features/workspace/Workspace.tsx';
 import styles from './WorkbenchShell.module.css';
 import type { AppearanceSettings } from '../../theme/contract.ts';
+import type { CanonicalConversationSource, CanonicalConversationStore } from '../../runtime/canonicalConversationStore.ts';
 
 interface WorkbenchShellProps {
   adapter: WorkbenchAdapter;
@@ -35,6 +36,38 @@ const SIDEBAR_MAX_WIDTH = 380;
 const WORKSPACE_MIN_VISIBLE_WIDTH = 360;
 const SHELL_SPLITTER_WIDTH = 2;
 const SHELL_MIN_WIDTH = 1080;
+const IDLE_MEMORY_GUARD_MINIMUM_MS = 2 * 60 * 1000;
+const IDLE_MEMORY_GUARD_POLL_MS = 10 * 1000;
+const IDLE_MEMORY_GUARD_UI_STATE_KEY = 'agent-builder:idle-memory-guard-ui-state';
+
+interface IdleMemoryGuardUIState {
+  sessionId?: string;
+  conversationScrollTop?: number;
+  savedAt: number;
+}
+
+interface MutableCanonicalConversationSource extends CanonicalConversationSource {
+  publish: (store: CanonicalConversationStore | undefined) => void;
+}
+
+function hasUnsavedComposerDraft() {
+  const composer = document.querySelector<HTMLElement>('[data-testid="composer"]');
+  const textarea = composer?.querySelector<HTMLTextAreaElement>('textarea');
+  if (textarea?.value.trim()) return true;
+  const editable = composer?.querySelector<HTMLElement>('[contenteditable="true"]');
+  return Boolean(editable?.textContent?.trim());
+}
+
+function hasActiveOverlay() {
+  return Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"], .ant-drawer-open, .ant-dropdown:not(.ant-dropdown-hidden)')).some((element) => {
+    const style = window.getComputedStyle(element);
+    return element.getClientRects().length > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+  });
+}
+
+function hasTerminalInteraction() {
+  return document.activeElement instanceof Element && Boolean(document.activeElement.closest('[role="application"]'));
+}
 
 function getLayoutWidth() {
   if (typeof window === 'undefined') {
@@ -69,6 +102,9 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
   const modeRef = useRef(mode);
   const sessionMutationSeqRef = useRef(0);
   const promptSubmitQueueRef = useRef(createConversationSubmitQueue());
+  const lastInteractionAtRef = useRef(0);
+  const idleMemoryReloadRequestedRef = useRef(false);
+  const [canonicalConversationSource] = useState(() => createCanonicalConversationSource(initialViewModel.canonicalConversationStore));
   const canonicalCoordinator = useMemo(() => {
     if (!adapter.fetchCanonicalConversationSnapshot || !adapter.subscribeCanonicalConversation) return undefined;
     return createCanonicalConversationCoordinator({
@@ -79,6 +115,11 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
         // rendering. Do not keep the loading placeholder coupled to the
         // slower diagnostics/status hydration performed by selectSession.
         setSwitchingSessionID((current) => current === store.sessionId ? '' : current);
+        const previousStore = canonicalConversationSource.getSnapshot();
+        canonicalConversationSource.publish(store);
+        if (previousStore && isLiveOnlyCanonicalStoreUpdate(previousStore, store)) {
+          return;
+        }
         setViewModel((current) => {
           if (current.conversationTarget.kind !== 'session' || current.conversationTarget.sessionId !== store.sessionId) return current;
           const next = { ...current, canonicalConversationStore: store, optimisticConversationByClientRequestId: pruneEchoedOptimisticSubmits(current.optimisticConversationByClientRequestId, store) };
@@ -87,7 +128,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
         });
       },
     });
-  }, [adapter.fetchCanonicalConversationSnapshot, adapter.subscribeCanonicalConversation]);
+  }, [adapter.fetchCanonicalConversationSnapshot, adapter.subscribeCanonicalConversation, canonicalConversationSource]);
 
   // App renders the draft shell immediately, then supplies one background
   // runtime metadata hydration. Adopt that bootstrap result without remounting
@@ -104,7 +145,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
     }, 0);
     return () => window.clearTimeout(timer);
   }, [initialViewModel]);
-  const hasBusySession = viewModel.sessions.some((session) => session.busy);
   const sidebarForceCollapsed =
     !sidebarCollapsed &&
     workspaceMinVisibleWidth > WORKSPACE_MIN_VISIBLE_WIDTH &&
@@ -116,10 +156,86 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
     viewModelRef.current = viewModel;
   }, [viewModel]);
 
+  useEffect(() => {
+    const target = viewModel.conversationTarget;
+    const store = viewModel.canonicalConversationStore;
+    if (target.kind !== 'session' || !store || store.sessionId !== target.sessionId) {
+      canonicalConversationSource.publish(undefined);
+      return;
+    }
+    const current = canonicalConversationSource.getSnapshot();
+    if (!current || current.sessionId !== target.sessionId) canonicalConversationSource.publish(store);
+  }, [canonicalConversationSource, viewModel.canonicalConversationStore, viewModel.conversationTarget]);
+
 
   useEffect(() => {
     installWebviewCursorRecovery();
   }, []);
+
+  useEffect(() => {
+    const markInteraction = () => {
+      lastInteractionAtRef.current = Date.now();
+    };
+    const markVisible = () => {
+      if (document.visibilityState === 'visible') markInteraction();
+    };
+    markInteraction();
+    window.addEventListener('pointerdown', markInteraction, { capture: true });
+    window.addEventListener('keydown', markInteraction, { capture: true });
+    window.addEventListener('wheel', markInteraction, { capture: true, passive: true });
+    window.addEventListener('touchstart', markInteraction, { capture: true, passive: true });
+    window.addEventListener('focus', markInteraction);
+    document.addEventListener('visibilitychange', markVisible);
+    return () => {
+      window.removeEventListener('pointerdown', markInteraction, { capture: true });
+      window.removeEventListener('keydown', markInteraction, { capture: true });
+      window.removeEventListener('wheel', markInteraction, { capture: true });
+      window.removeEventListener('touchstart', markInteraction, { capture: true });
+      window.removeEventListener('focus', markInteraction);
+      document.removeEventListener('visibilitychange', markVisible);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!adapter.requestIdleMemoryGuard || !adapter.reloadWindow) return undefined;
+    const requestIdleMemoryGuard = adapter.requestIdleMemoryGuard;
+    const reloadWindow = adapter.reloadWindow;
+    let cancelled = false;
+    let probing = false;
+    const probe = async () => {
+      const clientIdleMs = Date.now() - lastInteractionAtRef.current;
+      if (cancelled || probing || idleMemoryReloadRequestedRef.current || clientIdleMs < IDLE_MEMORY_GUARD_MINIMUM_MS) return;
+      probing = true;
+      try {
+        const response = await requestIdleMemoryGuard({
+          clientIdleMs,
+          hasUnsavedDraft: hasUnsavedComposerDraft(),
+          hasActiveOverlay: hasActiveOverlay(),
+          hasTerminalInteraction: hasTerminalInteraction(),
+        });
+        if (cancelled || !response?.eligible || !response.memorySupported || !response.sustained) return;
+        idleMemoryReloadRequestedRef.current = true;
+        const scroll = document.querySelector<HTMLElement>('[data-testid="conversation-scroll-container"]');
+        const target = viewModelRef.current.conversationTarget;
+        const state: IdleMemoryGuardUIState = {
+          sessionId: target.kind === 'session' ? target.sessionId : undefined,
+          conversationScrollTop: scroll?.scrollTop,
+          savedAt: Date.now(),
+        };
+        window.sessionStorage.setItem(IDLE_MEMORY_GUARD_UI_STATE_KEY, JSON.stringify(state));
+        await reloadWindow();
+      } catch {
+        idleMemoryReloadRequestedRef.current = false;
+      } finally {
+        probing = false;
+      }
+    };
+    const timer = window.setInterval(() => void probe(), IDLE_MEMORY_GUARD_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [adapter]);
 
   useEffect(() => {
     const updateViewportWidth = () => setViewportWidth(window.innerWidth);
@@ -166,7 +282,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
       queued = false;
       const epoch = sessionMutationSeqRef.current;
       try {
-        const nextViewModel = await adapter.refresh({ ...viewModelRef.current, mode: modeRef.current });
+        const refresh = adapter.refreshRuntimeState ?? adapter.refresh;
+        const nextViewModel = await refresh({ ...viewModelRef.current, mode: modeRef.current });
         if (!cancelled && sessionMutationSeqRef.current === epoch) {
           setMode(nextViewModel.mode);
           setViewModel((current) => {
@@ -197,6 +314,11 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
 
     const streamHandlesEvent = Boolean(adapter.subscribeCanonicalConversation);
     void Promise.resolve(adapter.subscribeRuntimeEvents((event) => {
+      setViewModel((current) => {
+        const next = applyRuntimeSessionStatusEvent(current, event);
+        if (next !== current) viewModelRef.current = next;
+        return next;
+      });
       const target = viewModelRef.current.conversationTarget;
       if (streamHandlesEvent && target.kind === 'session' && event.sessionId === target.sessionId && typeof event.sequence === 'number' && Number.isFinite(event.sequence) && event.sequence > 0) {
         canonicalCoordinator?.ensureCursor(target.sessionId, String(Math.trunc(event.sequence)));
@@ -229,6 +351,31 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
   }, [adapter, canonicalCoordinator]);
 
   const activeSessionID = viewModel.conversationTarget.kind === 'session' ? viewModel.conversationTarget.sessionId : undefined;
+
+  useEffect(() => {
+    const raw = window.sessionStorage.getItem(IDLE_MEMORY_GUARD_UI_STATE_KEY);
+    if (!raw) return;
+    try {
+      const state = JSON.parse(raw) as IdleMemoryGuardUIState;
+      if (!state.sessionId) {
+        window.sessionStorage.removeItem(IDLE_MEMORY_GUARD_UI_STATE_KEY);
+        return;
+      }
+      if (!activeSessionID || !viewModel.canonicalConversationStore) return;
+      if (state.sessionId !== activeSessionID || Date.now() - state.savedAt > 5 * 60 * 1000) {
+        window.sessionStorage.removeItem(IDLE_MEMORY_GUARD_UI_STATE_KEY);
+        return;
+      }
+      const frame = window.requestAnimationFrame(() => {
+        const scroll = document.querySelector<HTMLElement>('[data-testid="conversation-scroll-container"]');
+        if (scroll && typeof state.conversationScrollTop === 'number') scroll.scrollTop = state.conversationScrollTop;
+        window.sessionStorage.removeItem(IDLE_MEMORY_GUARD_UI_STATE_KEY);
+      });
+      return () => window.cancelAnimationFrame(frame);
+    } catch {
+      window.sessionStorage.removeItem(IDLE_MEMORY_GUARD_UI_STATE_KEY);
+    }
+  }, [activeSessionID, viewModel.canonicalConversationStore]);
 
   useEffect(() => {
     const coordinator = canonicalCoordinator;
@@ -281,64 +428,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
       });
     }).catch(() => undefined);
   }, [adapter, viewModel.composer.contextUsage]);
-
-
-  useEffect(() => {
-    if (!viewModel.composer.busy && !hasBusySession) {
-      return undefined;
-    }
-
-    let cancelled = false;
-    let timer: number | undefined;
-
-    // When the streaming channel is available, the shell no longer needs
-    // aggressive full-workbench refresh loops to render the assistant's
-    // live output. We slow the polling to 3s so hooks/tasks/context still
-    // pick up eventual state changes.
-    const hasConversationStream = Boolean(adapter.subscribeCanonicalConversation);
-    const busyIntervalMs = hasConversationStream ? 3000 : 1200;
-    const backoffMs = hasConversationStream ? 4000 : 2000;
-
-    const refreshUntilIdle = async () => {
-      const epoch = sessionMutationSeqRef.current;
-      try {
-        const nextViewModel = await adapter.refresh({ ...viewModelRef.current, mode });
-        if (cancelled) {
-          return;
-        }
-        if (sessionMutationSeqRef.current !== epoch) {
-          // The conversation context changed while this refresh was in
-          // flight (session switch / draft / new prompt); its snapshot
-          // describes a stale context and must not clobber the new one.
-          timer = window.setTimeout(refreshUntilIdle, busyIntervalMs);
-          return;
-        }
-        setMode(nextViewModel.mode);
-        setViewModel((current) => {
-          const merged = preserveCanonicalConversation(nextViewModel, current);
-          viewModelRef.current = merged;
-          return merged;
-        });
-        if (nextViewModel.composer.busy || nextViewModel.sessions.some((session) => session.busy)) {
-          timer = window.setTimeout(refreshUntilIdle, busyIntervalMs);
-        }
-      } catch {
-        if (!cancelled) {
-          timer = window.setTimeout(refreshUntilIdle, backoffMs);
-        }
-      }
-    };
-
-    timer = window.setTimeout(refreshUntilIdle, 800);
-
-    return () => {
-      cancelled = true;
-      if (timer) {
-        window.clearTimeout(timer);
-      }
-    };
-  }, [adapter, mode, viewModel.composer.busy, hasBusySession]);
-
   const changeMode = (nextMode: WorkbenchMode) => {
     setMode(nextMode);
     setViewModel((current) => ({ ...current, mode: nextMode }));
@@ -359,6 +448,18 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
     },
     [adapter],
   );
+
+  const refreshDiagnostics = useCallback(async () => {
+    if (!adapter.refreshDiagnostics) return;
+    const epoch = sessionMutationSeqRef.current;
+    const nextViewModel = await adapter.refreshDiagnostics({ ...viewModelRef.current, mode: modeRef.current });
+    if (sessionMutationSeqRef.current !== epoch) return;
+    setViewModel((current) => {
+      const merged = preserveCanonicalConversation(nextViewModel, current);
+      viewModelRef.current = merged;
+      return merged;
+    });
+  }, [adapter]);
 
   const loadEarlierConversation = useCallback(
     (sessionID: string) => canonicalCoordinator?.loadEarlier(sessionID) ?? Promise.resolve(false),
@@ -568,6 +669,20 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
         setMode(currentMode);
         setViewModel(currentViewModel);
       });
+  };
+
+  const loadMoreSessions = async () => {
+    if (!adapter.loadMoreSessions) return;
+    const nextViewModel = await adapter.loadMoreSessions({ ...viewModelRef.current, mode: modeRef.current });
+    viewModelRef.current = nextViewModel;
+    setViewModel(nextViewModel);
+  };
+
+  const loadPreviousSessions = async () => {
+    if (!adapter.loadPreviousSessions) return;
+    const nextViewModel = await adapter.loadPreviousSessions({ ...viewModelRef.current, mode: modeRef.current });
+    viewModelRef.current = nextViewModel;
+    setViewModel(nextViewModel);
   };
 
   const renameSession = async (sessionID: string, title: string) => {
@@ -1097,6 +1212,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
         onSessionRename={renameSession}
         onSessionDelete={deleteSession}
         onSessionSelect={selectSession}
+        onSessionsLoadMore={loadMoreSessions}
+        onSessionsLoadPrevious={loadPreviousSessions}
       />
       {!effectiveSidebarCollapsed && (
         <div
@@ -1123,6 +1240,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
         <Workspace
           sidebarCollapsed={effectiveSidebarCollapsed}
           viewModel={workbenchViewModel}
+          canonicalConversationSource={canonicalConversationSource}
           switchingSessionID={switchingSessionID}
           onMinimumWorkspaceWidthChange={handleMinimumWorkspaceWidthChange}
           onModelSelect={selectModel}
@@ -1148,6 +1266,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
           onTerminalResize={resizeTerminal}
           onTerminalSubscribe={subscribeTerminalEvents}
           onHookExecutionLoad={loadHookExecution}
+          onReviewOpen={refreshDiagnostics}
           onConversationLoadEarlier={loadEarlierConversation}
           onMessageContentLoad={loadCanonicalMessageContent}
           onObjectContentLoad={loadObjectContent}
@@ -1155,6 +1274,29 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel, onAppeara
       )}
     </main>
   );
+}
+
+function createCanonicalConversationSource(initial?: CanonicalConversationStore): MutableCanonicalConversationSource {
+  let snapshot = initial;
+  const listeners = new Set<() => void>();
+  return {
+    getSnapshot: () => snapshot,
+    subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+    publish: (store) => {
+      if (Object.is(snapshot, store)) return;
+      snapshot = store;
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
+function isLiveOnlyCanonicalStoreUpdate(previous: CanonicalConversationStore, next: CanonicalConversationStore) {
+  return previous.sessionId === next.sessionId && previous.cursor === next.cursor &&
+    previous.turnsById === next.turnsById && previous.messagesById === next.messagesById &&
+    previous.assistantStepsById === next.assistantStepsById && previous.toolCallsById === next.toolCallsById &&
+    previous.toolResultsById === next.toolResultsById && previous.permissionsById === next.permissionsById &&
+    previous.todoPlansById === next.todoPlansById && previous.agentTasksById === next.agentTasksById &&
+    previous.noticesById === next.noticesById && previous.streamingByMessageId !== next.streamingByMessageId;
 }
 
 function pruneEchoedOptimisticSubmits(submits: WorkbenchViewModel['optimisticConversationByClientRequestId'], store: import('../../runtime/canonicalConversationStore.ts').CanonicalConversationStore) {

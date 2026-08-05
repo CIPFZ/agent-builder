@@ -115,11 +115,29 @@ func TestRuntimeTerminalEventHistoryIsByteBounded(t *testing.T) {
 	if state.EventBytes > runtimeTerminalMaxEventBytes {
 		t.Fatalf("event history retained %d bytes, want <= %d", state.EventBytes, runtimeTerminalMaxEventBytes)
 	}
-	if len(state.Events) != 8 {
-		t.Fatalf("event count = %d, want 8", len(state.Events))
+	if len(state.Events) != 4 {
+		t.Fatalf("event count = %d, want 4", len(state.Events))
 	}
-	if state.Events[0].Sequence != 5 || state.Events[len(state.Events)-1].Sequence != 12 {
+	if state.Events[0].Sequence != 9 || state.Events[len(state.Events)-1].Sequence != 12 {
 		t.Fatalf("retained sequence range = %d..%d", state.Events[0].Sequence, state.Events[len(state.Events)-1].Sequence)
+	}
+}
+
+func TestRuntimeTerminalCreationHonorsGlobalResidentBudget(t *testing.T) {
+	root := t.TempDir()
+	service, sessionID := runtimeTerminalTestService(t, "terminal-budget", root)
+	service.resourceGovernor = newRuntimeResourceGovernor(map[runtimeResourceKind]runtimeResourceLimit{
+		runtimeResourceTerminal: {Count: 1, Bytes: runtimeTerminalMaxEventBytes},
+	})
+	if _, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: sessionID, ID: "term-budget-a", CWD: root}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = service.DeleteTerminal(context.Background(), "term-budget-a") }()
+	if _, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: sessionID, ID: "term-budget-b", CWD: root}); err == nil || !strings.Contains(err.Error(), "resource budget") {
+		t.Fatalf("second resident terminal error = %v, want resource budget rejection", err)
+	}
+	if got := service.resourceGovernor.snapshot()[runtimeResourceTerminal]; got.Count != 1 || got.Bytes != runtimeTerminalMaxEventBytes {
+		t.Fatalf("terminal usage after rejection = %#v", got)
 	}
 }
 

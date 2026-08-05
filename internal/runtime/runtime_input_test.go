@@ -29,6 +29,32 @@ func TestRuntimeNormalizePromptInput(t *testing.T) {
 	}
 }
 
+func TestRuntimeNormalizePromptPreservesRequestedSession(t *testing.T) {
+	service := newRuntimeService()
+	normalized, _, err := service.normalizeRuntimeUserInput(context.Background(), RuntimeUserInputRequest{
+		SessionID: "session-requested",
+		Mode:      runtimeInputModePrompt,
+		Items:     []RuntimeUserInputItem{{Type: runtimeInputItemText, Text: "hello"}},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalized.SessionID != "session-requested" {
+		t.Fatalf("normalized session = %q, want requested Session", normalized.SessionID)
+	}
+	overridden, _, err := service.normalizeRuntimeUserInput(context.Background(), RuntimeUserInputRequest{
+		SessionID: "session-requested",
+		Mode:      runtimeInputModePrompt,
+		Items:     []RuntimeUserInputItem{{Type: runtimeInputItemText, Text: "hello"}},
+	}, "session-authoritative")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overridden.SessionID != "session-authoritative" {
+		t.Fatalf("normalized explicit session = %q", overridden.SessionID)
+	}
+}
+
 func TestRuntimeNormalizeImageInputAttachmentEvidence(t *testing.T) {
 	service := newRuntimeService()
 	normalized, items, err := service.normalizeRuntimeUserInput(context.Background(), RuntimeUserInputRequest{

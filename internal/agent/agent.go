@@ -255,7 +255,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	}
 
 	agent := fantasy.NewAgent(
-		largeModel.Model,
+		governLanguageModel(ctx, largeModel.Model),
 		fantasy.WithSystemPrompt(systemPrompt),
 		fantasy.WithTools(agentTools...),
 		fantasy.WithRepairToolCall(repairToolCallJSON),
@@ -1136,7 +1136,7 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 	defer a.activeRequests.Del(sessionID)
 	defer cancel()
 
-	agent := fantasy.NewAgent(largeModel.Model,
+	agent := fantasy.NewAgent(governLanguageModel(ctx, largeModel.Model),
 		fantasy.WithSystemPrompt(string(summaryPrompt)),
 		fantasy.WithUserAgent(userAgent),
 	)
@@ -1461,7 +1461,7 @@ func (a *sessionAgent) generateTitle(modelCtx, persistCtx context.Context, sessi
 
 	smallModel := a.smallModel.Get()
 	model := smallModel
-	titleAgent := fantasy.NewAgent(model.Model,
+	titleAgent := fantasy.NewAgent(governLanguageModel(modelCtx, model.Model),
 		fantasy.WithSystemPrompt(string(titlePrompt)+"\nDo not reason aloud. Return only the title."),
 		fantasy.WithMaxOutputTokens(titleAgentMaxTokens),
 		fantasy.WithUserAgent(userAgent),

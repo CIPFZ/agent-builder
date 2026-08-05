@@ -13,7 +13,6 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 		}
 		return RuntimeStatus{}, err
 	}
-
 	r.mu.Lock()
 	ws := *r.workspace
 	sessionID := r.sessionID
@@ -24,6 +23,7 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 	sessionRequestID := r.sessionTurns[sessionID]
 	sessionRequest := r.requests[sessionRequestID]
 	sessionBusy := sessionRequestID != "" && !isFinalRuntimeRequestState(sessionRequest)
+	activeSessions := r.activeSessionStatusesLocked()
 	if sessionBusy {
 		requests.SessionRequestID = sessionRequestID
 		requests.SessionStartedAt = sessionRequest.StartedAt
@@ -32,24 +32,30 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 	r.mu.Unlock()
 	if sessionBusy {
 		return RuntimeStatus{
-			Ready:           true,
-			WorkspaceID:     ws.ID,
-			SessionID:       sessionID,
-			WorkingDir:      workingDir,
-			ExplicitProject: explicitProject,
-			Model:           sessionRequest.Model,
-			Provider:        sessionRequest.Provider,
-			Busy:            true,
-			Usage:           sessionRequest.UsageBefore,
-			Events:          events,
-			Requests:        requests,
+			Ready:            true,
+			WorkspaceID:      ws.ID,
+			SessionID:        sessionID,
+			WorkingDir:       workingDir,
+			ExplicitProject:  explicitProject,
+			Model:            sessionRequest.Model,
+			Provider:         sessionRequest.Provider,
+			Busy:             true,
+			Usage:            sessionRequest.UsageBefore,
+			Events:           events,
+			Requests:         requests,
+			ResourceGovernor: r.resourceGovernor.status(),
+			ActiveSessions:   activeSessions,
 		}, nil
 	}
-	if requests.Running == 0 {
+	if requests.Running == 0 && requests.Queued == 0 {
 		if turns, err := r.turns.List(ctx, "active"); err == nil {
 			now := time.Now().UnixMilli()
 			for _, turn := range turns {
-				requests.Running++
+				if turn.Status == turnStatusQueued {
+					requests.Queued++
+				} else {
+					requests.Running++
+				}
 				if requests.ActiveStartedAt == 0 || turn.StartedAt < requests.ActiveStartedAt {
 					requests.ActiveRequestID = turn.ID
 					requests.ActiveStartedAt = turn.StartedAt
@@ -78,17 +84,19 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 	}
 
 	return RuntimeStatus{
-		Ready:           info.IsReady,
-		WorkspaceID:     ws.ID,
-		SessionID:       sessionID,
-		WorkingDir:      workingDir,
-		ExplicitProject: explicitProject,
-		Model:           info.ModelCfg.Model,
-		Provider:        info.ModelCfg.Provider,
-		Busy:            requests.SessionBusy,
-		Usage:           usage,
-		Events:          events,
-		Requests:        requests,
+		Ready:            info.IsReady,
+		WorkspaceID:      ws.ID,
+		SessionID:        sessionID,
+		WorkingDir:       workingDir,
+		ExplicitProject:  explicitProject,
+		Model:            info.ModelCfg.Model,
+		Provider:         info.ModelCfg.Provider,
+		Busy:             requests.SessionBusy,
+		Usage:            usage,
+		Events:           events,
+		Requests:         requests,
+		ResourceGovernor: r.resourceGovernor.status(),
+		ActiveSessions:   activeSessions,
 	}, nil
 }
 
@@ -100,17 +108,20 @@ func (r *runtimeService) fallbackProjectStatus() RuntimeStatus {
 	sessionID := r.sessionID
 	events := r.eventStats.snapshot()
 	requests := r.runtimeRequestsLocked()
+	activeSessions := r.activeSessionStatusesLocked()
 	r.mu.Unlock()
 	if projectPath == "" {
 		projectPath = runtimeDefaultWorkingDir()
 	}
 	return RuntimeStatus{
-		Ready:           false,
-		WorkspaceID:     firstNonEmpty(activeProjectID, runtimeFallbackWorkspaceID(projectPath)),
-		SessionID:       sessionID,
-		WorkingDir:      projectPath,
-		ExplicitProject: explicitProject,
-		Events:          events,
-		Requests:        requests,
+		Ready:            false,
+		WorkspaceID:      firstNonEmpty(activeProjectID, runtimeFallbackWorkspaceID(projectPath)),
+		SessionID:        sessionID,
+		WorkingDir:       projectPath,
+		ExplicitProject:  explicitProject,
+		Events:           events,
+		Requests:         requests,
+		ResourceGovernor: r.resourceGovernor.status(),
+		ActiveSessions:   activeSessions,
 	}
 }

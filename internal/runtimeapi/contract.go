@@ -32,6 +32,7 @@ const (
 	EventMessageCompleted              = "message.completed"
 	EventMessageDeleted                = "message.deleted"
 	EventToolCallStarted               = "tool.call.started"
+	EventToolCallQueued                = "tool.call.queued"
 	EventToolCallOutput                = "tool.call.output"
 	EventOutputRefCreated              = "output.ref.created"
 	EventArtifactRefCreated            = "artifact.ref.created"
@@ -132,6 +133,7 @@ const (
 	EventMCPServerFailed         = "mcp.server.failed"
 	EventMCPServerBlocked        = "mcp.server.blocked"
 	EventMCPServerDisabled       = "mcp.server.disabled"
+	EventMCPServerUnloaded       = "mcp.server.unloaded"
 	EventMCPToolsUpdated         = "mcp.tools.updated"
 	EventMCPResourcesUpdated     = "mcp.resources.updated"
 	EventMCPPromptsUpdated       = "mcp.prompts.updated"
@@ -305,6 +307,7 @@ var EventTypes = []string{
 	EventMCPServerFailed,
 	EventMCPServerBlocked,
 	EventMCPServerDisabled,
+	EventMCPServerUnloaded,
 	EventMCPToolsUpdated,
 	EventMCPResourcesUpdated,
 	EventMCPPromptsUpdated,

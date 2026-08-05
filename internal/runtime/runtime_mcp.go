@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CIPFZ/agent-builder/internal/agent"
 	mcptools "github.com/CIPFZ/agent-builder/internal/agent/tools/mcp"
 	"github.com/CIPFZ/agent-builder/internal/config"
 	"github.com/CIPFZ/agent-builder/internal/permission"
@@ -53,6 +54,9 @@ func (r *runtimeService) SaveMCPServer(ctx context.Context, req RuntimeMCPServer
 	if !next.Disabled {
 		_ = r.refreshMCPServerLifecycle(ctx, cfg, wsID, name, "server_saved")
 	} else {
+		r.cancelMCPIdleTimer(name)
+		r.unregisterMCPServerProject(name)
+		r.releaseMCPServerResource(name)
 		r.publishMCPServerEvent(runtimeapi.EventMCPServerDisabled, name, mcpServerStateDisabled, "", "disabled")
 	}
 	return r.runtimeMCPServersFromConfig(cfg), nil
@@ -81,7 +85,10 @@ func (r *runtimeService) SetMCPServerEnabled(ctx context.Context, req RuntimeMCP
 	if req.Enabled {
 		_ = r.refreshMCPServerLifecycle(ctx, cfg, wsID, name, "server_enabled")
 	} else {
+		r.cancelMCPIdleTimer(name)
 		_ = mcptools.DisableSingle(cfg, name)
+		r.unregisterMCPServerProject(name)
+		r.releaseMCPServerResource(name)
 		r.publishMCPServerEvent(runtimeapi.EventMCPServerDisabled, name, mcpServerStateDisabled, "", "disabled")
 		r.writeMCPAudit("server_disabled", name, "", "server", "disabled", permission.PolicyResult{
 			Decision: permission.PolicyAllow,
@@ -109,7 +116,7 @@ func (r *runtimeService) RefreshMCPServer(ctx context.Context, name string) (Run
 	return r.runtimeMCPServersFromConfig(cfg), nil
 }
 
-func (r *runtimeService) refreshMCPServerLifecycle(ctx context.Context, cfg *config.ConfigStore, _ string, name, reason string) error {
+func (r *runtimeService) refreshMCPServerLifecycle(ctx context.Context, cfg *config.ConfigStore, workspaceID string, name, reason string) error {
 	mcpCfg, ok := cfg.Config().MCP[name]
 	if !ok {
 		return fmt.Errorf("mcp server %s is not configured", name)
@@ -153,8 +160,32 @@ func (r *runtimeService) refreshMCPServerLifecycle(ctx context.Context, cfg *con
 	}
 	r.publishMCPServerEvent(startEvent, name, mcpServerStateLoading, "", reason)
 	r.writeMCPAudit("server_refresh_started", name, "", "server", "loading", decision, "", 0)
+	projectID := r.currentCapabilityProjectID(workspaceID, cfg)
+	r.unregisterMCPServerProject(name)
+	projectAcquired, projectErr := r.acquireProjectCapabilityResource(ctx, projectID)
+	if projectErr != nil {
+		r.publishMCPServerEvent(runtimeapi.EventMCPServerFailed, name, mcpServerStateFailed, projectErr.Error(), "project_resource_admission_failed")
+		return projectErr
+	}
+	resourceAcquired, resourceErr := r.acquireMCPServerResource(ctx, name, mcpCfg)
+	if resourceErr != nil {
+		if projectAcquired {
+			r.releaseProjectCapabilityIfUnused(projectID)
+		}
+		r.publishMCPServerEvent(runtimeapi.EventMCPServerFailed, name, mcpServerStateFailed, resourceErr.Error(), "resource_admission_failed")
+		r.writeMCPAudit("server_refresh_failed", name, "", "server", "failed", decision, resourceErr.Error(), time.Since(start).Milliseconds())
+		return resourceErr
+	}
 
 	if err := mcptools.InitializeSingle(ctx, name, cfg); err != nil {
+		r.cancelMCPIdleTimer(name)
+		r.unregisterMCPServerProject(name)
+		if projectAcquired {
+			r.releaseProjectCapabilityIfUnused(projectID)
+		}
+		if resourceAcquired {
+			r.releaseMCPServerResource(name)
+		}
 		duration := time.Since(start).Milliseconds()
 		failEvent := runtimeapi.EventMCPServerFailed
 		if reason == "capability_refresh" {
@@ -196,7 +227,92 @@ func (r *runtimeService) refreshMCPServerLifecycle(ctx context.Context, cfg *con
 	r.publishMCPUpdatedEvents(name)
 	r.writeMCPAudit("server_refresh_completed", name, "", "server", "connected", decision, "", duration)
 	r.recordMCPServerCapabilitiesLoaded(name, cfg)
+	r.registerMCPServerProjectWithConfig(name, projectID, cfg)
+	r.scheduleMCPServerIdleEviction(cfg, name)
 	return nil
+}
+
+// ensureTurnMCPServers lazily materializes lightweight MCP catalogs only after
+// a Turn owns a resident working set. Browser/computer workers remain explicit
+// capability loads because they have their own scarce process admission.
+func (r *runtimeService) ensureTurnMCPServers(ctx context.Context) {
+	cfg, wsID, err := r.workspaceConfig(ctx)
+	if err != nil {
+		return
+	}
+	for _, name := range turnDemandMCPServerNames(cfg.Config().MCP) {
+		if state, ok := mcptools.GetState(name); ok && state.State == mcptools.StateConnected {
+			r.scheduleMCPServerIdleEviction(cfg, name)
+			continue
+		}
+		if err := r.refreshMCPServerLifecycle(ctx, cfg, wsID, name, "turn_capability_demand"); err != nil {
+			continue
+		}
+	}
+}
+
+func turnDemandMCPServerNames(servers config.MCPs) []string {
+	names := make([]string, 0, len(servers))
+	for name, server := range servers {
+		if server.Disabled || mcptools.IsProcessHeavyConfig(name, server) {
+			continue
+		}
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+func (r *runtimeService) acquireMCPServerResource(ctx context.Context, name string, cfg config.MCPConfig) (bool, error) {
+	if !mcptools.IsProcessHeavyConfig(name, cfg) {
+		return false, nil
+	}
+	key := "mcp:" + name
+	r.mu.Lock()
+	_, exists := r.capabilityResources[key]
+	r.mu.Unlock()
+	if exists {
+		return false, nil
+	}
+	release, err := r.resourceGovernor.AcquireTool(ctx, agent.ToolResourceBrowser, 0)
+	if err != nil {
+		return false, err
+	}
+	r.mu.Lock()
+	if _, exists := r.capabilityResources[key]; exists {
+		r.mu.Unlock()
+		release()
+		return false, nil
+	}
+	r.capabilityResources[key] = release
+	r.mu.Unlock()
+	return true, nil
+}
+
+func (r *runtimeService) releaseMCPServerResource(name string) {
+	key := "mcp:" + strings.TrimSpace(name)
+	r.mu.Lock()
+	release := r.capabilityResources[key]
+	delete(r.capabilityResources, key)
+	r.mu.Unlock()
+	if release != nil {
+		release()
+	}
+}
+
+func (r *runtimeService) releaseAllCapabilityResources() {
+	r.mu.Lock()
+	releases := make([]func(), 0, len(r.capabilityResources))
+	for key, release := range r.capabilityResources {
+		delete(r.capabilityResources, key)
+		if release != nil {
+			releases = append(releases, release)
+		}
+	}
+	r.mu.Unlock()
+	for _, release := range releases {
+		release()
+	}
 }
 
 func (r *runtimeService) evaluateMCPPolicy(server, name, kind, action string, fallbackRisk permission.Risk) permission.PolicyResult {
@@ -488,28 +604,33 @@ func (r *runtimeService) MCPTools(ctx context.Context, name string) (RuntimeMCPT
 	if denied := r.mcpReadPolicyDenied(name, "tools"); denied != nil {
 		return RuntimeMCPToolsResponse{}, denied
 	}
+	r.touchMCPServerConsumer(cfg, name)
 	return r.filterMCPToolsByPolicy(runtimeMCPToolsFromConfig(cfg, name)), nil
 }
 
 func (r *runtimeService) MCPResources(ctx context.Context, name string) (RuntimeMCPResourcesResponse, error) {
-	if _, _, err := r.workspaceConfig(ctx); err != nil {
+	cfg, _, err := r.workspaceConfig(ctx)
+	if err != nil {
 		return RuntimeMCPResourcesResponse{}, err
 	}
 	name = strings.TrimSpace(name)
 	if denied := r.mcpReadPolicyDenied(name, "resources"); denied != nil {
 		return RuntimeMCPResourcesResponse{}, denied
 	}
+	r.touchMCPServerConsumer(cfg, name)
 	return r.filterMCPResourcesByPolicy(runtimeMCPResources(name)), nil
 }
 
 func (r *runtimeService) MCPPrompts(ctx context.Context, name string) (RuntimeMCPPromptsResponse, error) {
-	if _, _, err := r.workspaceConfig(ctx); err != nil {
+	cfg, _, err := r.workspaceConfig(ctx)
+	if err != nil {
 		return RuntimeMCPPromptsResponse{}, err
 	}
 	name = strings.TrimSpace(name)
 	if denied := r.mcpReadPolicyDenied(name, "prompts"); denied != nil {
 		return RuntimeMCPPromptsResponse{}, denied
 	}
+	r.touchMCPServerConsumer(cfg, name)
 	return r.filterMCPPromptsByPolicy(runtimeMCPPrompts(name)), nil
 }
 
@@ -701,6 +822,8 @@ func normalizeMCPServerState(state mcptools.State) (string, string) {
 	switch state {
 	case mcptools.StateDisabled:
 		return mcpServerStateDisabled, "disabled"
+	case mcptools.StateUnloaded:
+		return mcpServerStateUnloaded, "idle_unloaded"
 	case mcptools.StateStarting:
 		return mcpServerStateLoading, "connecting"
 	case mcptools.StateConnected:

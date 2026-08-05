@@ -18,7 +18,20 @@ func New(store Store) *Scheduler {
 }
 
 func (s *Scheduler) CreateCall(ctx context.Context, req ToolCallRequest) (ToolCall, error) {
-	return s.store.Upsert(ctx, ToolCall{
+	call := toolCallFromRequest(req)
+	call.Status = ToolCallRunning
+	call.StartedAt = s.now()
+	return s.store.Upsert(ctx, call)
+}
+
+func (s *Scheduler) QueueCall(ctx context.Context, req ToolCallRequest) (ToolCall, error) {
+	call := toolCallFromRequest(req)
+	call.Status = ToolCallPending
+	return s.store.Upsert(ctx, call)
+}
+
+func toolCallFromRequest(req ToolCallRequest) ToolCall {
+	return ToolCall{
 		ID:                   req.ID,
 		SessionID:            req.SessionID,
 		TurnID:               req.TurnID,
@@ -28,6 +41,8 @@ func (s *Scheduler) CreateCall(ctx context.Context, req ToolCallRequest) (ToolCa
 		CapabilityID:         req.CapabilityID,
 		JobID:                req.JobID,
 		Command:              req.Command,
+		CommandRef:           req.CommandRef,
+		CommandByteLength:    req.CommandByteLength,
 		Risk:                 req.Risk,
 		PolicyReason:         req.PolicyReason,
 		PolicyMode:           req.PolicyMode,
@@ -49,10 +64,10 @@ func (s *Scheduler) CreateCall(ctx context.Context, req ToolCallRequest) (ToolCa
 		SandboxError:         req.SandboxError,
 		JobStatus:            req.JobStatus,
 		JobStartedAt:         req.JobStartedAt,
-		Status:               ToolCallRunning,
 		InputSummary:         req.InputSummary,
-		StartedAt:            s.now(),
-	})
+		InputRef:             req.InputRef,
+		InputByteLength:      req.InputByteLength,
+	}
 }
 
 func (s *Scheduler) MarkWaitingPermission(ctx context.Context, id string) (ToolCall, error) {
@@ -78,6 +93,12 @@ func (s *Scheduler) CompleteCall(ctx context.Context, result ToolCallResult) (To
 	}
 	if result.Command != "" {
 		call.Command = result.Command
+	}
+	if result.CommandRef != "" {
+		call.CommandRef = result.CommandRef
+	}
+	if result.CommandByteLength != 0 {
+		call.CommandByteLength = result.CommandByteLength
 	}
 	if result.Risk != "" {
 		call.Risk = result.Risk

@@ -286,10 +286,12 @@ func (r *runtimeService) SidebarProjection(ctx context.Context) (RuntimeSidebarP
 	activeSessionID := r.sessionID
 	r.mu.Unlock()
 	return RuntimeSidebarProjectionResponse{
-		Projects:         projects.Projects,
-		Sessions:         sessions.Sessions,
-		CurrentProjectID: activeProjectID,
-		ActiveSessionID:  activeSessionID,
+		Projects:          projects.Projects,
+		Sessions:          sessions.Sessions,
+		CurrentProjectID:  activeProjectID,
+		ActiveSessionID:   activeSessionID,
+		SessionNextCursor: sessions.NextCursor,
+		SessionHasMore:    sessions.HasMore,
 	}, nil
 }
 

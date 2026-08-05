@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Alert, Button, ConfigProvider, Dropdown, Input, Modal, Tooltip } from 'antd';
 import {
   CaretDownOutlined,
@@ -19,6 +20,7 @@ import type {
   ProjectActionRequestViewModel,
   ProjectViewModel,
   RenameProjectRequestViewModel,
+  SessionViewModel,
   SidebarActionViewModel,
   WorkbenchMode,
   WorkbenchViewModel,
@@ -47,6 +49,8 @@ interface SidebarProps {
   onSessionRename: (sessionID: string, title: string) => Promise<void>;
   onSessionDelete: (sessionID: string) => void;
   onSessionSelect: (sessionID: string) => void;
+  onSessionsLoadMore: () => Promise<void>;
+  onSessionsLoadPrevious: () => Promise<void>;
 }
 
 export function Sidebar({
@@ -64,6 +68,8 @@ export function Sidebar({
   onSessionRename,
   onSessionDelete,
   onSessionSelect,
+  onSessionsLoadMore,
+  onSessionsLoadPrevious,
 }: SidebarProps) {
   const [initialPreferences] = useState(loadSidebarPreferences);
   const [projectsOpen, setProjectsOpen] = useState(initialPreferences.projectsOpen);
@@ -77,11 +83,38 @@ export function Sidebar({
   const [sessionDialogTarget, setSessionDialogTarget] = useState<{ id: string; title: string } | undefined>();
   const [sessionTitle, setSessionTitle] = useState('');
   const [sessionBusy, setSessionBusy] = useState(false);
+  const [sessionPageBusy, setSessionPageBusy] = useState(false);
   const [sessionError, setSessionError] = useState('');
   const newChatAction = viewModel.sidebarActions.find((action) => action.id === 'new-chat');
   const searchAction = viewModel.sidebarActions.find((action) => action.id === 'search');
   const primaryActions = viewModel.sidebarActions.filter((action) => action.id !== 'search');
-  const standaloneSessions = viewModel.sessions.filter((session) => session.scope === 'standalone');
+  const sessions = viewModel.sessions;
+  const { standaloneSessions, sessionsByProject } = useMemo(() => {
+    const standalone = [] as typeof sessions;
+    const byProject = new Map<string, typeof sessions>();
+    for (const session of sessions) {
+      if (session.scope === 'standalone') {
+        standalone.push(session);
+        continue;
+      }
+      if (!session.projectId) continue;
+      const projectSessions = byProject.get(session.projectId);
+      if (projectSessions) {
+        projectSessions.push(session);
+      } else {
+        byProject.set(session.projectId, [session]);
+      }
+    }
+    return { standaloneSessions: standalone, sessionsByProject: byProject };
+  }, [sessions]);
+  const expandedProjectSessionLists = projectsOpen
+    ? viewModel.projects.reduce((count, project) => {
+        const expanded = expandedProjectIDs[project.id] ?? project.current;
+        return count + (expanded && (sessionsByProject.get(project.id)?.length ?? 0) > 0 ? 1 : 0);
+      }, 0)
+    : 0;
+  const mountedSessionListCount = expandedProjectSessionLists + (standaloneSessions.length > 0 && sessionsOpen ? 1 : 0);
+  const mountedRowsPerSessionList = Math.max(1, Math.floor(sidebarSessionMountedRowBudget / Math.max(1, mountedSessionListCount)));
   const showCollapsedShortcuts = viewModel.mode !== 'plugins';
   const isPrimaryActionCurrent = (action: SidebarActionViewModel) => action.id !== 'new-chat' && viewModel.mode === action.id;
 
@@ -383,7 +416,7 @@ export function Sidebar({
                 <div className={styles.list} data-testid="project-list">
                   {viewModel.projects.map((project) => {
                     const projectExpanded = isProjectExpanded(project);
-                    const projectSessions = viewModel.sessions.filter((session) => session.scope === 'project' && session.projectId === project.id);
+                    const projectSessions = sessionsByProject.get(project.id) ?? [];
                     return (
                       <div key={project.id} className={styles.projectBlock} data-project-id={project.id}>
                         <div className={`${styles.projectRow} ${project.current ? styles.currentRow : ''}`} onClick={() => toggleProject(project)}>
@@ -473,10 +506,13 @@ export function Sidebar({
                           </div>
                         </div>
                         {projectExpanded && projectSessions.length > 0 && (
-                          <div className={styles.projectSessionList}>
-                            {projectSessions.map((session) => (
+                          <WindowedSessionList
+                            className={styles.projectSessionList}
+                            sessions={projectSessions}
+                            mountedRowBudget={mountedRowsPerSessionList}
+                            itemKey={(session) => session.id}
+                            renderSession={(session) => (
                               <div
-                                key={session.id}
                                 className={`${styles.projectSessionRow} ${session.active ? styles.currentRow : ''}`}
                                 data-session-id={session.id}
                                 data-session-busy={session.busy ? 'true' : 'false'}
@@ -500,8 +536,8 @@ export function Sidebar({
                                   />
                                 </Dropdown>
                               </div>
-                            ))}
-                          </div>
+                            )}
+                          />
                         )}
                       </div>
                     );
@@ -539,10 +575,14 @@ export function Sidebar({
                 </div>
               </div>
               {sessionsOpen && (
-                <div className={`${styles.list} ${styles.sessionList}`} data-testid="session-list">
-                  {standaloneSessions.map((session) => (
+                <div className={styles.list} data-testid="session-list">
+                  <WindowedSessionList
+                    className={styles.sessionList}
+                    sessions={standaloneSessions}
+                    mountedRowBudget={mountedRowsPerSessionList}
+                    itemKey={(session) => session.id}
+                    renderSession={(session) => (
                     <div
-                      key={session.id}
                       className={`${styles.sessionRow} ${session.active ? styles.currentRow : ''}`}
                       data-session-id={session.id}
                       data-session-busy={session.busy ? 'true' : 'false'}
@@ -566,7 +606,36 @@ export function Sidebar({
                         />
                       </Dropdown>
                     </div>
-                  ))}
+                    )}
+                  />
+                  {(viewModel.sessionPage?.pageIndex ?? 0) > 0 && (
+                    <Button
+                      block
+                      disabled={sessionPageBusy}
+                      size="small"
+                      type="text"
+                      onClick={() => {
+                        setSessionPageBusy(true);
+                        void onSessionsLoadPrevious().finally(() => setSessionPageBusy(false));
+                      }}
+                    >
+                      Show newer sessions
+                    </Button>
+                  )}
+                  {viewModel.sessionPage?.hasMore && (
+                    <Button
+                      block
+                      loading={sessionPageBusy}
+                      size="small"
+                      type="text"
+                      onClick={() => {
+                        setSessionPageBusy(true);
+                        void onSessionsLoadMore().finally(() => setSessionPageBusy(false));
+                      }}
+                    >
+                      Show older sessions
+                    </Button>
+                  )}
                 </div>
               )}
             </section>
@@ -669,4 +738,51 @@ export function Sidebar({
 
 function isValidProjectFolderName(name: string) {
   return Boolean(name.trim()) && !/[\\/:*?"<>|]/.test(name) && name !== '.' && name !== '..';
+}
+
+const sidebarSessionRowHeight = 37;
+const sidebarSessionViewportHeight = 296;
+const sidebarSessionOverscan = 4;
+const sidebarSessionMountedRowBudget = 120;
+
+interface WindowedSessionListProps {
+  className?: string;
+  sessions: SessionViewModel[];
+  mountedRowBudget: number;
+  itemKey: (session: SessionViewModel) => string;
+  renderSession: (session: SessionViewModel) => ReactNode;
+}
+
+function WindowedSessionList({ className, sessions, mountedRowBudget, itemKey, renderSession }: WindowedSessionListProps) {
+  const [scrollTop, setScrollTop] = useState(0);
+  if (sessions.length === 0) return null;
+
+  const overscan = Math.min(sidebarSessionOverscan, Math.floor((mountedRowBudget - 1) / 2));
+  const visibleRowBudget = Math.max(1, mountedRowBudget - overscan * 2);
+  const viewportHeight = Math.min(sidebarSessionViewportHeight, visibleRowBudget * sidebarSessionRowHeight, sessions.length * sidebarSessionRowHeight);
+  const visibleCount = Math.ceil(viewportHeight / sidebarSessionRowHeight);
+  const firstVisible = Math.floor(scrollTop / sidebarSessionRowHeight);
+  const start = Math.max(0, Math.min(firstVisible - overscan, sessions.length - visibleCount));
+  const end = Math.min(sessions.length, firstVisible + visibleCount + overscan);
+
+  return (
+    <div
+      className={`${styles.windowedSessionViewport} ${className ?? ''}`}
+      data-windowed-session-list="true"
+      style={{ height: viewportHeight }}
+      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+    >
+      <div className={styles.windowedSessionCanvas} style={{ height: sessions.length * sidebarSessionRowHeight }}>
+        {sessions.slice(start, end).map((session, offset) => (
+          <div
+            key={itemKey(session)}
+            className={styles.windowedSessionItem}
+            style={{ height: sidebarSessionRowHeight, transform: `translateY(${(start + offset) * sidebarSessionRowHeight}px)` }}
+          >
+            {renderSession(session)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

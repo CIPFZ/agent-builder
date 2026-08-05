@@ -19,41 +19,44 @@ import (
 )
 
 const (
-	runtimeTerminalDefaultColumns = 100
-	runtimeTerminalDefaultRows    = 24
-	runtimeTerminalMaxEvents      = 4000
-	runtimeTerminalMaxEventBytes  = 8 * 1024 * 1024
-	runtimeTerminalSubscriberBase = 128
-	runtimeTerminalSubscriberWait = 2 * time.Second
+	runtimeTerminalDefaultColumns    = 100
+	runtimeTerminalDefaultRows       = 24
+	runtimeTerminalMaxEvents         = 4000
+	runtimeTerminalMaxEventBytes     = 4 * 1024 * 1024
+	runtimeTerminalMaxResident       = 8
+	runtimeTerminalGlobalReplayBytes = 32 * 1024 * 1024
+	runtimeTerminalSubscriberBase    = 128
+	runtimeTerminalSubscriberWait    = 2 * time.Second
 )
 
 var errRuntimeTerminalMissing = errors.New("terminal session not found")
 
 type runtimeTerminalState struct {
-	mu          sync.Mutex
-	ID          string
-	ProjectID   string
-	SessionID   string
-	Title       string
-	CWD         string
-	InitialCWD  string
-	Shell       string
-	ShellPath   string
-	ShellArgs   []string
-	Columns     int
-	Rows        int
-	Status      string
-	ExitCode    *int
-	CreatedAt   int64
-	UpdatedAt   int64
-	Error       string
-	PTY         pty.Pty
-	Command     *pty.Cmd
-	Cancel      context.CancelFunc
-	Events      []RuntimeTerminalEvent
-	EventBytes  int
-	NextSeq     int64
-	Subscribers map[*runtimeTerminalSubscriber]struct{}
+	mu              sync.Mutex
+	ID              string
+	ProjectID       string
+	SessionID       string
+	Title           string
+	CWD             string
+	InitialCWD      string
+	Shell           string
+	ShellPath       string
+	ShellArgs       []string
+	Columns         int
+	Rows            int
+	Status          string
+	ExitCode        *int
+	CreatedAt       int64
+	UpdatedAt       int64
+	Error           string
+	PTY             pty.Pty
+	Command         *pty.Cmd
+	Cancel          context.CancelFunc
+	Events          []RuntimeTerminalEvent
+	EventBytes      int
+	NextSeq         int64
+	Subscribers     map[*runtimeTerminalSubscriber]struct{}
+	ResourceRelease func()
 }
 
 type runtimeTerminalSubscriber struct {
@@ -126,6 +129,27 @@ func (r *runtimeService) CreateTerminal(ctx context.Context, req RuntimeTerminal
 	if id == "" {
 		id = fmt.Sprintf("terminal-%d", time.Now().UnixNano())
 	}
+	// All terminal ownership and resource-lease transitions are serialized.
+	// Runtime startup is intentionally complete before taking this mutex so a
+	// concurrent restart cannot deadlock on startMu in the opposite order.
+	r.terminalCreateMu.Lock()
+	defer r.terminalCreateMu.Unlock()
+	r.mu.Lock()
+	previous := r.terminalsByID[id]
+	r.mu.Unlock()
+	var resourceRelease func()
+	if previous == nil {
+		var admitted bool
+		resourceRelease, admitted = r.resourceGovernor.tryAcquire(runtimeResourceTerminal, 1, runtimeTerminalMaxEventBytes)
+		if !admitted {
+			return RuntimeTerminalResponse{}, errors.New("terminal resource budget is exhausted")
+		}
+		defer func() {
+			if resourceRelease != nil {
+				resourceRelease()
+			}
+		}()
+	}
 	columns := normalizeTerminalColumns(req.Columns)
 	rows := normalizeTerminalRows(req.Rows)
 
@@ -177,10 +201,13 @@ func (r *runtimeService) CreateTerminal(ctx context.Context, req RuntimeTerminal
 	if r.terminalIDsBySession == nil {
 		r.terminalIDsBySession = make(map[string]map[string]struct{})
 	}
-	previous := r.terminalsByID[id]
+	previous = r.terminalsByID[id]
 	if previous != nil {
 		r.removeRuntimeTerminalOwnershipLocked(previous.SessionID, id)
+		resourceRelease = previous.takeResourceRelease()
 	}
+	state.ResourceRelease = resourceRelease
+	resourceRelease = nil
 	r.terminalsByID[id] = state
 	if r.terminalIDsBySession[sessionID] == nil {
 		r.terminalIDsBySession[sessionID] = make(map[string]struct{})
@@ -328,11 +355,14 @@ func (r *runtimeService) SubscribeTerminalEvents(ctx context.Context, terminalID
 }
 
 func (r *runtimeService) DeleteTerminal(_ context.Context, terminalID string) (RuntimeTerminalResponse, error) {
+	r.terminalCreateMu.Lock()
+	defer r.terminalCreateMu.Unlock()
 	state, err := r.runtimeTerminal(terminalID)
 	if err != nil {
 		return RuntimeTerminalResponse{}, err
 	}
 	state.close("closed", nil, "")
+	state.releaseResource()
 
 	r.mu.Lock()
 	delete(r.terminalsByID, strings.TrimSpace(terminalID))
@@ -343,6 +373,8 @@ func (r *runtimeService) DeleteTerminal(_ context.Context, terminalID string) (R
 }
 
 func (r *runtimeService) closeRuntimeTerminals(status, errorText string) {
+	r.terminalCreateMu.Lock()
+	defer r.terminalCreateMu.Unlock()
 	r.mu.Lock()
 	terminals := make([]*runtimeTerminalState, 0, len(r.terminalsByID))
 	for _, state := range r.terminalsByID {
@@ -354,6 +386,7 @@ func (r *runtimeService) closeRuntimeTerminals(status, errorText string) {
 
 	for _, state := range terminals {
 		state.close(status, nil, errorText)
+		state.releaseResource()
 	}
 }
 
@@ -362,6 +395,8 @@ func (r *runtimeService) closeRuntimeTerminalsForSession(sessionID, status, erro
 	if sessionID == "" {
 		return
 	}
+	r.terminalCreateMu.Lock()
+	defer r.terminalCreateMu.Unlock()
 	r.mu.Lock()
 	states := make([]*runtimeTerminalState, 0, len(r.terminalIDsBySession[sessionID]))
 	for id := range r.terminalIDsBySession[sessionID] {
@@ -375,6 +410,7 @@ func (r *runtimeService) closeRuntimeTerminalsForSession(sessionID, status, erro
 
 	for _, state := range states {
 		state.close(status, nil, errorText)
+		state.releaseResource()
 	}
 }
 
@@ -445,7 +481,10 @@ func (s *runtimeTerminalState) close(status string, exitCode *int, errorText str
 	s.UpdatedAt = time.Now().UnixMilli()
 	cancel := s.Cancel
 	ptyHandle := s.PTY
-	process := s.Command.Process
+	var process *os.Process
+	if s.Command != nil {
+		process = s.Command.Process
+	}
 	s.mu.Unlock()
 
 	if cancel != nil {
@@ -465,6 +504,20 @@ func (s *runtimeTerminalState) close(status string, exitCode *int, errorText str
 		ExitCode:   exitCode,
 		Error:      errorText,
 	})
+}
+
+func (s *runtimeTerminalState) takeResourceRelease() func() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	release := s.ResourceRelease
+	s.ResourceRelease = nil
+	return release
+}
+
+func (s *runtimeTerminalState) releaseResource() {
+	if release := s.takeResourceRelease(); release != nil {
+		release()
+	}
 }
 
 func (s *runtimeTerminalState) publish(event RuntimeTerminalEvent) {

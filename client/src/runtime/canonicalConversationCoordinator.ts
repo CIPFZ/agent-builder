@@ -2,7 +2,8 @@ import { applyCanonicalConversationBatch, applyCanonicalConversationDeltas, comp
 import type { CanonicalConversationEventBatch, CanonicalConversationSnapshot, CanonicalConversationSnapshotRequest } from './canonicalConversationTypes.ts';
 
 const INITIAL_TURN_WINDOW = 30;
-const MAX_CACHED_SESSIONS = 2;
+const MAX_CACHED_SESSIONS = 1;
+type CanonicalConversationDeltas = NonNullable<CanonicalConversationEventBatch['deltas']>;
 
 export interface CanonicalConversationCoordinatorDeps {
   fetchSnapshot: (sessionId: string, request?: CanonicalConversationSnapshotRequest) => Promise<CanonicalConversationSnapshot>;
@@ -10,6 +11,7 @@ export interface CanonicalConversationCoordinatorDeps {
   onStore: (store: CanonicalConversationStore) => void;
   retryDelayMs?: (attempt: number) => number;
   cursorGraceMs?: number;
+  liveCommitIntervalMs?: number;
 }
 
 export interface CanonicalConversationCoordinator {
@@ -33,6 +35,8 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
   let cursorCheckTimer: ReturnType<typeof setTimeout> | undefined;
   let expectedCursor = '0';
   const loadingEarlier = new Set<string>();
+  let pendingDeltas: CanonicalConversationDeltas = [];
+  let liveCommitTimer: ReturnType<typeof setTimeout> | undefined;
 
   const remember = (sessionId: string, store: CanonicalConversationStore) => {
     cache.delete(sessionId);
@@ -47,13 +51,44 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
   const stopStream = () => { const current = close; close = undefined; current?.(); };
   const clearRetry = () => { if (retryTimer) clearTimeout(retryTimer); retryTimer = undefined; };
   const clearCursorCheck = () => { if (cursorCheckTimer) clearTimeout(cursorCheckTimer); cursorCheckTimer = undefined; expectedCursor = '0'; };
+  const clearLiveCommit = () => { if (liveCommitTimer) clearTimeout(liveCommitTimer); liveCommitTimer = undefined; pendingDeltas = []; };
   const current = (sessionId: string, gen: number) => activeSessionId === sessionId && generation === gen;
+
+  const flushLiveDeltas = (sessionId: string, gen: number) => {
+    if (liveCommitTimer) clearTimeout(liveCommitTimer);
+    liveCommitTimer = undefined;
+    const deltas = pendingDeltas;
+    pendingDeltas = [];
+    if (!current(sessionId, gen) || deltas.length === 0) return;
+    const base = cache.get(sessionId);
+    if (!base) return;
+    const next = applyCanonicalConversationDeltas(base, coalesceLiveDeltas(deltas));
+    if (next === base) return;
+    remember(sessionId, next);
+    deps.onStore(next);
+  };
+
+  const scheduleLiveDeltas = (sessionId: string, gen: number, deltas: CanonicalConversationEventBatch['deltas']) => {
+    if (!deltas?.length) return;
+    pendingDeltas.push(...deltas);
+    const interval = deps.liveCommitIntervalMs ?? 1_000;
+    if (interval <= 0 || pendingDeltas.length >= 512) {
+      flushLiveDeltas(sessionId, gen);
+      return;
+    }
+    if (!liveCommitTimer) liveCommitTimer = setTimeout(() => flushLiveDeltas(sessionId, gen), interval);
+  };
 
   const connect = async (sessionId: string, gen: number, store: CanonicalConversationStore) => {
     if (!current(sessionId, gen)) return;
     const cleanup = await deps.subscribe(sessionId, store.cursor, {
       onBatch: (batch) => {
         if (!current(sessionId, gen) || recovering) return;
+        if (batch.events.length === 0 && !batch.snapshotRequired) {
+          scheduleLiveDeltas(sessionId, gen, batch.deltas);
+          return;
+        }
+        flushLiveDeltas(sessionId, gen);
         const base = cache.get(sessionId);
         if (!base) return;
         const durable = applyCanonicalConversationBatch(base, batch);
@@ -73,6 +108,7 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
   const recover = async (sessionId: string, gen: number) => {
     if (!current(sessionId, gen) || recovering) return;
     recovering = true;
+    clearLiveCommit();
     stopStream();
     const recoveryGeneration = ++generation;
     try {
@@ -100,21 +136,14 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
     activate(sessionId) {
       clearRetry();
       clearCursorCheck();
+      clearLiveCommit();
       stopStream();
-      // Historical pagination deliberately grows only the active Session.
-      // Once the user leaves it, do not retain that expanded history in the
-      // LRU: a later activation can cheaply reconstruct the newest window and
-      // page upward again. Normal one-window Sessions remain hot-cached.
       if (activeSessionId && activeSessionId !== sessionId) {
-        const previous = cache.get(activeSessionId);
-        if (previous && Object.keys(previous.turnsById).length > INITIAL_TURN_WINDOW) {
-          cache.delete(activeSessionId);
-        } else if (previous && Object.keys(previous.streamingByMessageId).length > 0) {
-          // Live deltas belong only to the actively subscribed Session. Drop
-          // them when leaving; a later activation rehydrates durable content
-          // before reconnecting and cannot retain stale token buffers.
-          cache.set(activeSessionId, { ...previous, streamingByMessageId: {} });
-        }
+        // A Session summary may remain in the Workspace projection, but its
+        // normalized entities, historical pages and live token overlays are
+        // focused-Session resources and must be released synchronously.
+        loadingEarlier.delete(activeSessionId);
+        cache.delete(activeSessionId);
       }
       activeSessionId = sessionId;
       recovering = false;
@@ -181,7 +210,27 @@ export function createCanonicalConversationCoordinator(deps: CanonicalConversati
       return true;
     },
     evict(sessionId) { loadingEarlier.delete(sessionId); cache.delete(sessionId); },
-    stop() { activeSessionId = ''; recovering = false; retryAttempt = 0; generation += 1; clearRetry(); clearCursorCheck(); stopStream(); },
+    stop() { activeSessionId = ''; recovering = false; retryAttempt = 0; generation += 1; clearRetry(); clearCursorCheck(); clearLiveCommit(); stopStream(); loadingEarlier.clear(); cache.clear(); },
     cached(sessionId) { return cache.get(sessionId); },
   };
 }
+
+function coalesceLiveDeltas(deltas: CanonicalConversationDeltas) {
+  const coalesced: typeof deltas = [];
+  const indexByKey = new Map<string, number>();
+  for (const delta of deltas) {
+    const key = `${delta.messageId}\u0000${delta.partType}`;
+    const index = indexByKey.get(key);
+    const previous = index === undefined ? undefined : coalesced[index];
+    if (previous && previous.contentLength + utf8Length(delta.delta) === delta.contentLength) {
+      coalesced[index!] = { ...previous, delta: previous.delta + delta.delta, contentLength: delta.contentLength, createdAt: Math.max(previous.createdAt, delta.createdAt) };
+      continue;
+    }
+    indexByKey.set(key, coalesced.length);
+    coalesced.push(delta);
+  }
+  return coalesced;
+}
+
+const utf8Encoder = new TextEncoder();
+function utf8Length(value: string) { return utf8Encoder.encode(value).length; }

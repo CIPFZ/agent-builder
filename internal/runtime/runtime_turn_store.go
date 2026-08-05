@@ -204,15 +204,21 @@ func (s runtimeTurnStore) InterruptUnfinished(ctx context.Context) ([]RuntimeTur
 		return nil, err
 	}
 	now := time.Now().UnixMilli()
+	interrupted := make([]RuntimeTurn, 0, len(active))
 	for i := range active {
+		if active[i].Status == turnStatusQueued {
+			continue
+		}
 		active[i].Status = turnStatusInterrupted
 		active[i].FinishedAt = now
 		active[i].Error = firstNonEmpty(active[i].Error, "runtime restarted before turn completed")
-		if _, err := s.Upsert(ctx, active[i]); err != nil {
+		stored, err := s.Upsert(ctx, active[i])
+		if err != nil {
 			return nil, err
 		}
+		interrupted = append(interrupted, stored)
 	}
-	return active, nil
+	return interrupted, nil
 }
 
 type runtimeTurnScanner interface {

@@ -294,7 +294,7 @@ func (r *runtimeService) normalizeRuntimeUserInput(ctx context.Context, req Runt
 	createdAt := time.Now().UnixMilli()
 	normalized := RuntimeNormalizedInput{
 		ID:          newRuntimeInputID(),
-		SessionID:   strings.TrimSpace(sessionID),
+		SessionID:   firstNonEmpty(strings.TrimSpace(sessionID), strings.TrimSpace(req.SessionID)),
 		ProjectID:   strings.TrimSpace(req.ProjectID),
 		Scope:       strings.TrimSpace(req.Scope),
 		Workdir:     strings.TrimSpace(req.Workdir),

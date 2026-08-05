@@ -22,7 +22,8 @@ assertIncludes(shell, 'const delay = runtimeEventRefreshDelay(event);', 'event e
 assertIncludes(shell, 'if (delay === undefined)', 'unknown runtime events do not trigger full hydration');
 assertIncludes(refresh, 'return undefined;', 'refresh policy defaults to no hydration');
 assertIncludes(refresh, "'task.role.loaded'", 'role changes opt in to one durable refresh');
-assertIncludes(shell, 'const nextViewModel = await adapter.refresh({ ...viewModelRef.current, mode: modeRef.current });', 'event-triggered path rereads durable workbench state');
+assertIncludes(shell, 'const refresh = adapter.refreshRuntimeState ?? adapter.refresh;', 'event-triggered path selects bounded Runtime hydration');
+assertIncludes(shell, 'const nextViewModel = await refresh({ ...viewModelRef.current, mode: modeRef.current });', 'event-triggered path rereads durable workbench state');
 assertNotIncludes(shell, 'event.payload', 'WorkbenchShell does not merge event payloads');
 assertNotIncludes(shell, 'schedulerTaskCandidates', 'WorkbenchShell does not own scheduler candidate state');
 assertIncludes(refresh, "'tool.call.cancelled'", 'terminal tool cancellation triggers refresh');

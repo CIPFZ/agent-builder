@@ -1932,6 +1932,7 @@ func TestRuntimeMCPServerStateNormalization(t *testing.T) {
 		want  string
 	}{
 		{mcptools.StateDisabled, mcpServerStateDisabled},
+		{mcptools.StateUnloaded, mcpServerStateUnloaded},
 		{mcptools.StateStarting, mcpServerStateLoading},
 		{mcptools.StateConnected, mcpServerStateConnected},
 		{mcptools.StateError, mcpServerStateFailed},

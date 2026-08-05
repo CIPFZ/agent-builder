@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"testing"
+	"time"
 
 	runtime "github.com/CIPFZ/agent-builder/internal/runtime"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 func TestRuntimeBridgeDelegatesToRuntimeService(t *testing.T) {
@@ -18,6 +20,61 @@ func TestRuntimeBridgeDelegatesToRuntimeService(t *testing.T) {
 	}
 	if service.chatCalls != 1 {
 		t.Fatalf("chatCalls = %d, want 1", service.chatCalls)
+	}
+}
+
+func TestRuntimeBridgeForwardsIdleMemoryGuard(t *testing.T) {
+	t.Parallel()
+	service := &recordingRuntimeService{}
+	bridge := &RuntimeBridge{service: service}
+	req := RuntimeIdleMemoryGuardRequest{ClientIdleMS: 180000, HasUnsavedDraft: true}
+	response, err := bridge.IdleMemoryGuard(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.idleMemoryGuardReq != req {
+		t.Fatalf("request = %#v, want %#v", service.idleMemoryGuardReq, req)
+	}
+	if !response.Eligible || response.MinimumIdleMS != 120000 {
+		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestRuntimeBridgeRequiresSustainedTrustedMemoryHighWater(t *testing.T) {
+	service := &recordingRuntimeService{}
+	now := time.Unix(1000, 0)
+	bridge := &RuntimeBridge{
+		service: service,
+		idleMemoryGuardMeasure: func() (desktopProcessMemory, error) {
+			return desktopProcessMemory{ProcessTreePrivateBytes: desktopMemoryGuardTreeHighWaterBytes}, nil
+		},
+		idleMemoryGuardNow: func() time.Time { return now },
+	}
+	req := RuntimeIdleMemoryGuardRequest{ClientIdleMS: 180000}
+
+	first, err := bridge.IdleMemoryGuard(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.HighWater || first.Sustained || first.SustainedSamples != 1 || !first.MemorySupported {
+		t.Fatalf("first sample = %#v", first)
+	}
+	duplicate, err := bridge.IdleMemoryGuard(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duplicate.SustainedSamples != 1 {
+		t.Fatalf("duplicate sample = %#v", duplicate)
+	}
+	for expected := 2; expected <= desktopMemoryGuardRequiredSamples; expected++ {
+		now = now.Add(desktopMemoryGuardSampleInterval)
+		response, err := bridge.IdleMemoryGuard(context.Background(), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.SustainedSamples != expected || response.Sustained != (expected == desktopMemoryGuardRequiredSamples) {
+			t.Fatalf("sample %d = %#v", expected, response)
+		}
 	}
 }
 
@@ -330,6 +387,15 @@ func TestStopRuntimeEventStreamUnknownStreamIsNoop(t *testing.T) {
 	}
 	if ok {
 		t.Fatal("unknown runtime event stream should not be stopped")
+	}
+}
+
+func TestRuntimeWorkspaceEventStreamExcludesCanonicalTextDeltas(t *testing.T) {
+	if runtimeEventVisibleInWorkspaceStream(RuntimeEvent{Type: runtimeapi.EventOutputTextDelta}) {
+		t.Fatal("ephemeral text delta must only cross the focused canonical stream")
+	}
+	if !runtimeEventVisibleInWorkspaceStream(RuntimeEvent{Type: runtimeapi.EventTurnStarted}) {
+		t.Fatal("workspace status event was filtered")
 	}
 }
 
@@ -1142,6 +1208,7 @@ type recordingRuntimeService struct {
 	mcpRequestDecision            runtime.RuntimeMCPRequestDecision
 	eventsAfter                   int64
 	status                        RuntimeStatus
+	idleMemoryGuardReq            RuntimeIdleMemoryGuardRequest
 	openProjectReq                RuntimeOpenProjectRequest
 	createProjectReq              RuntimeCreateProjectRequest
 	renameProjectReq              RuntimeRenameProjectRequest
@@ -1231,6 +1298,11 @@ type recordingRuntimeService struct {
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
 	return s.status, nil
+}
+
+func (s *recordingRuntimeService) IdleMemoryGuard(_ context.Context, req RuntimeIdleMemoryGuardRequest) (RuntimeIdleMemoryGuardResponse, error) {
+	s.idleMemoryGuardReq = req
+	return RuntimeIdleMemoryGuardResponse{Eligible: true, MinimumIdleMS: 120000}, nil
 }
 
 func (s *recordingRuntimeService) RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error) {
@@ -1671,6 +1743,10 @@ func (s *recordingRuntimeService) TurnTodos(_ context.Context, turnID string) (R
 }
 
 func (s *recordingRuntimeService) Sessions(context.Context) (RuntimeSessionsResponse, error) {
+	return RuntimeSessionsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SessionPage(context.Context, RuntimeSessionPageRequest) (RuntimeSessionsResponse, error) {
 	return RuntimeSessionsResponse{}, nil
 }
 

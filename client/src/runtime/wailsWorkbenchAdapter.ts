@@ -1,7 +1,5 @@
 import type {
-  AgentTaskMessageViewModel,
-  AgentTaskResultViewModel,
-  AgentTaskViewModel,
+  ActiveSessionStatusViewModel,
   AgentRoleViewModel,
   ConfiguredProviderViewModel,
   CompactBoundaryViewModel,
@@ -19,6 +17,8 @@ import type {
   HookExecutionSummaryViewModel,
   HookExecutionViewModel,
   HookViewModel,
+  IdleMemoryGuardRequestViewModel,
+  IdleMemoryGuardResponseViewModel,
   RecoveryActionViewModel,
   RecoverableErrorViewModel,
   RecoveredRuntimeTurnViewModel,
@@ -76,12 +76,25 @@ interface RuntimeStatusDTO extends RuntimeWriteActionResponseDTO {
   model?: string;
   provider?: string;
   busy?: boolean;
+  activeSessions?: RuntimeActiveSessionStatusDTO[];
   requests?: {
     activeRequestId?: string;
     sessionRequestId?: string;
     sessionBusy?: boolean;
     running?: number;
   };
+}
+
+interface RuntimeActiveSessionStatusDTO {
+  sessionId: string;
+  projectId?: string;
+  status?: string;
+  phase?: string;
+  progressLabel?: string;
+  activeTurnId?: string;
+  updatedAt?: number;
+  unread?: boolean;
+  revision?: number;
 }
 
 interface RuntimeProjectDTO {
@@ -161,6 +174,8 @@ interface RuntimeSessionDTO {
 
 interface RuntimeSessionsResponseDTO {
   sessions: RuntimeSessionDTO[];
+  nextCursor?: string;
+  hasMore?: boolean;
 }
 
 interface RuntimeSidebarProjectionResponseDTO {
@@ -168,6 +183,8 @@ interface RuntimeSidebarProjectionResponseDTO {
   sessions?: RuntimeSessionDTO[];
   currentProjectId?: string;
   activeSessionId?: string;
+  sessionNextCursor?: string;
+  sessionHasMore?: boolean;
 }
 
 interface RuntimeSessionResponseDTO {
@@ -561,6 +578,9 @@ interface RuntimeTerminalStreamStopRequestDTO {
 interface WailsRuntimeModule {
   Events: {
     On: (eventName: string, callback: (event: { data: unknown }) => void) => () => void;
+  };
+  Window: {
+    Reload: () => Promise<void>;
   };
 }
 
@@ -1675,6 +1695,7 @@ interface RuntimeMCPPromptsResponseDTO {
 
 interface RuntimeBridgeModule {
   Status: () => Promise<RuntimeStatusDTO>;
+  IdleMemoryGuard?: (req: IdleMemoryGuardRequestViewModel) => Promise<IdleMemoryGuardResponseViewModel>;
   RecoveryStatus?: () => Promise<RuntimeRecoveryStatusDTO>;
   ResumeInterruptedTurn?: (turnID: string, req: { mode?: string; prompt?: string; metadata?: Record<string, string> }) => Promise<RuntimeTurnResponseDTO>;
   DiscardInterruptedTurn?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
@@ -1695,6 +1716,7 @@ interface RuntimeBridgeModule {
   RefreshProjectMemoryIndex?: (projectID: string) => Promise<RuntimeMemoryIndexResponseDTO>;
   SelectProjectDirectory?: () => Promise<string>;
   Sessions: () => Promise<RuntimeSessionsResponseDTO>;
+  SessionPage?: (req: { cursor?: string; limit?: number }) => Promise<RuntimeSessionsResponseDTO>;
   Models: () => Promise<RuntimeModelsResponseDTO>;
   SelectedModel?: () => Promise<RuntimeSelectedModelResponseDTO>;
   SaveSelectedModel?: (req: { configuredProviderId: string; model: string; scope?: string }) => Promise<RuntimeSelectedModelResponseDTO>;
@@ -1805,6 +1827,7 @@ const runtimeBridgeTimeoutMS = 750;
 let runtimeLatestEventSequence = 0;
 let runtimeActivityRefreshHint: RuntimeEventViewModel | undefined;
 let wailsRuntimePromise: Promise<WailsRuntimeModule> | undefined;
+let runtimeStateRefreshPromise: Promise<WorkbenchViewModel> | undefined;
 
 function loadRuntimeBridge() {
   if (typeof window === 'undefined') {
@@ -1896,13 +1919,26 @@ function modelLabel(status?: RuntimeStatusDTO, modelsResponse?: RuntimeModelsRes
   return model || '未配置模型';
 }
 
-function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: string, activeTurns?: RuntimeTurnDTO[]) {
+function mapActiveSessionStatuses(statuses?: RuntimeActiveSessionStatusDTO[]): ActiveSessionStatusViewModel[] {
+  return (Array.isArray(statuses) ? statuses : [])
+    .filter((status) => Boolean(status.sessionId))
+    .slice(0, 500)
+    .map((status) => ({
+      sessionId: status.sessionId,
+      projectId: status.projectId,
+      status: status.status || 'running',
+      phase: status.phase,
+      progressLabel: status.progressLabel,
+      activeTurnId: status.activeTurnId,
+      updatedAt: status.updatedAt || 0,
+      unread: status.unread,
+      revision: status.revision || 0,
+    }));
+}
+
+function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: string, activeStatuses?: ActiveSessionStatusViewModel[]) {
   const sessions = Array.isArray(response?.sessions) ? response.sessions : [];
-  const activeTurnBySession = new Map(
-    (Array.isArray(activeTurns) ? activeTurns : [])
-      .filter((turn) => turn.sessionId && !isFinalTurnStatus(turn.status))
-      .map((turn) => [turn.sessionId, turn]),
-  );
+  const activeStatusBySession = new Map((activeStatuses ?? []).map((status) => [status.sessionId, status]));
 
   return sessions.map((session) => ({
     id: session.id,
@@ -1913,8 +1949,18 @@ function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: st
     scope: session.scope === 'standalone' ? 'standalone' as const : 'project' as const,
     updatedLabel: formatUpdatedLabel(session.updatedAt),
     active: session.id === activeSessionID,
-    busy: activeTurnBySession.has(session.id),
-    activeTurnId: activeTurnBySession.get(session.id)?.id,
+    busy: activeStatusBySession.has(session.id) && activeStatusBySession.get(session.id)?.status !== 'attention',
+    activeTurnId: activeStatusBySession.get(session.id)?.activeTurnId,
+  }));
+}
+
+function mergeSessionBusyState(sessions: WorkbenchViewModel['sessions'], activeSessionID?: string, activeStatuses?: ActiveSessionStatusViewModel[]) {
+  const activeStatusBySession = new Map((activeStatuses ?? []).map((status) => [status.sessionId, status]));
+  return sessions.map((session) => ({
+    ...session,
+    active: session.id === activeSessionID,
+    busy: activeStatusBySession.has(session.id) && activeStatusBySession.get(session.id)?.status !== 'attention',
+    activeTurnId: activeStatusBySession.get(session.id)?.activeTurnId,
   }));
 }
 
@@ -3467,27 +3513,6 @@ async function hydrateRunSchedulerTaskCandidates(
   return Array.from(byKey.values()).sort((left, right) => (left.orderKey || left.taskID).localeCompare(right.orderKey || right.taskID));
 }
 
-async function hydrateAgentTasks(bridge: RuntimeBridgeModule, sessionID?: string): Promise<AgentTaskViewModel[] | undefined> {
-  if (!sessionID || !bridge.SessionAgentTasks) {
-    return undefined;
-  }
-  const response = await optionalRuntimeRequest(() => bridge.SessionAgentTasks?.(sessionID) ?? Promise.resolve(undefined));
-  const tasks = Array.isArray(response?.tasks) ? response.tasks : [];
-  if (!tasks.length) {
-    return [];
-  }
-  const detailed = await Promise.all(
-    tasks.map(async (task) => {
-      const [detail, output] = await Promise.all([
-        optionalRuntimeRequest(() => bridge.AgentTask?.(task.id) ?? Promise.resolve(undefined)),
-        optionalRuntimeRequest(() => bridge.AgentTaskOutput?.(task.id) ?? Promise.resolve(undefined)),
-      ]);
-      return mapAgentTask(detail?.task ?? task, detail?.messages, detail?.result, output);
-    }),
-  );
-  return detailed.filter((task): task is AgentTaskViewModel => Boolean(task));
-}
-
 async function hydrateAgentRoles(bridge: RuntimeBridgeModule): Promise<AgentRoleViewModel[] | undefined> {
   if (!bridge.AgentRoles) {
     return undefined;
@@ -3517,97 +3542,9 @@ function mapAgentRole(role?: RuntimeAgentRoleDTO): AgentRoleViewModel | undefine
   };
 }
 
-function mapAgentTask(
-  task?: RuntimeAgentTaskDTO,
-  messages?: RuntimeAgentTaskMessageDTO[],
-  result?: RuntimeAgentTaskResultDTO,
-  output?: RuntimeAgentTaskOutputResponseDTO,
-): AgentTaskViewModel | undefined {
-  if (!task?.id) {
-    return undefined;
-  }
-  const mappedResult = mapAgentTaskResult(result);
-  return {
-    id: task.id,
-    parentSessionId: task.parentSessionId ?? '',
-    parentTurnId: task.parentTurnId,
-    parentToolCallId: task.parentToolCallId,
-    childSessionId: task.childSessionId,
-    title: task.title || task.name || task.id,
-    kind: task.kind || 'subagent',
-    role: task.role,
-    name: task.name,
-    promptSummary: task.promptSummary,
-    model: task.model,
-    provider: task.provider,
-    allowedTools: task.allowedTools,
-    capabilityScope: task.capabilityScope,
-    cwd: task.cwd,
-    worktree: task.worktree,
-    status: output?.status || task.status || mappedResult?.status || 'unknown',
-    progress: typeof task.progress === 'number' ? task.progress : 0,
-    resultSummary: output?.summary || mappedResult?.summary || task.resultSummary,
-    artifactRefs: uniqueStrings([...(task.artifactRefs ?? []), ...(mappedResult?.artifactRefs ?? []), ...(output?.artifactRefs ?? [])]),
-    outputRefs: output?.outputRefs,
-    compactBoundaryRefs: output?.compactBoundaryRefs ?? mappedResult?.compactBoundaryRefs,
-    cancellationDetail: output?.cancellationDetail ?? mappedResult?.cancellationDetail ?? task.cancellationDetail,
-    messages: (output?.messages ?? messages)?.map(mapAgentTaskMessage).filter((message): message is AgentTaskMessageViewModel => Boolean(message)),
-    result: mappedResult,
-    startedAt: task.startedAt,
-    updatedAt: output?.updatedAt ?? task.updatedAt,
-    finishedAt: task.finishedAt,
-    error: output?.error || mappedResult?.errorDetail || task.error,
-  };
-}
-
-function mapAgentTaskMessage(message?: RuntimeAgentTaskMessageDTO): AgentTaskMessageViewModel | undefined {
-  if (!message?.id) {
-    return undefined;
-  }
-  return {
-    id: message.id,
-    taskId: message.taskId ?? '',
-    direction: message.direction ?? '',
-    kind: message.kind ?? '',
-    status: message.status ?? '',
-    sequence: message.sequence,
-    contentSummary: message.contentSummary,
-    relatedToolCallId: message.relatedToolCallId,
-    relatedMessageId: message.relatedMessageId,
-    artifactRefs: message.artifactRefs,
-    createdAt: message.createdAt,
-    deliveredAt: message.deliveredAt,
-    processedAt: message.processedAt,
-    error: message.error,
-  };
-}
-
-function mapAgentTaskResult(result?: RuntimeAgentTaskResultDTO): AgentTaskResultViewModel | undefined {
-  if (!result?.taskId) {
-    return undefined;
-  }
-  return {
-    taskId: result.taskId,
-    status: result.status ?? '',
-    summary: result.summary,
-    errorDetail: result.errorDetail,
-    cancellationDetail: result.cancellationDetail,
-    artifactRefs: result.artifactRefs,
-    relatedMessageRefs: result.relatedMessageRefs,
-    relatedToolCallRefs: result.relatedToolCallRefs,
-    compactBoundaryRefs: result.compactBoundaryRefs,
-    createdAt: result.createdAt,
-    updatedAt: result.updatedAt,
-  };
-}
-
-function uniqueStrings(values: Array<string | undefined>): string[] | undefined {
-  const out = Array.from(new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))));
-  return out.length ? out : undefined;
-}
-
 interface RuntimeHydrateOptions {
   refreshTargets?: RuntimeActionRefreshTarget[];
+  background?: boolean;
 }
 
 function actionTargetsInclude(targets: RuntimeActionRefreshTarget[] | undefined, ...candidates: RuntimeActionRefreshTarget[]) {
@@ -3627,9 +3564,9 @@ async function hydrateWorkbenchForAction(current: WorkbenchViewModel, bridge: Ru
 
 async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBridgeModule, hydrateOptions: RuntimeHydrateOptions = {}): Promise<WorkbenchViewModel> {
   const refreshTargets = hydrateOptions.refreshTargets;
-  const fullHydration = !refreshTargets || refreshTargets.length === 0;
-  const refreshActivity = actionTargetsInclude(
-    refreshTargets,
+  const background = Boolean(hydrateOptions.background);
+  const fullHydration = !background && (!refreshTargets || refreshTargets.length === 0);
+  const refreshActivity = Boolean(refreshTargets?.some((target) => [
     'recovery',
     'turn_activity',
     'session_activity_window',
@@ -3638,19 +3575,18 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     'diagnostics',
     'permissions',
     'mcp_requests',
-  );
-  const refreshRuns = actionTargetsInclude(refreshTargets, 'run', 'run_projection', 'run_transition_history', 'run_scheduler_plan');
+  ].includes(target)));
+  const refreshRuns = Boolean(refreshTargets?.some((target) => ['run', 'run_projection', 'run_transition_history', 'run_scheduler_plan'].includes(target)));
   const refreshPolicy = actionTargetsInclude(refreshTargets, 'permissions');
   const [
     status,
     sidebarProjection,
     recoveryStatus,
-    sessionsResponse,
-    projectsResponse,
+    initialSessionsResponse,
+    initialProjectsResponse,
     modelsResponse,
     providerCatalog,
     configuredProvidersResponse,
-    activeTurnsResponse,
     skillsResponse,
     pluginsResponse,
     mcpServersResponse,
@@ -3663,12 +3599,11 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     fullHydration || actionTargetsInclude(refreshTargets, 'recovery', 'turn_activity', 'permissions', 'mcp_requests', 'run')
       ? optionalRuntimeRequest(() => bridge.RecoveryStatus?.() ?? Promise.resolve(undefined))
       : Promise.resolve(undefined),
-    optionalRuntimeRequest(() => bridge.Sessions()),
-    fullHydration ? optionalRuntimeRequest(() => bridge.Projects?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
+    Promise.resolve(undefined),
+    Promise.resolve(undefined),
     fullHydration ? bridge.Models().catch(() => undefined) : Promise.resolve(undefined),
     fullHydration ? bridge.ProviderCatalog?.().catch(() => undefined) : Promise.resolve(undefined),
     fullHydration ? bridge.ConfiguredProviders?.().catch(() => undefined) : Promise.resolve(undefined),
-    optionalRuntimeRequest(() => bridge.Turns?.('active') ?? Promise.resolve(undefined)),
     fullHydration ? optionalRuntimeRequest(() => bridge.Skills?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
     fullHydration ? optionalRuntimeRequest(() => bridge.Plugins?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
     fullHydration ? optionalRuntimeRequest(() => bridge.MCPServers?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
@@ -3676,8 +3611,14 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     fullHydration ? optionalRuntimeRequest(() => bridge.AppearanceSettings?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
     fullHydration ? optionalRuntimeRequest(() => bridge.OpenTargetSettings?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ]);
+  const sessionsResponse = initialSessionsResponse ?? (fullHydration && !Array.isArray(sidebarProjection?.sessions)
+    ? await optionalRuntimeRequest(() => bridge.Sessions())
+    : undefined);
+  const projectsResponse = initialProjectsResponse ?? (fullHydration && !Array.isArray(sidebarProjection?.projects)
+    ? await optionalRuntimeRequest(() => bridge.Projects?.() ?? Promise.resolve(undefined))
+    : undefined);
   const projectedSessionsResponse: RuntimeSessionsResponseDTO | undefined = Array.isArray(sidebarProjection?.sessions)
-    ? { sessions: sidebarProjection.sessions }
+    ? { sessions: sidebarProjection.sessions, nextCursor: sidebarProjection.sessionNextCursor, hasMore: sidebarProjection.sessionHasMore }
     : sessionsResponse;
   const projectedProjectsResponse: RuntimeProjectsResponseDTO | undefined = Array.isArray(sidebarProjection?.projects)
     ? { projects: sidebarProjection.projects }
@@ -3702,19 +3643,18 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     compactionStatus,
   ] = await Promise.all([
     fullHydration ? hydrateHooks(bridge) : Promise.resolve(undefined),
-    activeSessionID ? hydrateHookExecutions(bridge, activeSessionID) : Promise.resolve(summarizeHookExecutions([])),
-    // Narrow-then-wide activity fallback stays sequential internally (narrow hint
-    // must fail before we fall back to the full SessionActivity request).
+    activeSessionID && refreshActivity ? hydrateHookExecutions(bridge, activeSessionID) : Promise.resolve(undefined),
+    // Canonical conversation owns the main timeline. Auxiliary activity is
+    // windowed and opt-in; absence never falls back to full SessionActivity.
     activeSessionID && refreshActivity
-      ? (async () => {
-          const narrowActivity = await hydrateNarrowActivityFromHint(bridge, activeSessionID)
-          return narrowActivity ?? (await optionalRuntimeRequest(() => bridge.SessionActivity?.(activeSessionID) ?? Promise.resolve(undefined)))
-        })()
+      ? hydrateNarrowActivityFromHint(bridge, activeSessionID)
       : Promise.resolve(undefined),
     activeSessionID && bridge.RunProjection && refreshRuns
       ? optionalRuntimeRequest(() => bridge.RunProjection?.({ sessionId: activeSessionID, limit: 24 }) ?? Promise.resolve(undefined))
       : Promise.resolve(undefined),
-    activeSessionID ? hydrateAgentTasks(bridge, activeSessionID) : Promise.resolve(undefined),
+    // AgentTask lifecycle is already part of the canonical store. Detail and
+    // output remain explicit user-driven reads rather than hydration fan-out.
+    Promise.resolve(undefined),
     fullHydration ? hydrateAgentRoles(bridge) : Promise.resolve(undefined),
     activeSessionID ? optionalRuntimeRequest(() => bridge.SessionContextUsage?.(activeSessionID) ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
     activeSessionID ? optionalRuntimeRequest(() => bridge.ContextCompactionStatus?.(activeSessionID) ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
@@ -3725,19 +3665,23 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const mappedProjects = mapProjects(projectedProjectsResponse, currentProjectID);
   const projects = projectedProjectsResponse ? mappedProjects : current.projects;
   const currentProject = projects.find((project) => project.current || project.id === currentProjectID) ?? mapProjectFromStatus(status, current.currentProject);
-  const activeTurns = Array.isArray(activeTurnsResponse?.turns) ? activeTurnsResponse.turns : [];
+  const activeSessionStatuses = Array.isArray(status?.activeSessions)
+    ? mapActiveSessionStatuses(status.activeSessions)
+    : current.activeSessionStatuses ?? [];
   const activityTurns = Array.isArray(activity?.turns) ? activity.turns : [];
+  const activeSessionStatus = activeSessionStatuses.find((entry) => entry.sessionId === activeSessionID);
   const sessionActiveTurn =
-    activeTurns.find((turn) => turn.sessionId === activeSessionID && !isFinalTurnStatus(turn.status)) ||
     activityTurns.find((turn) => !isFinalTurnStatus(turn.status));
   const busy =
     !activeSessionID
       ? false
+      : activeSessionStatus
+      ? activeSessionStatus.status !== 'attention'
       : typeof status?.requests?.sessionBusy === 'boolean'
       ? status.requests.sessionBusy
       : Boolean(sessionActiveTurn);
   const activeTurnId = activeSessionID
-    ? status?.requests?.sessionRequestId || sessionActiveTurn?.id || (busy ? current.composer.activeTurnId : undefined)
+    ? activeSessionStatus?.activeTurnId || status?.requests?.sessionRequestId || sessionActiveTurn?.id || (busy ? current.composer.activeTurnId : undefined)
     : undefined;
   // Batch B: requests that depend on Batch A results (runProjection / activity)
   // or on activeTurnId (derived synchronously above) — independent of each other.
@@ -3772,7 +3716,13 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     ...current,
     currentProject,
     projects,
-    sessions: mapSessions(projectedSessionsResponse, activeSessionID, activeTurns),
+    sessions: projectedSessionsResponse
+      ? mapSessions(projectedSessionsResponse, activeSessionID, activeSessionStatuses)
+      : mergeSessionBusyState(current.sessions, activeSessionID, activeSessionStatuses),
+    activeSessionStatuses,
+    sessionPage: projectedSessionsResponse
+      ? { nextCursor: projectedSessionsResponse.nextCursor, hasMore: Boolean(projectedSessionsResponse.hasMore), pageIndex: 0, pageStartCursors: [''] }
+      : current.sessionPage,
     conversationTarget: activeSessionID
       ? { kind: 'session' as const, sessionId: activeSessionID }
       : current.conversationTarget,
@@ -4108,6 +4058,22 @@ function bindDraftToCurrentProject(current: WorkbenchViewModel, activateDraft = 
   };
 }
 
+function replaceSessionPage(current: WorkbenchViewModel['sessions'], incoming: WorkbenchViewModel['sessions']) {
+  const merged = [...incoming];
+  const positions = new Map(merged.map((session, index) => [session.id, index]));
+  for (const session of current) {
+    if (!session.active && !session.busy) continue;
+    const index = positions.get(session.id);
+    if (index === undefined) {
+      positions.set(session.id, merged.length);
+      merged.push(session);
+    } else {
+      merged[index] = { ...merged[index], ...session };
+    }
+  }
+  return merged;
+}
+
 export const wailsWorkbenchAdapter: WorkbenchAdapter = {
   async loadInitialViewModel(mode = 'project') {
     const initial = getInitialWorkbenchViewModel(mode);
@@ -4122,6 +4088,45 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       (bridge) => hydrateWorkbench(current, bridge),
       () => staticWorkbenchAdapter.refresh(current),
     );
+  },
+  async refreshRuntimeState(current) {
+    if (runtimeStateRefreshPromise) {
+      return runtimeStateRefreshPromise;
+    }
+    const pending = withBridge(
+      (bridge) => hydrateWorkbench(current, bridge, {
+        background: true,
+        refreshTargets: ['status', 'recovery', 'run', 'run_projection'],
+      }),
+      () => staticWorkbenchAdapter.refresh(current),
+    );
+    runtimeStateRefreshPromise = pending;
+    try {
+      return await pending;
+    } finally {
+      if (runtimeStateRefreshPromise === pending) {
+        runtimeStateRefreshPromise = undefined;
+      }
+    }
+  },
+  async refreshDiagnostics(current) {
+    return withBridge(
+      (bridge) => hydrateWorkbench(current, bridge, {
+        refreshTargets: ['diagnostics', 'turn_activity', 'run_projection'],
+      }),
+      () => staticWorkbenchAdapter.refresh(current),
+    );
+  },
+  async requestIdleMemoryGuard(request) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.IdleMemoryGuard) {
+      return { eligible: false, reason: 'binding_unavailable', minimumIdleMs: 120000 };
+    }
+    return bridge.IdleMemoryGuard(request);
+  },
+  async reloadWindow() {
+    const runtime = await loadWailsRuntime();
+    await runtime.Window.Reload();
   },
   async openProject(current, request) {
     const nextBase = resetConversationRuntimeState({ ...current, mode: 'project' as const });
@@ -4243,6 +4248,41 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       throw new Error('runtime hook execution was not found');
     }
     return mapHookExecution(response.execution);
+  },
+  async loadMoreSessions(current) {
+    const cursor = current.sessionPage?.nextCursor;
+    if (!current.sessionPage?.hasMore || !cursor) return current;
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.SessionPage) return current;
+    const response = await bridge.SessionPage({ cursor, limit: 50 });
+    const activeSessionID = current.sessions.find((session) => session.active)?.id;
+    const incoming = mapSessions(response, activeSessionID, current.activeSessionStatuses);
+    const pageIndex = (current.sessionPage.pageIndex ?? 0) + 1;
+    const pageStartCursors = [...(current.sessionPage.pageStartCursors ?? [''])];
+    pageStartCursors[pageIndex] = cursor;
+    pageStartCursors.length = pageIndex + 1;
+    return {
+      ...current,
+      sessions: replaceSessionPage(current.sessions, incoming),
+      sessionPage: { nextCursor: response.nextCursor, hasMore: Boolean(response.hasMore), pageIndex, pageStartCursors },
+    };
+  },
+  async loadPreviousSessions(current) {
+    const pageIndex = current.sessionPage?.pageIndex ?? 0;
+    if (pageIndex <= 0) return current;
+    const previousIndex = pageIndex - 1;
+    const pageStartCursors = current.sessionPage?.pageStartCursors ?? [''];
+    const cursor = pageStartCursors[previousIndex] || undefined;
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.SessionPage) return current;
+    const response = await bridge.SessionPage({ cursor, limit: 50 });
+    const activeSessionID = current.sessions.find((session) => session.active)?.id;
+    const incoming = mapSessions(response, activeSessionID, current.activeSessionStatuses);
+    return {
+      ...current,
+      sessions: replaceSessionPage(current.sessions, incoming),
+      sessionPage: { nextCursor: response.nextCursor, hasMore: Boolean(response.hasMore), pageIndex: previousIndex, pageStartCursors },
+    };
   },
   async selectSession(current, sessionID) {
     return withBridge(

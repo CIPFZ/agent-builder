@@ -7,14 +7,66 @@ type RuntimeStatus struct {
 	WorkingDir  string `json:"workingDir"`
 	// ExplicitProject is true only after the user has opened or created a
 	// project. A default cwd workspace is not a desktop project selection.
-	ExplicitProject bool                        `json:"explicitProject"`
-	Model           string                      `json:"model"`
-	Provider        string                      `json:"provider"`
-	Busy            bool                        `json:"busy"`
-	Usage           RuntimeUsage                `json:"usage"`
-	Events          RuntimeEventStats           `json:"events"`
-	Requests        RuntimeRequests             `json:"requests"`
-	Action          *RuntimeWriteActionMetadata `json:"action,omitempty"`
+	ExplicitProject  bool                          `json:"explicitProject"`
+	Model            string                        `json:"model"`
+	Provider         string                        `json:"provider"`
+	Busy             bool                          `json:"busy"`
+	Usage            RuntimeUsage                  `json:"usage"`
+	Events           RuntimeEventStats             `json:"events"`
+	Requests         RuntimeRequests               `json:"requests"`
+	ResourceGovernor RuntimeResourceGovernorStatus `json:"resourceGovernor"`
+	ActiveSessions   []RuntimeActiveSessionStatus  `json:"activeSessions,omitempty"`
+	Action           *RuntimeWriteActionMetadata   `json:"action,omitempty"`
+}
+
+type RuntimeIdleMemoryGuardRequest struct {
+	ClientIdleMS           int64 `json:"clientIdleMs"`
+	HasUnsavedDraft        bool  `json:"hasUnsavedDraft,omitempty"`
+	HasActiveOverlay       bool  `json:"hasActiveOverlay,omitempty"`
+	HasTerminalInteraction bool  `json:"hasTerminalInteraction,omitempty"`
+}
+
+type RuntimeIdleMemoryGuardResponse struct {
+	Eligible                bool   `json:"eligible"`
+	Reason                  string `json:"reason,omitempty"`
+	MinimumIdleMS           int64  `json:"minimumIdleMs"`
+	MemorySupported         bool   `json:"memorySupported,omitempty"`
+	ProcessTreePrivateBytes int64  `json:"processTreePrivateBytes,omitempty"`
+	WebViewPrivateBytes     int64  `json:"webViewPrivateBytes,omitempty"`
+	HighWater               bool   `json:"highWater,omitempty"`
+	Sustained               bool   `json:"sustained,omitempty"`
+	SustainedSamples        int    `json:"sustainedSamples,omitempty"`
+	RequiredSamples         int    `json:"requiredSamples,omitempty"`
+	SampledAt               int64  `json:"sampledAt,omitempty"`
+	NextSampleAfterMS       int64  `json:"nextSampleAfterMs,omitempty"`
+}
+
+// RuntimeActiveSessionStatus is the bounded Workspace-level projection used
+// by the client for background activity. It intentionally excludes prompts,
+// messages, tool payloads, terminal output, and other Session working sets.
+type RuntimeActiveSessionStatus struct {
+	SessionID     string `json:"sessionId"`
+	ProjectID     string `json:"projectId,omitempty"`
+	Status        string `json:"status"`
+	Phase         string `json:"phase,omitempty"`
+	ProgressLabel string `json:"progressLabel,omitempty"`
+	ActiveTurnID  string `json:"activeTurnId,omitempty"`
+	UpdatedAt     int64  `json:"updatedAt"`
+	Unread        bool   `json:"unread,omitempty"`
+	Revision      int64  `json:"revision"`
+}
+
+type RuntimeResourceGovernorStatus struct {
+	Resources []RuntimeResourceStatus `json:"resources"`
+}
+
+type RuntimeResourceStatus struct {
+	Kind        string `json:"kind"`
+	InUseCount  int    `json:"inUseCount"`
+	QueuedCount int    `json:"queuedCount,omitempty"`
+	LimitCount  int    `json:"limitCount,omitempty"`
+	InUseBytes  int64  `json:"inUseBytes,omitempty"`
+	LimitBytes  int64  `json:"limitBytes,omitempty"`
 }
 
 type RuntimeProject struct {
@@ -60,10 +112,12 @@ type RuntimeProjectsResponse struct {
 }
 
 type RuntimeSidebarProjectionResponse struct {
-	Projects         []RuntimeProject `json:"projects"`
-	Sessions         []RuntimeSession `json:"sessions"`
-	CurrentProjectID string           `json:"currentProjectId,omitempty"`
-	ActiveSessionID  string           `json:"activeSessionId,omitempty"`
+	Projects          []RuntimeProject `json:"projects"`
+	Sessions          []RuntimeSession `json:"sessions"`
+	CurrentProjectID  string           `json:"currentProjectId,omitempty"`
+	ActiveSessionID   string           `json:"activeSessionId,omitempty"`
+	SessionNextCursor string           `json:"sessionNextCursor,omitempty"`
+	SessionHasMore    bool             `json:"sessionHasMore,omitempty"`
 }
 
 type RuntimeMemoryRecord struct {
@@ -1703,7 +1757,14 @@ type RuntimeSession struct {
 }
 
 type RuntimeSessionsResponse struct {
-	Sessions []RuntimeSession `json:"sessions"`
+	Sessions   []RuntimeSession `json:"sessions"`
+	NextCursor string           `json:"nextCursor,omitempty"`
+	HasMore    bool             `json:"hasMore,omitempty"`
+}
+
+type RuntimeSessionPageRequest struct {
+	Cursor string `json:"cursor,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
 }
 
 type RuntimeSessionResponse struct {
@@ -2016,6 +2077,7 @@ type RuntimeRequests struct {
 	SessionRequestID string `json:"sessionRequestId,omitempty"`
 	SessionStartedAt int64  `json:"sessionStartedAt,omitempty"`
 	SessionBusy      bool   `json:"sessionBusy,omitempty"`
+	Queued           int    `json:"queued,omitempty"`
 	Running          int    `json:"running"`
 }
 

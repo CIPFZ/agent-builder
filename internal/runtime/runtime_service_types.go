@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"sync"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/CIPFZ/agent-builder/internal/agent"
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/config"
 	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/permission"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
@@ -18,12 +20,14 @@ import (
 // the Wails desktop adapter.
 type RuntimeService interface {
 	Status(context.Context) (RuntimeStatus, error)
+	IdleMemoryGuard(context.Context, RuntimeIdleMemoryGuardRequest) (RuntimeIdleMemoryGuardResponse, error)
 	RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error)
 	ResumeInterruptedTurn(context.Context, string, RuntimeResumeInterruptedTurnRequest) (RuntimeTurnResponse, error)
 	DiscardInterruptedTurn(context.Context, string) (RuntimeTurnResponse, error)
 	RetryRecoverableError(context.Context, string) (RuntimeRecoveryRetryResponse, error)
 	Projects(context.Context) (RuntimeProjectsResponse, error)
 	SidebarProjection(context.Context) (RuntimeSidebarProjectionResponse, error)
+	SessionPage(context.Context, RuntimeSessionPageRequest) (RuntimeSessionsResponse, error)
 	OpenProject(context.Context, RuntimeOpenProjectRequest) (RuntimeOpenProjectResponse, error)
 	CreateProject(context.Context, RuntimeCreateProjectRequest) (RuntimeOpenProjectResponse, error)
 	RenameProject(context.Context, RuntimeRenameProjectRequest) (RuntimeOpenProjectResponse, error)
@@ -206,6 +210,8 @@ type runtimeService struct {
 	eventStats             runtimeEventStats
 	requests               map[string]runtimeRequestState
 	sessionTurns           map[string]string
+	activeSessionStatuses  map[string]RuntimeActiveSessionStatus
+	activeSessionRevision  int64
 	toolEvents             map[string]runtimeToolEventState
 	toolCalls              runtimeToolCallStore
 	objects                runtimeObjectStore
@@ -230,6 +236,16 @@ type runtimeService struct {
 	policy                 RuntimePolicy
 	capabilityLoads        map[string]runtimeCapabilityLoadRecord
 	toolDiscovery          runtimeToolDiscoveryState
+	resourceGovernor       *runtimeResourceGovernor
+	capabilityResources    map[string]func()
+	mcpIdleTimers          map[string]*time.Timer
+	mcpIdleTTL             time.Duration
+	mcpServerProjects      map[string]string
+	projectMCPServers      map[string]map[string]struct{}
+	mcpServerConfigs       map[string]*config.ConfigStore
+	projectCapabilityUsed  map[string]int64
+	turnDispatcher         *runtimeResourceDispatcher
+	terminalCreateMu       sync.Mutex
 	terminalsByID          map[string]*runtimeTerminalState
 	terminalIDsBySession   map[string]map[string]struct{}
 	recovery               runtimeRecoveryRecord

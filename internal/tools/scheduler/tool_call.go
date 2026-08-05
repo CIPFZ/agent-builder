@@ -58,6 +58,10 @@ type ToolCall struct {
 	JobFinishedAt                  time.Time      `json:"job_finished_at,omitempty"`
 	Status                         ToolCallStatus `json:"status"`
 	InputSummary                   string         `json:"input_summary,omitempty"`
+	InputRef                       string         `json:"input_ref,omitempty"`
+	InputByteLength                int            `json:"input_byte_length,omitempty"`
+	CommandRef                     string         `json:"command_ref,omitempty"`
+	CommandByteLength              int            `json:"command_byte_length,omitempty"`
 	OutputSummary                  string         `json:"output_summary,omitempty"`
 	ModelContent                   string         `json:"model_content,omitempty"`
 	Structured                     string         `json:"structured,omitempty"`
@@ -109,6 +113,10 @@ type ToolCallRequest struct {
 	JobStatus            string
 	JobStartedAt         time.Time
 	InputSummary         string
+	InputRef             string
+	InputByteLength      int
+	CommandRef           string
+	CommandByteLength    int
 }
 
 type ToolCallResult struct {
@@ -116,6 +124,8 @@ type ToolCallResult struct {
 	Status               ToolCallStatus
 	JobID                string
 	Command              string
+	CommandRef           string
+	CommandByteLength    int
 	Risk                 string
 	PolicyReason         string
 	PolicyMode           string

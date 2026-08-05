@@ -13,6 +13,7 @@ import {
   RightOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
+import { useSyncExternalStore } from 'react';
 import { useMemo } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent, UIEvent as ReactUIEvent } from 'react';
 import { Button, Dropdown, Empty, Input, Modal, Tooltip, message as antdMessage } from 'antd';
@@ -28,6 +29,7 @@ import { ContextDiagnosticsPanel } from '../diagnostics/ContextDiagnosticsPanel.
 import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { RecoveryCenter } from '../recovery/RecoveryCenter.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
+import { ToolDetailDrawerProvider } from '../tools/ToolCallCard.tsx';
 import { selectCanonicalConversationTurnViewModels } from '../../runtime/canonicalConversationView.ts';
 import { selectCanonicalStructuredActivity } from '../../runtime/canonicalStructuredActivity.ts';
 import { projectAgentTaskPanel } from '../../runtime/agentTaskPanelProjection.ts';
@@ -40,6 +42,7 @@ import { TerminalPane } from './TerminalPane.tsx';
 import { disposeTerminalRuntime } from './terminalRuntime.ts';
 import { useStickToBottom } from './useStickToBottom.ts';
 import { nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
+import type { CanonicalConversationSource, CanonicalConversationStore } from '../../runtime/canonicalConversationStore.ts';
 import styles from './Workspace.module.css';
 
 type RightPanelKind = 'review' | 'files' | 'terminal' | 'tasks';
@@ -50,6 +53,8 @@ const RIGHT_PANEL_MAX_WIDTH = 720;
 const WORKSPACE_MIN_WIDTH_WITH_PANEL = 480;
 const RIGHT_PANEL_DOCKED_MIN_WORKSPACE_WIDTH = WORKSPACE_MIN_WIDTH_WITH_PANEL + RIGHT_PANEL_MIN_WIDTH;
 const RIGHT_PANEL_DRAWER_MARGIN = 72;
+const emptyCanonicalSubscribe = () => () => undefined;
+const emptyCanonicalSnapshot = () => undefined;
 
 interface RightPanelTabState {
   id: string;
@@ -61,6 +66,7 @@ interface RightPanelTabState {
 interface WorkspaceProps {
   sidebarCollapsed?: boolean;
   viewModel: WorkbenchViewModel;
+  canonicalConversationSource?: CanonicalConversationSource;
   switchingSessionID?: string;
   onMinimumWorkspaceWidthChange?: (width: number) => void;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
@@ -86,6 +92,7 @@ interface WorkspaceProps {
   onTerminalResize: (terminalID: string, columns: number, rows: number) => Promise<TerminalViewModel>;
   onTerminalSubscribe: (terminalID: string, onEvent: (event: TerminalEventViewModel) => void) => Promise<() => void> | (() => void);
   onHookExecutionLoad?: (executionID: string) => Promise<HookExecutionViewModel>;
+  onReviewOpen?: () => Promise<void> | void;
   onConversationLoadEarlier?: (sessionID: string) => Promise<boolean>;
   onMessageContentLoad?: (sessionID: string, messageID: string) => Promise<string>;
   onObjectContentLoad?: (refID: string) => Promise<string>;
@@ -94,6 +101,7 @@ interface WorkspaceProps {
 export function Workspace({
   sidebarCollapsed = false,
   viewModel,
+  canonicalConversationSource,
   switchingSessionID = '',
   onMinimumWorkspaceWidthChange,
   onModelSelect,
@@ -119,6 +127,7 @@ export function Workspace({
   onTerminalResize,
   onTerminalSubscribe,
   onHookExecutionLoad,
+  onReviewOpen,
   onConversationLoadEarlier,
   onMessageContentLoad,
   onObjectContentLoad,
@@ -256,6 +265,9 @@ export function Workspace({
       return;
     }
     setRightPanelVisible(true);
+    if (kind === 'review') {
+      void onReviewOpen?.();
+    }
     const existing = rightPanelTabs.find((tab) => tab.kind === kind);
     if (existing) {
       setActiveRightPanelID(existing.id);
@@ -629,7 +641,19 @@ export function Workspace({
             <div className={styles.timelineLayout}>
               <div className={styles.timelineColumn}>
                 {loadingEarlierConversation && <div className={styles.historyLoading} role="status">正在加载更早的对话...</div>}
-                <Timeline turns={conversationTurns} hookExecutions={viewModel.canonicalConversationStore ? undefined : viewModel.hookExecutions} onAgentTaskOpen={openAgentTask} onHookExecutionLoad={onHookExecutionLoad} onMessageContentLoad={onMessageContentLoad} onObjectContentLoad={onObjectContentLoad} />
+                <ToolDetailDrawerProvider key={activeSessionID} onObjectContentLoad={onObjectContentLoad}>
+                  <LiveConversationTimeline
+                    source={canonicalConversationSource}
+                    fallbackStore={viewModel.canonicalConversationStore}
+                    fallbackTurns={conversationTurns}
+                    optimisticSubmits={viewModel.optimisticConversationByClientRequestId}
+                    hookExecutions={viewModel.canonicalConversationStore ? undefined : viewModel.hookExecutions}
+                    onAgentTaskOpen={openAgentTask}
+                    onHookExecutionLoad={onHookExecutionLoad}
+                    onMessageContentLoad={onMessageContentLoad}
+                    onObjectContentLoad={onObjectContentLoad}
+                  />
+                </ToolDetailDrawerProvider>
               </div>
             </div>
           ) : viewModel.conversation.length > 0 ? (
@@ -878,6 +902,41 @@ export function Workspace({
         )}
     </section>
   );
+}
+
+function LiveConversationTimeline({
+  source,
+  fallbackStore,
+  fallbackTurns,
+  optimisticSubmits,
+  hookExecutions,
+  onAgentTaskOpen,
+  onHookExecutionLoad,
+  onMessageContentLoad,
+  onObjectContentLoad,
+}: {
+  source?: CanonicalConversationSource;
+  fallbackStore?: CanonicalConversationStore;
+  fallbackTurns: ReturnType<typeof selectCanonicalConversationTurnViewModels>;
+  optimisticSubmits: WorkbenchViewModel['optimisticConversationByClientRequestId'];
+  hookExecutions?: WorkbenchViewModel['hookExecutions'];
+  onAgentTaskOpen?: (taskID: string) => void;
+  onHookExecutionLoad?: (executionID: string) => Promise<HookExecutionViewModel>;
+  onMessageContentLoad?: (sessionID: string, messageID: string) => Promise<string>;
+  onObjectContentLoad?: (refID: string) => Promise<string>;
+}) {
+  const liveStore = useSyncExternalStore(
+    source?.subscribe ?? emptyCanonicalSubscribe,
+    source?.getSnapshot ?? emptyCanonicalSnapshot,
+    source?.getSnapshot ?? emptyCanonicalSnapshot,
+  );
+  const store = liveStore && (!fallbackStore || liveStore.sessionId === fallbackStore.sessionId) ? liveStore : fallbackStore;
+  const structured = useMemo(() => selectCanonicalStructuredActivity(store), [store]);
+  const turns = useMemo(
+    () => store === fallbackStore ? fallbackTurns : selectCanonicalConversationTurnViewModels(store, structured, optimisticSubmits),
+    [fallbackStore, fallbackTurns, optimisticSubmits, store, structured],
+  );
+  return <Timeline turns={turns} hookExecutions={hookExecutions} onAgentTaskOpen={onAgentTaskOpen} onHookExecutionLoad={onHookExecutionLoad} onMessageContentLoad={onMessageContentLoad} onObjectContentLoad={onObjectContentLoad} />;
 }
 
 function defaultComposerDraftTarget(viewModel: WorkbenchViewModel): NewConversationDraftViewModel {

@@ -177,6 +177,11 @@
   position: relative;
 }
 
+.streamingText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .streamingCursor {
   display: inline-block;
   margin-left: 2px;

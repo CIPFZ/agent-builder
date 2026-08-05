@@ -51,15 +51,15 @@ func (s runtimeSQLiteToolCallStore) Upsert(ctx context.Context, call scheduler.T
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO runtime_tool_calls (
     id, turn_id, session_id, message_id, name, source, capability_id, status,
-    job_id, command, risk, policy_reason, policy_mode, policy_profile, policy_headless,
+    job_id, command, command_ref, command_byte_length, risk, policy_reason, policy_mode, policy_profile, policy_headless,
     policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value, policy_target_summary,
     shell_risk, shell_reason, sandbox_decision_id, sandbox_mode, sandbox_status,
     sandbox_executor, sandbox_reason, sandbox_error, exit_code, job_status, job_started_at, job_finished_at,
-	input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+	input_summary, input_ref, input_byte_length, output_summary, model_content, structured_output, stdout, stderr, is_error,
 	output_refs_json, artifact_refs_json, diff_refs_json,
 	compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     turn_id = COALESCE(NULLIF(excluded.turn_id, ''), runtime_tool_calls.turn_id),
     session_id = COALESCE(NULLIF(excluded.session_id, ''), runtime_tool_calls.session_id),
@@ -69,6 +69,8 @@ ON CONFLICT(id) DO UPDATE SET
     capability_id = COALESCE(NULLIF(excluded.capability_id, ''), runtime_tool_calls.capability_id),
     job_id = COALESCE(NULLIF(excluded.job_id, ''), runtime_tool_calls.job_id),
     command = COALESCE(NULLIF(excluded.command, ''), runtime_tool_calls.command),
+	command_ref = COALESCE(NULLIF(excluded.command_ref, ''), runtime_tool_calls.command_ref),
+	command_byte_length = CASE WHEN excluded.command_byte_length != 0 THEN excluded.command_byte_length ELSE runtime_tool_calls.command_byte_length END,
     risk = COALESCE(NULLIF(excluded.risk, ''), runtime_tool_calls.risk),
     policy_reason = COALESCE(NULLIF(excluded.policy_reason, ''), runtime_tool_calls.policy_reason),
     policy_mode = COALESCE(NULLIF(excluded.policy_mode, ''), runtime_tool_calls.policy_mode),
@@ -99,6 +101,8 @@ ON CONFLICT(id) DO UPDATE SET
         ELSE excluded.status
     END,
     input_summary = COALESCE(NULLIF(excluded.input_summary, ''), runtime_tool_calls.input_summary),
+	input_ref = COALESCE(NULLIF(excluded.input_ref, ''), runtime_tool_calls.input_ref),
+	input_byte_length = CASE WHEN excluded.input_byte_length != 0 THEN excluded.input_byte_length ELSE runtime_tool_calls.input_byte_length END,
     output_summary = COALESCE(NULLIF(excluded.output_summary, ''), runtime_tool_calls.output_summary),
     model_content = COALESCE(NULLIF(excluded.model_content, ''), runtime_tool_calls.model_content),
     structured_output = COALESCE(NULLIF(excluded.structured_output, ''), runtime_tool_calls.structured_output),
@@ -133,6 +137,8 @@ ON CONFLICT(id) DO UPDATE SET
 		string(call.Status),
 		nullableString(call.JobID),
 		nullableString(call.Command),
+		nullableString(call.CommandRef),
+		call.CommandByteLength,
 		nullableString(call.Risk),
 		nullableString(call.PolicyReason),
 		nullableString(call.PolicyMode),
@@ -157,6 +163,8 @@ ON CONFLICT(id) DO UPDATE SET
 		nullableTimeMillis(call.JobStartedAt),
 		nullableTimeMillis(call.JobFinishedAt),
 		nullableString(call.InputSummary),
+		nullableString(call.InputRef),
+		call.InputByteLength,
 		nullableString(call.OutputSummary),
 		nullableString(call.ModelContent),
 		nullableString(call.Structured),
@@ -184,11 +192,11 @@ ON CONFLICT(id) DO UPDATE SET
 func (s runtimeSQLiteToolCallStore) Get(ctx context.Context, id string) (scheduler.ToolCall, error) {
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
-    job_id, command, risk, policy_reason, policy_mode, policy_profile, policy_headless,
+    job_id, command, command_ref, command_byte_length, risk, policy_reason, policy_mode, policy_profile, policy_headless,
     policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value, policy_target_summary,
     shell_risk, shell_reason, sandbox_decision_id, sandbox_mode, sandbox_status,
     sandbox_executor, sandbox_reason, sandbox_error, exit_code, job_status, job_started_at, job_finished_at,
-    input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+    input_summary, input_ref, input_byte_length, output_summary, model_content, structured_output, stdout, stderr, is_error,
     output_refs_json, artifact_refs_json, diff_refs_json,
     compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error
@@ -204,11 +212,11 @@ WHERE id = ?`, strings.TrimSpace(id))
 func (s runtimeSQLiteToolCallStore) ListByTurn(ctx context.Context, turnID string) ([]scheduler.ToolCall, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
-    job_id, command, risk, policy_reason, policy_mode, policy_profile, policy_headless,
+    job_id, command, command_ref, command_byte_length, risk, policy_reason, policy_mode, policy_profile, policy_headless,
     policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value, policy_target_summary,
     shell_risk, shell_reason, sandbox_decision_id, sandbox_mode, sandbox_status,
     sandbox_executor, sandbox_reason, sandbox_error, exit_code, job_status, job_started_at, job_finished_at,
-    input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+    input_summary, input_ref, input_byte_length, output_summary, model_content, structured_output, stdout, stderr, is_error,
     output_refs_json, artifact_refs_json, diff_refs_json,
     compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error
@@ -240,11 +248,11 @@ ORDER BY started_at ASC`, strings.TrimSpace(turnID))
 func (s runtimeSQLiteToolCallStore) ListBySession(ctx context.Context, sessionID string) ([]scheduler.ToolCall, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
-    job_id, command, risk, policy_reason, policy_mode, policy_profile, policy_headless,
+    job_id, command, command_ref, command_byte_length, risk, policy_reason, policy_mode, policy_profile, policy_headless,
     policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value, policy_target_summary,
     shell_risk, shell_reason, sandbox_decision_id, sandbox_mode, sandbox_status,
     sandbox_executor, sandbox_reason, sandbox_error, exit_code, job_status, job_started_at, job_finished_at,
-    input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+    input_summary, input_ref, input_byte_length, output_summary, model_content, structured_output, stdout, stderr, is_error,
     output_refs_json, artifact_refs_json, diff_refs_json,
     compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error
@@ -279,7 +287,7 @@ type runtimeToolCallScanner interface {
 
 func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, error) {
 	var call scheduler.ToolCall
-	var messageID, capabilityID, jobID, command, risk, policyReason, policyMode, policyProfile, policyHeadlessReason, policyRuleID, policyRuleSource, policyScopeKind, policyScopeValue, policyTargetSummary, shellRisk, shellReason, sandboxDecisionID, sandboxMode, sandboxStatus, sandboxExecutor, sandboxReason, sandboxError, jobStatus, inputSummary, outputSummary, modelContent, structured, stdout, stderr, outputRefsJSON, artifactRefsJSON, diffRefsJSON, compactRef, compactBoundaryID, errText sql.NullString
+	var messageID, capabilityID, jobID, command, commandRef, risk, policyReason, policyMode, policyProfile, policyHeadlessReason, policyRuleID, policyRuleSource, policyScopeKind, policyScopeValue, policyTargetSummary, shellRisk, shellReason, sandboxDecisionID, sandboxMode, sandboxStatus, sandboxExecutor, sandboxReason, sandboxError, jobStatus, inputSummary, inputRef, outputSummary, modelContent, structured, stdout, stderr, outputRefsJSON, artifactRefsJSON, diffRefsJSON, compactRef, compactBoundaryID, errText sql.NullString
 	var source, status string
 	var isError, compacted, policyHeadless, exitCode, compactOriginalEstimatedTokens int
 	var startedAt int64
@@ -295,6 +303,8 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 		&status,
 		&jobID,
 		&command,
+		&commandRef,
+		&call.CommandByteLength,
 		&risk,
 		&policyReason,
 		&policyMode,
@@ -319,6 +329,8 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 		&jobStartedAt,
 		&jobFinishedAt,
 		&inputSummary,
+		&inputRef,
+		&call.InputByteLength,
 		&outputSummary,
 		&modelContent,
 		&structured,
@@ -345,6 +357,7 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 	call.Status = scheduler.ToolCallStatus(status)
 	call.JobID = jobID.String
 	call.Command = command.String
+	call.CommandRef = commandRef.String
 	call.Risk = risk.String
 	call.PolicyReason = policyReason.String
 	call.PolicyMode = policyMode.String
@@ -373,6 +386,7 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 		call.JobFinishedAt = time.UnixMilli(jobFinishedAt.Int64).UTC()
 	}
 	call.InputSummary = inputSummary.String
+	call.InputRef = inputRef.String
 	call.OutputSummary = outputSummary.String
 	call.ModelContent = modelContent.String
 	call.Structured = structured.String

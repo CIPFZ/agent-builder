@@ -52,6 +52,77 @@ func TestMCPSession_CancelOnClose(t *testing.T) {
 	require.ErrorIs(t, ctx.Err(), context.Canceled)
 }
 
+func TestUnloadSingleClosesSessionWithoutDisablingConfig(t *testing.T) {
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	server := mcp.NewServer(&mcp.Implementation{Name: "unload-server"}, nil)
+	serverSession, err := server.Connect(context.Background(), serverTransport, nil)
+	require.NoError(t, err)
+	defer serverSession.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	client := mcp.NewClient(&mcp.Implementation{Name: "unload-client"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+
+	name := "idle-unload-test"
+	store := config.NewTestStore(&config.Config{MCP: config.MCPs{name: {Type: config.MCPHttp, URL: "https://example.invalid"}}})
+	sessions.Set(name, &ClientSession{clientSession, cancel})
+	updateState(name, StateConnected, nil, sessionsValue(t, name), Counts{Tools: 3, Prompts: 2, Resources: 1})
+	t.Cleanup(func() {
+		sessions.Del(name)
+		states.Del(name)
+	})
+
+	require.NoError(t, UnloadSingle(store, name))
+	require.ErrorIs(t, ctx.Err(), context.Canceled)
+	_, exists := sessions.Get(name)
+	require.False(t, exists)
+	state, exists := GetState(name)
+	require.True(t, exists)
+	require.Equal(t, StateUnloaded, state.State)
+	require.False(t, store.Config().MCP[name].Disabled)
+}
+
+func sessionsValue(t *testing.T, name string) *ClientSession {
+	t.Helper()
+	session, ok := sessions.Get(name)
+	require.True(t, ok)
+	return session
+}
+
+func TestProcessHeavyMCPClassification(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		cfg  config.MCPConfig
+		want bool
+	}{
+		{name: "playwright", cfg: config.MCPConfig{Type: config.MCPStdio, Command: "npx"}, want: true},
+		{name: "automation", cfg: config.MCPConfig{Type: config.MCPStdio, Command: "npx", Args: []string{"@playwright/mcp"}}, want: true},
+		{name: "remote", cfg: config.MCPConfig{Type: config.MCPHttp, URL: "https://browser.example/mcp"}, want: true},
+		{name: "computer-use", cfg: config.MCPConfig{Type: config.MCPStdio, Command: "worker"}, want: true},
+		{name: "github", cfg: config.MCPConfig{Type: config.MCPHttp, URL: "https://mcp.example/api"}, want: false},
+	}
+	for _, test := range tests {
+		if got := IsProcessHeavyConfig(test.name, test.cfg); got != test.want {
+			t.Fatalf("IsProcessHeavyConfig(%q) = %v, want %v", test.name, got, test.want)
+		}
+	}
+}
+
+func TestRuntimeMCPStartupDefersAllConfiguredServers(t *testing.T) {
+	t.Parallel()
+	if shouldDeferStartup(context.Background()) {
+		t.Fatal("legacy app startup must preserve eager MCP behavior")
+	}
+	runtimeCtx := WithDeferredProcessHeavyStartup(context.Background())
+	if !shouldDeferStartup(runtimeCtx) {
+		t.Fatal("Runtime context must defer process-heavy MCP startup")
+	}
+	if !shouldDeferStartup(runtimeCtx) {
+		t.Fatal("Runtime context must defer lightweight MCP startup until capability demand")
+	}
+}
+
 // TestCreateTransport_URLResolution pins that m.URL goes through the
 // same resolver seam as command, args, env, and headers. Covers both
 // the HTTP and SSE branches, success and failure, so a regression in

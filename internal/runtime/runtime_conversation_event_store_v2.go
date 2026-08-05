@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS conversation_projector_checkpoints_v2 (
 session_id TEXT PRIMARY KEY,last_raw_sequence INTEGER NOT NULL,failure_reason TEXT,updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS conversation_projector_batches_v2 (
 session_id TEXT NOT NULL,raw_sequence INTEGER NOT NULL,previous_raw_sequence INTEGER NOT NULL,entity_count INTEGER NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(session_id,raw_sequence));
+CREATE TABLE IF NOT EXISTS conversation_projector_retention_v2 (
+session_id TEXT PRIMARY KEY,floor_raw_sequence INTEGER NOT NULL,updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS conversation_entities_v2 (
 session_id TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,turn_id TEXT,activity_sequence TEXT NOT NULL,revision TEXT NOT NULL,entity_json TEXT NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(session_id,entity_type,entity_id));`)
 	return err
@@ -53,8 +55,41 @@ func (s runtimeConversationEventStoreV2) initializeCheckpoint(ctx context.Contex
 	if err := s.ensure(ctx); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO conversation_projector_checkpoints_v2(session_id,last_raw_sequence,failure_reason,updated_at)
-VALUES(?,?,NULLIF(?,''),?) ON CONFLICT(session_id) DO UPDATE SET last_raw_sequence=excluded.last_raw_sequence,failure_reason=excluded.failure_reason,updated_at=excluded.updated_at`, sessionID, sequence, reason, time.Now().UnixMilli())
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	now := time.Now().UnixMilli()
+	if _, err = tx.ExecContext(ctx, `INSERT INTO conversation_projector_checkpoints_v2(session_id,last_raw_sequence,failure_reason,updated_at)
+VALUES(?,?,NULLIF(?,''),?) ON CONFLICT(session_id) DO UPDATE SET last_raw_sequence=excluded.last_raw_sequence,failure_reason=excluded.failure_reason,updated_at=excluded.updated_at`, sessionID, sequence, reason, now); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO conversation_projector_retention_v2(session_id,floor_raw_sequence,updated_at) VALUES(?,?,?)
+ON CONFLICT(session_id) DO UPDATE SET floor_raw_sequence=excluded.floor_raw_sequence,updated_at=excluded.updated_at`, sessionID, sequence, now); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s runtimeConversationEventStoreV2) retentionFloor(ctx context.Context, sessionID string) (int64, bool, error) {
+	if err := s.ensure(ctx); err != nil {
+		return 0, false, err
+	}
+	var floor int64
+	err := s.db.QueryRowContext(ctx, `SELECT floor_raw_sequence FROM conversation_projector_retention_v2 WHERE session_id=?`, sessionID).Scan(&floor)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	return floor, err == nil, err
+}
+
+func (s runtimeConversationEventStoreV2) advanceRetentionFloor(ctx context.Context, sessionID string, floor int64) error {
+	if err := s.ensure(ctx); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO conversation_projector_retention_v2(session_id,floor_raw_sequence,updated_at) VALUES(?,?,?)
+ON CONFLICT(session_id) DO UPDATE SET floor_raw_sequence=MAX(conversation_projector_retention_v2.floor_raw_sequence,excluded.floor_raw_sequence),updated_at=excluded.updated_at`, sessionID, floor, time.Now().UnixMilli())
 	return err
 }
 
@@ -92,6 +127,9 @@ VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(session_id,raw_sequence,entity_type,enti
 	if err = tx.QueryRowContext(ctx, `SELECT last_raw_sequence FROM conversation_projector_checkpoints_v2 WHERE session_id=?`, sessionID).Scan(&previous); err != nil {
 		return err
 	}
+	if _, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO conversation_projector_retention_v2(session_id,floor_raw_sequence,updated_at) VALUES(?,?,?)`, sessionID, previous, time.Now().UnixMilli()); err != nil {
+		return err
+	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO conversation_projector_batches_v2(session_id,raw_sequence,previous_raw_sequence,entity_count,created_at) VALUES(?,?,?,?,?) ON CONFLICT(session_id,raw_sequence) DO UPDATE SET entity_count=excluded.entity_count`, sessionID, rawSequence, previous, len(events), time.Now().UnixMilli()); err != nil {
 		return err
 	}
@@ -101,13 +139,19 @@ VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(session_id,raw_sequence,entity_type,enti
 	return tx.Commit()
 }
 
-type runtimeConversationBatchCursorV2 struct{ previous, sequence int64 }
+type runtimeConversationBatchCursorV2 struct {
+	previous, sequence int64
+	entityCount        int
+	encodedBytes       int64
+}
 
 func (s runtimeConversationEventStoreV2) batchCursorsAfter(ctx context.Context, sessionID string, after int64, limit int) ([]runtimeConversationBatchCursorV2, error) {
 	if err := s.ensure(ctx); err != nil {
 		return nil, err
 	}
-	query := `SELECT previous_raw_sequence,raw_sequence FROM conversation_projector_batches_v2 WHERE session_id=? AND raw_sequence>? ORDER BY raw_sequence`
+	query := `SELECT b.previous_raw_sequence,b.raw_sequence,b.entity_count,
+COALESCE((SELECT SUM(length(CAST(e.event_json AS BLOB))) FROM conversation_entity_events_v2 e WHERE e.session_id=b.session_id AND e.raw_sequence=b.raw_sequence),0)
+FROM conversation_projector_batches_v2 b WHERE b.session_id=? AND b.raw_sequence>? ORDER BY b.raw_sequence`
 	args := []any{sessionID, after}
 	if limit > 0 {
 		query += ` LIMIT ?`
@@ -121,7 +165,7 @@ func (s runtimeConversationEventStoreV2) batchCursorsAfter(ctx context.Context, 
 	out := []runtimeConversationBatchCursorV2{}
 	for rows.Next() {
 		var cursor runtimeConversationBatchCursorV2
-		if err := rows.Scan(&cursor.previous, &cursor.sequence); err != nil {
+		if err := rows.Scan(&cursor.previous, &cursor.sequence, &cursor.entityCount, &cursor.encodedBytes); err != nil {
 			return nil, err
 		}
 		out = append(out, cursor)

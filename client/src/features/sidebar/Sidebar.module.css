@@ -379,6 +379,27 @@
   gap: 3px;
 }
 
+.windowedSessionViewport {
+  display: block;
+  min-height: 0;
+  gap: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.windowedSessionCanvas {
+  position: relative;
+  min-width: 0;
+}
+
+.windowedSessionItem {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  min-width: 0;
+}
+
 .projectSessionButton {
   flex: 1 1 auto;
   height: 34px;

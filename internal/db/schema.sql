@@ -464,6 +464,12 @@ CREATE TABLE conversation_projector_batches_v2 (
     PRIMARY KEY (session_id, raw_sequence)
 );
 
+CREATE TABLE conversation_projector_retention_v2 (
+    session_id TEXT PRIMARY KEY,
+    floor_raw_sequence INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE conversation_entities_v2 (
     session_id TEXT NOT NULL,
     entity_type TEXT NOT NULL,
@@ -769,7 +775,7 @@ CREATE TABLE runtime_tool_calls (
     started_at INTEGER NOT NULL,
     finished_at INTEGER,
     error TEXT
-, model_content TEXT, structured_output TEXT, capability_id TEXT NOT NULL DEFAULT '', job_id TEXT, command TEXT, risk TEXT, policy_reason TEXT, exit_code INTEGER NOT NULL DEFAULT 0, job_status TEXT, job_started_at INTEGER, job_finished_at INTEGER, compacted INTEGER NOT NULL DEFAULT 0, compact_ref TEXT, compact_boundary_id TEXT, compact_original_estimated_tokens INTEGER NOT NULL DEFAULT 0, compacted_at INTEGER, policy_mode TEXT, policy_profile TEXT, policy_rule_id TEXT, policy_rule_source TEXT, policy_scope_kind TEXT, policy_scope_value TEXT, policy_target_summary TEXT, shell_risk TEXT, shell_reason TEXT, policy_headless INTEGER DEFAULT 0, policy_headless_reason TEXT, output_refs_json TEXT, artifact_refs_json TEXT, diff_refs_json TEXT, sandbox_decision_id TEXT, sandbox_mode TEXT, sandbox_status TEXT, sandbox_executor TEXT, sandbox_reason TEXT, sandbox_error TEXT);
+, model_content TEXT, structured_output TEXT, capability_id TEXT NOT NULL DEFAULT '', job_id TEXT, command TEXT, command_ref TEXT, command_byte_length INTEGER NOT NULL DEFAULT 0, input_ref TEXT, input_byte_length INTEGER NOT NULL DEFAULT 0, risk TEXT, policy_reason TEXT, exit_code INTEGER NOT NULL DEFAULT 0, job_status TEXT, job_started_at INTEGER, job_finished_at INTEGER, compacted INTEGER NOT NULL DEFAULT 0, compact_ref TEXT, compact_boundary_id TEXT, compact_original_estimated_tokens INTEGER NOT NULL DEFAULT 0, compacted_at INTEGER, policy_mode TEXT, policy_profile TEXT, policy_rule_id TEXT, policy_rule_source TEXT, policy_scope_kind TEXT, policy_scope_value TEXT, policy_target_summary TEXT, shell_risk TEXT, shell_reason TEXT, policy_headless INTEGER DEFAULT 0, policy_headless_reason TEXT, output_refs_json TEXT, artifact_refs_json TEXT, diff_refs_json TEXT, sandbox_decision_id TEXT, sandbox_mode TEXT, sandbox_status TEXT, sandbox_executor TEXT, sandbox_reason TEXT, sandbox_error TEXT);
 
 CREATE TABLE runtime_turns (
     id TEXT PRIMARY KEY,
@@ -1164,6 +1170,9 @@ WHERE scope = 'standalone' AND project_id IS NULL;
 
 CREATE INDEX idx_sessions_active_recent
 ON sessions(deleted_at, pinned DESC, updated_at DESC);
+
+CREATE INDEX idx_sessions_root_active_page
+ON sessions(parent_session_id, deleted_at, pinned DESC, updated_at DESC, id DESC);
 
 CREATE VIRTUAL TABLE message_search_fts USING fts5(
     message_id UNINDEXED,

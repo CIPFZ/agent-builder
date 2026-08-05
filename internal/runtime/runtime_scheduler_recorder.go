@@ -518,6 +518,10 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 	if r == nil || r.service == nil || r.service.toolCalls == nil {
 		return nil
 	}
+	inputLength := len(call.InputSummary)
+	commandLength := len(call.Command)
+	inputRef := r.createLargeToolInputRef(ctx, call.SessionID, call.TurnID, call.ID, "tool_input", call.InputSummary)
+	commandRef := r.createLargeToolInputRef(ctx, call.SessionID, call.TurnID, call.ID, "command", call.Command)
 	stored, err := r.service.toolCalls.CreateCall(ctx, scheduler.ToolCallRequest{
 		ID:                   call.ID,
 		SessionID:            call.SessionID,
@@ -527,7 +531,9 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		Source:               scheduler.ToolSource(call.Source),
 		CapabilityID:         call.CapabilityID,
 		JobID:                call.JobID,
-		Command:              call.Command,
+		Command:              preview(call.Command, canonicalToolPreviewLimit),
+		CommandRef:           commandRef,
+		CommandByteLength:    commandLength,
 		Risk:                 call.Risk,
 		PolicyReason:         call.PolicyReason,
 		PolicyMode:           call.PolicyMode,
@@ -549,7 +555,9 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		PolicyHeadlessReason: call.PolicyHeadlessReason,
 		JobStatus:            call.JobStatus,
 		JobStartedAt:         timeFromMillis(call.JobStartedAt),
-		InputSummary:         preview(call.InputSummary, runtimePartPreviewLimit),
+		InputSummary:         preview(call.InputSummary, canonicalToolPreviewLimit),
+		InputRef:             inputRef,
+		InputByteLength:      inputLength,
 	})
 	if err != nil {
 		return err
@@ -619,6 +627,92 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		}},
 	})
 	return nil
+}
+
+func (r *runtimeSchedulerRecorder) ToolCallQueued(ctx context.Context, call agent.SchedulerToolCall) error {
+	if r == nil || r.service == nil || r.service.toolCalls == nil || call.ID == "" {
+		return nil
+	}
+	inputLength := len(call.InputSummary)
+	commandLength := len(call.Command)
+	inputRef := r.createLargeToolInputRef(ctx, call.SessionID, call.TurnID, call.ID, "tool_input", call.InputSummary)
+	commandRef := r.createLargeToolInputRef(ctx, call.SessionID, call.TurnID, call.ID, "command", call.Command)
+	stored, err := r.service.toolCalls.QueueCall(ctx, scheduler.ToolCallRequest{
+		ID:                   call.ID,
+		SessionID:            call.SessionID,
+		TurnID:               call.TurnID,
+		MessageID:            call.MessageID,
+		Name:                 call.Name,
+		Source:               scheduler.ToolSource(call.Source),
+		CapabilityID:         call.CapabilityID,
+		Command:              preview(call.Command, canonicalToolPreviewLimit),
+		CommandRef:           commandRef,
+		CommandByteLength:    commandLength,
+		Risk:                 call.Risk,
+		PolicyReason:         call.PolicyReason,
+		PolicyMode:           call.PolicyMode,
+		PolicyProfile:        call.PolicyProfile,
+		PolicyRuleID:         call.PolicyRuleID,
+		PolicyRuleSource:     call.PolicyRuleSource,
+		PolicyScopeKind:      call.PolicyScopeKind,
+		PolicyScopeValue:     call.PolicyScopeValue,
+		PolicyTargetSummary:  call.PolicyTargetSummary,
+		ShellRisk:            call.ShellRisk,
+		ShellReason:          call.ShellReason,
+		SandboxDecisionID:    call.SandboxDecisionID,
+		SandboxMode:          call.SandboxMode,
+		SandboxStatus:        call.SandboxStatus,
+		SandboxExecutor:      call.SandboxExecutor,
+		SandboxReason:        call.SandboxReason,
+		SandboxError:         call.SandboxError,
+		PolicyHeadless:       call.PolicyHeadless,
+		PolicyHeadlessReason: call.PolicyHeadlessReason,
+		InputSummary:         preview(call.InputSummary, canonicalToolPreviewLimit),
+		InputRef:             inputRef,
+		InputByteLength:      inputLength,
+	})
+	if err != nil {
+		return err
+	}
+	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallQueued, stored, map[string]any{
+		"name":          stored.Name,
+		"source":        string(stored.Source),
+		"capability_id": stored.CapabilityID,
+		"status":        string(stored.Status),
+		"summary":       "waiting for resource admission",
+	}))
+	return nil
+}
+
+func (r *runtimeSchedulerRecorder) createLargeToolInputRef(ctx context.Context, sessionID, turnID, toolCallID, contentType, payload string) string {
+	if r == nil || r.service == nil || len(payload) <= canonicalToolPreviewLimit {
+		return ""
+	}
+	store, err := r.service.ensureRuntimeObjectStore(ctx)
+	if err != nil {
+		return ""
+	}
+	existing, _ := store.List(ctx, RuntimeObjectListRequest{SessionID: sessionID, ToolCallID: toolCallID})
+	for _, candidate := range existing {
+		if candidate.Kind != runtimeObjectKindInput || candidate.ContentType != contentType || candidate.SizeBytes != int64(len(payload)) || !candidate.CanReadContent {
+			continue
+		}
+		content, readErr := store.ReadContent(ctx, candidate.ID)
+		if readErr == nil && content.Content == payload {
+			return candidate.URI
+		}
+	}
+	r.service.mu.Lock()
+	projectID := r.service.activeProjectID
+	if projectID == "" && r.service.workspace != nil {
+		projectID = r.service.workspace.ID
+	}
+	r.service.mu.Unlock()
+	ref, err := store.Create(ctx, runtimeObjectCreateRequest{ProjectID: projectID, SessionID: sessionID, TurnID: turnID, ToolCallID: toolCallID, Kind: runtimeObjectKindInput, MediaType: "text/plain", ContentType: contentType, Payload: []byte(payload), Summary: "full tool " + contentType})
+	if err != nil {
+		return ""
+	}
+	return ref.URI
 }
 
 func (r *runtimeSchedulerRecorder) ToolCallOutput(ctx context.Context, result agent.SchedulerToolCallResult) error {
@@ -779,11 +873,14 @@ func (r *runtimeSchedulerRecorder) updateToolCall(ctx context.Context, result ag
 		})
 	}
 	refs := r.createToolOutputRefs(ctx, result)
+	commandRef := r.createLargeToolInputRef(ctx, result.SessionID, result.TurnID, result.ToolCallID, "command", result.Command)
 	return r.service.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{
 		ToolCallID:           result.ToolCallID,
 		Status:               status,
 		JobID:                result.JobID,
-		Command:              result.Command,
+		Command:              preview(result.Command, canonicalToolPreviewLimit),
+		CommandRef:           commandRef,
+		CommandByteLength:    len(result.Command),
 		Risk:                 result.Risk,
 		PolicyReason:         result.PolicyReason,
 		PolicyMode:           result.PolicyMode,

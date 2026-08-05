@@ -190,24 +190,30 @@ type RuntimeCanonicalAssistantStep struct {
 
 type RuntimeCanonicalToolCall struct {
 	RuntimeConversationEntityMeta
-	MessageID        string   `json:"messageId,omitempty"`
-	AssistantStepID  string   `json:"assistantStepId,omitempty"`
-	ParentToolCallID string   `json:"parentToolCallId,omitempty"`
-	RoundID          string   `json:"roundId,omitempty"`
-	Name             string   `json:"name"`
-	Source           string   `json:"source"`
-	Kind             string   `json:"kind,omitempty"`
-	Status           string   `json:"status"`
-	InputJSON        string   `json:"inputJson,omitempty"`
-	Command          string   `json:"command,omitempty"`
-	Targets          []string `json:"targets,omitempty"`
-	WorkingDir       string   `json:"workingDir,omitempty"`
-	Risk             string   `json:"risk,omitempty"`
-	ResultIDs        []string `json:"resultIds,omitempty"`
-	StartedAt        int64    `json:"startedAt,omitempty"`
-	FinishedAt       int64    `json:"finishedAt,omitempty"`
-	ExitCode         *int     `json:"exitCode,omitempty"`
-	Error            string   `json:"error,omitempty"`
+	MessageID         string   `json:"messageId,omitempty"`
+	AssistantStepID   string   `json:"assistantStepId,omitempty"`
+	ParentToolCallID  string   `json:"parentToolCallId,omitempty"`
+	RoundID           string   `json:"roundId,omitempty"`
+	Name              string   `json:"name"`
+	Source            string   `json:"source"`
+	Kind              string   `json:"kind,omitempty"`
+	Status            string   `json:"status"`
+	InputPreview      string   `json:"inputPreview,omitempty"`
+	InputByteLength   int      `json:"inputByteLength,omitempty"`
+	InputTruncated    bool     `json:"inputTruncated,omitempty"`
+	InputRef          string   `json:"inputRef,omitempty"`
+	CommandPreview    string   `json:"commandPreview,omitempty"`
+	CommandByteLength int      `json:"commandByteLength,omitempty"`
+	CommandTruncated  bool     `json:"commandTruncated,omitempty"`
+	CommandRef        string   `json:"commandRef,omitempty"`
+	Targets           []string `json:"targets,omitempty"`
+	WorkingDir        string   `json:"workingDir,omitempty"`
+	Risk              string   `json:"risk,omitempty"`
+	ResultIDs         []string `json:"resultIds,omitempty"`
+	StartedAt         int64    `json:"startedAt,omitempty"`
+	FinishedAt        int64    `json:"finishedAt,omitempty"`
+	ExitCode          *int     `json:"exitCode,omitempty"`
+	Error             string   `json:"error,omitempty"`
 }
 
 type RuntimeCanonicalAgentTaskMessage struct {
@@ -228,15 +234,19 @@ type RuntimeCanonicalAgentTaskMessage struct {
 
 type RuntimeCanonicalToolResult struct {
 	RuntimeConversationEntityMeta
-	ToolCallID       string   `json:"toolCallId"`
-	Ordinal          int      `json:"ordinal"`
-	Status           string   `json:"status"`
-	ContentPreview   string   `json:"contentPreview,omitempty"`
-	ErrorPreview     string   `json:"errorPreview,omitempty"`
-	OutputRefs       []string `json:"outputRefs,omitempty"`
-	ArtifactRefs     []string `json:"artifactRefs,omitempty"`
-	DiffRefs         []string `json:"diffRefs,omitempty"`
-	DeliveredToModel bool     `json:"deliveredToModel,omitempty"`
+	ToolCallID        string   `json:"toolCallId"`
+	Ordinal           int      `json:"ordinal"`
+	Status            string   `json:"status"`
+	ContentPreview    string   `json:"contentPreview,omitempty"`
+	ContentByteLength int      `json:"contentByteLength,omitempty"`
+	ContentTruncated  bool     `json:"contentTruncated,omitempty"`
+	ErrorPreview      string   `json:"errorPreview,omitempty"`
+	ErrorByteLength   int      `json:"errorByteLength,omitempty"`
+	ErrorTruncated    bool     `json:"errorTruncated,omitempty"`
+	OutputRefs        []string `json:"outputRefs,omitempty"`
+	ArtifactRefs      []string `json:"artifactRefs,omitempty"`
+	DiffRefs          []string `json:"diffRefs,omitempty"`
+	DeliveredToModel  bool     `json:"deliveredToModel,omitempty"`
 }
 
 type RuntimeCanonicalPermission struct {
