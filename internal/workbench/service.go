@@ -133,7 +133,7 @@ func (b *Service) CreateWorkspace(args apitypes.Workspace) (*Workspace, apitypes
 		skills.WithWorkingDir(discoveryCfg.WorkingDir),
 	)
 
-	appWorkspace, err := app.NewWithSchedulerRecorder(b.ctx, conn, cfg, skillsMgr, b.schedulerRecorder)
+	appWorkspace, err := app.NewRuntimeWithSchedulerRecorder(b.ctx, conn, cfg, skillsMgr, b.schedulerRecorder)
 	if err != nil {
 		return nil, apitypes.Workspace{}, fmt.Errorf("failed to create app workspace: %w", err)
 	}

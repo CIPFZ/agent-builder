@@ -2,6 +2,9 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,12 +15,32 @@ import (
 	"time"
 
 	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/db"
 	"github.com/CIPFZ/agent-builder/internal/message"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 	"github.com/CIPFZ/agent-builder/internal/session"
 )
 
 func (r *runtimeService) Sessions(ctx context.Context) (RuntimeSessionsResponse, error) {
+	return r.sessionPage(ctx, RuntimeSessionPageRequest{Limit: 50}, true)
+}
+
+func (r *runtimeService) SessionPage(ctx context.Context, req RuntimeSessionPageRequest) (RuntimeSessionsResponse, error) {
+	return r.sessionPage(ctx, req, false)
+}
+
+type runtimeSessionPageCursor struct {
+	Pinned    int    `json:"p"`
+	UpdatedAt int64  `json:"u"`
+	ID        string `json:"i"`
+}
+
+type runtimeSessionPageRow struct {
+	Session RuntimeSession
+	Pinned  int
+}
+
+func (r *runtimeService) sessionPage(ctx context.Context, req RuntimeSessionPageRequest, includeActive bool) (RuntimeSessionsResponse, error) {
 	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeSessionsResponse{}, err
 	}
@@ -25,12 +48,109 @@ func (r *runtimeService) Sessions(ctx context.Context) (RuntimeSessionsResponse,
 	wsID := r.workspace.ID
 	activeID := r.sessionID
 	r.mu.Unlock()
-
-	sessions, err := r.runtime.ListSessions(ctx, wsID)
-	if err != nil {
-		return RuntimeSessionsResponse{}, fmt.Errorf("failed to list Agent Builder sessions: %w", err)
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 50
 	}
-	return RuntimeSessionsResponse{Sessions: toRuntimeSessions(sessions, activeID, wsID)}, nil
+	if limit > 100 {
+		limit = 100
+	}
+	cursor, err := decodeRuntimeSessionPageCursor(req.Cursor)
+	if err != nil {
+		return RuntimeSessionsResponse{}, err
+	}
+	workspace, err := r.runtime.GetWorkspace(wsID)
+	if err != nil {
+		return RuntimeSessionsResponse{}, err
+	}
+	dataDir := workspace.Cfg.Config().Options.DataDirectory
+	conn, err := db.Connect(ctx, dataDir)
+	if err != nil {
+		return RuntimeSessionsResponse{}, err
+	}
+	defer func() { _ = db.Release(dataDir) }()
+	rows, err := conn.QueryContext(ctx, `
+SELECT id, title, title_source, project_id, scope, workdir, workdir_exists,
+       message_count, prompt_tokens, completion_tokens, cost, created_at, updated_at, pinned
+FROM sessions
+WHERE parent_session_id IS NULL AND deleted_at IS NULL
+  AND (? = 0 OR pinned < ? OR (pinned = ? AND (updated_at < ? OR (updated_at = ? AND id < ?))))
+ORDER BY pinned DESC, updated_at DESC, id DESC
+LIMIT ?`, boolInt(req.Cursor != ""), cursor.Pinned, cursor.Pinned, cursor.UpdatedAt, cursor.UpdatedAt, cursor.ID, limit+1)
+	if err != nil {
+		return RuntimeSessionsResponse{}, fmt.Errorf("failed to list Agent Builder session page: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	pageRows := make([]runtimeSessionPageRow, 0, limit+1)
+	for rows.Next() {
+		var row runtimeSessionPageRow
+		var titleSource string
+		var projectID, scope, workdir sql.NullString
+		if err := rows.Scan(&row.Session.ID, &row.Session.Title, &titleSource, &projectID, &scope, &workdir, &row.Session.WorkdirExists, &row.Session.MessageCount, &row.Session.PromptTokens, &row.Session.CompletionTokens, &row.Session.Cost, &row.Session.CreatedAt, &row.Session.UpdatedAt, &row.Pinned); err != nil {
+			return RuntimeSessionsResponse{}, err
+		}
+		row.Session.Title = firstNonEmpty(row.Session.Title, "New chat")
+		row.Session.TitleSource = runtimeSessionTitleSource(titleSource)
+		row.Session.TitleStatus = runtimeSessionTitleStatus(titleSource)
+		row.Session.ProjectID, row.Session.Scope = normalizeRuntimeSessionOwnership(projectID.String, scope.String)
+		row.Session.Workdir = workdir.String
+		row.Session.Active = row.Session.ID == activeID
+		row.Session.Usage = RuntimeUsage{InputTokens: row.Session.PromptTokens, OutputTokens: row.Session.CompletionTokens, TotalTokens: row.Session.PromptTokens + row.Session.CompletionTokens, Cost: row.Session.Cost}
+		pageRows = append(pageRows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return RuntimeSessionsResponse{}, err
+	}
+	visibleCount := minInt(limit, len(pageRows))
+	activeIncluded := activeID == ""
+	for i := 0; i < visibleCount; i++ {
+		activeIncluded = activeIncluded || pageRows[i].Session.ID == activeID
+	}
+	if includeActive && !activeIncluded && visibleCount > 0 {
+		visibleCount--
+	}
+	result := make([]RuntimeSession, 0, limit)
+	for i := 0; i < visibleCount; i++ {
+		result = append(result, pageRows[i].Session)
+	}
+	if includeActive && !activeIncluded {
+		active, getErr := r.runtime.GetSession(ctx, wsID, activeID)
+		if getErr == nil {
+			result = append(result, toRuntimeSession(active, activeID, wsID))
+		}
+	}
+	hasMore := len(pageRows) > visibleCount
+	nextCursor := ""
+	if hasMore && visibleCount > 0 {
+		nextCursor, err = encodeRuntimeSessionPageCursor(runtimeSessionPageCursor{Pinned: pageRows[visibleCount-1].Pinned, UpdatedAt: pageRows[visibleCount-1].Session.UpdatedAt, ID: pageRows[visibleCount-1].Session.ID})
+		if err != nil {
+			return RuntimeSessionsResponse{}, err
+		}
+	}
+	return RuntimeSessionsResponse{Sessions: result, NextCursor: nextCursor, HasMore: hasMore}, nil
+}
+
+func decodeRuntimeSessionPageCursor(value string) (runtimeSessionPageCursor, error) {
+	if strings.TrimSpace(value) == "" {
+		return runtimeSessionPageCursor{}, nil
+	}
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return runtimeSessionPageCursor{}, errors.New("invalid session page cursor")
+	}
+	var cursor runtimeSessionPageCursor
+	if err := json.Unmarshal(data, &cursor); err != nil || cursor.ID == "" || (cursor.Pinned != 0 && cursor.Pinned != 1) {
+		return runtimeSessionPageCursor{}, errors.New("invalid session page cursor")
+	}
+	return cursor, nil
+}
+
+func encodeRuntimeSessionPageCursor(cursor runtimeSessionPageCursor) (string, error) {
+	data, err := json.Marshal(cursor)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
 func (r *runtimeService) Session(ctx context.Context, sessionID string) (RuntimeSessionResponse, error) {
@@ -883,20 +1003,18 @@ func isDefaultRuntimeSessionTitle(title string) bool {
 }
 
 func (r *runtimeService) finalizeInterruptedTitleGeneration(ctx context.Context, workspaceID string) error {
-	sessions, err := r.runtime.ListSessions(ctx, workspaceID)
+	workspace, err := r.runtime.GetWorkspace(workspaceID)
 	if err != nil {
 		return err
 	}
-	for _, sess := range sessions {
-		if sess.TitleSource != session.TitleSourceFallbackPending {
-			continue
-		}
-		sess.TitleSource = session.TitleSourceFallback
-		if _, err := r.runtime.SaveSession(ctx, workspaceID, sess); err != nil {
-			return err
-		}
+	dataDir := workspace.Cfg.Config().Options.DataDirectory
+	conn, err := db.Connect(ctx, dataDir)
+	if err != nil {
+		return err
 	}
-	return nil
+	defer func() { _ = db.Release(dataDir) }()
+	_, err = conn.ExecContext(ctx, `UPDATE sessions SET title_source = ? WHERE parent_session_id IS NULL AND deleted_at IS NULL AND title_source = ?`, session.TitleSourceFallback, session.TitleSourceFallbackPending)
+	return err
 }
 
 func (r *runtimeService) sessionUsage(ctx context.Context, workspaceID, sessionID string) (RuntimeUsage, error) {

@@ -18,7 +18,10 @@ import (
 
 type canonicalEventRange struct{ first, last int64 }
 
-const canonicalMessageContentLimit = 64 * 1024
+const (
+	canonicalMessageContentLimit = 64 * 1024
+	canonicalToolPreviewLimit    = 1024
+)
 
 // SessionConversationSnapshotV2 builds the canonical conversation solely from
 // persisted stores. It deliberately does not call the legacy output/activity
@@ -313,7 +316,8 @@ func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Contex
 			if part.IsError {
 				status = "failed"
 			}
-			snapshot.ToolResults = append(snapshot.ToolResults, RuntimeCanonicalToolResult{RuntimeConversationEntityMeta: rm, ToolCallID: part.ToolCallID, Ordinal: ordinal, Status: status, ContentPreview: boundedPreview(part.Content, 4096), ErrorPreview: ternary(part.IsError, boundedPreview(part.Content, 4096), ""), OutputRefs: nonEmptyStrings(part.StoredPath), DeliveredToModel: part.DeliveredToModel})
+			contentPreview, contentLength, contentTruncated, errorPreview, errorLength, errorTruncated := canonicalToolResultPreviews(part.Content, part.IsError)
+			snapshot.ToolResults = append(snapshot.ToolResults, RuntimeCanonicalToolResult{RuntimeConversationEntityMeta: rm, ToolCallID: part.ToolCallID, Ordinal: ordinal, Status: status, ContentPreview: contentPreview, ContentByteLength: contentLength, ContentTruncated: contentTruncated, ErrorPreview: errorPreview, ErrorByteLength: errorLength, ErrorTruncated: errorTruncated, OutputRefs: nonEmptyStrings(part.StoredPath), DeliveredToModel: part.DeliveredToModel})
 		}
 	}
 	resultsByCall := map[string][]string{}
@@ -334,7 +338,20 @@ func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Contex
 			value := call.ExitCode
 			exit = &value
 		}
-		snapshot.ToolCalls = append(snapshot.ToolCalls, RuntimeCanonicalToolCall{RuntimeConversationEntityMeta: meta, MessageID: call.MessageID, AssistantStepID: stepByMessage[call.MessageID], Name: call.Name, Source: string(call.Source), Status: string(call.Status), InputJSON: validJSONObjectOrEmpty(call.InputSummary), Command: call.Command, Risk: call.Risk, ResultIDs: resultsByCall[call.ID], StartedAt: created, FinishedAt: ternaryInt64(!call.FinishedAt.IsZero(), updated, 0), ExitCode: exit, Error: call.Error})
+		input := redactRuntimeString("", call.InputSummary)
+		inputPreview, inputTruncated := boundedUTF8Content(input, canonicalToolPreviewLimit)
+		inputLength := call.InputByteLength
+		if inputLength == 0 {
+			inputLength = len(input)
+		}
+		inputTruncated = inputTruncated || inputLength > len(inputPreview)
+		commandPreview, commandTruncated := boundedUTF8Content(redactRuntimeString("command", call.Command), canonicalToolPreviewLimit)
+		commandLength := call.CommandByteLength
+		if commandLength == 0 {
+			commandLength = len(call.Command)
+		}
+		commandTruncated = commandTruncated || commandLength > len(commandPreview)
+		snapshot.ToolCalls = append(snapshot.ToolCalls, RuntimeCanonicalToolCall{RuntimeConversationEntityMeta: meta, MessageID: call.MessageID, AssistantStepID: stepByMessage[call.MessageID], Name: call.Name, Source: string(call.Source), Status: string(call.Status), InputPreview: inputPreview, InputByteLength: inputLength, InputTruncated: inputTruncated, InputRef: call.InputRef, CommandPreview: commandPreview, CommandByteLength: commandLength, CommandTruncated: commandTruncated, CommandRef: call.CommandRef, Risk: call.Risk, ResultIDs: resultsByCall[call.ID], StartedAt: created, FinishedAt: ternaryInt64(!call.FinishedAt.IsZero(), updated, 0), ExitCode: exit, Error: call.Error})
 	}
 	for _, p := range permissions {
 		meta := canonicalMeta("permission", p.ID, sessionID, p.TurnID, p.CreatedAt, max64(p.CreatedAt, p.DecidedAt), ranges)
@@ -383,6 +400,17 @@ func (r *runtimeService) buildSessionConversationSnapshotV2At(ctx context.Contex
 		return RuntimeCanonicalConversationSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+func canonicalToolResultPreviews(content string, isError bool) (contentPreview string, contentLength int, contentTruncated bool, errorPreview string, errorLength int, errorTruncated bool) {
+	contentPreview, contentTruncated = boundedUTF8Content(content, canonicalToolPreviewLimit)
+	contentLength = len(content)
+	if isError {
+		errorPreview = contentPreview
+		errorLength = contentLength
+		errorTruncated = contentTruncated
+	}
+	return
 }
 
 func canonicalMessageReasoningContent(msg RuntimeMessage) string {
@@ -440,7 +468,7 @@ func canonicalEventRanges(events []RuntimeEvent) map[string]canonicalEventRange 
 			add("turn", e.TurnID, e.Sequence)
 		case "message.created", "message.updated", "message.completed":
 			add("message", e.MessageID, e.Sequence)
-		case "tool.call.started", "tool.call.output", "tool.call.completed", "tool.call.failed", "tool.call.cancelled":
+		case "tool.call.queued", "tool.call.started", "tool.call.output", "tool.call.completed", "tool.call.failed", "tool.call.cancelled":
 			add("toolCall", e.ToolCallID, e.Sequence)
 		case "permission.requested", "permission.decided":
 			add("permission", stringFromMap(e.Payload, "permission_id"), e.Sequence)
@@ -894,14 +922,6 @@ func boundedUTF8Content(v string, n int) (string, bool) {
 		end--
 	}
 	return v[:end], true
-}
-
-func validJSONObjectOrEmpty(v string) string {
-	var decoded any
-	if strings.TrimSpace(v) == "" || json.Unmarshal([]byte(v), &decoded) != nil {
-		return ""
-	}
-	return v
 }
 
 func nonEmptyStrings(v ...string) []string {

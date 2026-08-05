@@ -92,7 +92,7 @@ export function TraceRow({
           ) : null}
         </div>
         {extra ? <div className={styles.rowExtra}>{extra}</div> : null}
-        {hasBody ? (
+        {hasBody && open ? (
           <div className={`${styles.rowExpand} ${open ? styles.rowExpandOpen : ''}`}>
             <div className={styles.rowExpandInner}>{children}</div>
           </div>
@@ -121,9 +121,11 @@ export function InlineExpandable({ children, className, summary }: { children: R
       >
         {summary}
       </button>
-      <div className={`${styles.rowExpand} ${open ? styles.rowExpandOpen : ''}`}>
-        <div className={styles.rowExpandInner}>{children}</div>
-      </div>
+      {open ? (
+        <div className={`${styles.rowExpand} ${styles.rowExpandOpen}`}>
+          <div className={styles.rowExpandInner}>{children}</div>
+        </div>
+      ) : null}
     </div>
   );
 }

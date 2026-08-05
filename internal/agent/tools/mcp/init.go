@@ -61,11 +61,43 @@ var (
 	initDone = make(chan struct{})
 )
 
+type deferProcessHeavyStartupKey struct{}
+
+// WithDeferredProcessHeavyStartup is the compatibility name for Runtime MCP
+// deferral. All MCP connections stay metadata-only; browser/computer servers
+// additionally require Browser resource admission when later loaded.
+func WithDeferredProcessHeavyStartup(ctx context.Context) context.Context {
+	return context.WithValue(ctx, deferProcessHeavyStartupKey{}, true)
+}
+
+// WithDeferredStartup keeps every configured MCP as catalog metadata until a
+// Runtime capability consumer explicitly asks to load it. Legacy adapters may
+// continue using eager Initialize by passing an ordinary context.
+func WithDeferredStartup(ctx context.Context) context.Context {
+	return WithDeferredProcessHeavyStartup(ctx)
+}
+
+func IsProcessHeavyConfig(name string, m config.MCPConfig) bool {
+	identity := strings.ToLower(strings.Join(append([]string{name, m.Command, m.URL}, m.Args...), " "))
+	for _, marker := range []string{"playwright", "puppeteer", "browser", "computer", "chrome", "chromium"} {
+		if strings.Contains(identity, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldDeferStartup(ctx context.Context) bool {
+	deferred, _ := ctx.Value(deferProcessHeavyStartupKey{}).(bool)
+	return deferred
+}
+
 // State represents the current state of an MCP client
 type State int
 
 const (
 	StateDisabled State = iota
+	StateUnloaded
 	StateStarting
 	StateConnected
 	StateError
@@ -75,6 +107,8 @@ func (s State) String() string {
 	switch s {
 	case StateDisabled:
 		return "disabled"
+	case StateUnloaded:
+		return "unloaded"
 	case StateStarting:
 		return "starting"
 	case StateConnected:
@@ -174,6 +208,10 @@ func Initialize(ctx context.Context, permissions permission.Service, cfg *config
 			slog.Debug("Skipping disabled MCP", "name", name)
 			continue
 		}
+		if shouldDeferStartup(ctx) {
+			slog.Info("Deferring MCP client until explicit Runtime capability demand", "name", name)
+			continue
+		}
 
 		// Set initial starting state
 		wg.Add(1)
@@ -227,6 +265,17 @@ func InitializeSingle(ctx context.Context, name string, cfg *config.ConfigStore)
 		slog.Debug("Skipping disabled MCP", "name", name)
 		return nil
 	}
+	if previous, ok := sessions.Take(name); ok {
+		if err := previous.Close(); err != nil &&
+			!errors.Is(err, io.EOF) &&
+			!errors.Is(err, context.Canceled) &&
+			err.Error() != "signal: killed" {
+			slog.Warn("Failed to close previous MCP client before refresh", "name", name, "error", err)
+		}
+		updateTools(cfg, name, nil)
+		updatePrompts(name, nil)
+		updateResources(name, nil)
+	}
 
 	return initClient(ctx, cfg, name, m, cfg.Resolver())
 }
@@ -272,26 +321,36 @@ func initClient(ctx context.Context, cfg *config.ConfigStore, name string, m con
 
 // DisableSingle disables and closes a single MCP client by name.
 func DisableSingle(cfg *config.ConfigStore, name string) error {
-	session, ok := sessions.Get(name)
-	if ok {
-		if err := session.Close(); err != nil &&
-			!errors.Is(err, io.EOF) &&
-			!errors.Is(err, context.Canceled) &&
-			err.Error() != "signal: killed" {
-			slog.Warn("Error closing MCP session", "name", name, "error", err)
-		}
-		sessions.Del(name)
-	}
-
-	// Clear tools and prompts for this MCP.
-	updateTools(cfg, name, nil)
-	updatePrompts(name, nil)
+	closeSingle(cfg, name)
 
 	// Update state to disabled.
 	updateState(name, StateDisabled, nil, nil, Counts{})
 
 	slog.Info("Disabled mcp client", "name", name)
 	return nil
+}
+
+// UnloadSingle releases a connected MCP session and its reconstructable
+// catalogs without changing the configured enabled/disabled state.
+func UnloadSingle(cfg *config.ConfigStore, name string) error {
+	closeSingle(cfg, name)
+	updateState(name, StateUnloaded, nil, nil, Counts{})
+	slog.Info("Unloaded idle mcp client", "name", name)
+	return nil
+}
+
+func closeSingle(cfg *config.ConfigStore, name string) {
+	if session, ok := sessions.Take(name); ok {
+		if err := session.Close(); err != nil &&
+			!errors.Is(err, io.EOF) &&
+			!errors.Is(err, context.Canceled) &&
+			err.Error() != "signal: killed" {
+			slog.Warn("Error closing MCP session", "name", name, "error", err)
+		}
+	}
+	updateTools(cfg, name, nil)
+	updatePrompts(name, nil)
+	updateResources(name, nil)
 }
 
 func getOrRenewClient(ctx context.Context, cfg *config.ConfigStore, name string) (*ClientSession, error) {

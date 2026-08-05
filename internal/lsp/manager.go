@@ -22,15 +22,23 @@ import (
 )
 
 const unavailableRetryDelay = 30 * time.Second
+const defaultIdleTTL = 5 * time.Minute
 
 // Manager handles lazy initialization of LSP clients based on file types.
 type Manager struct {
-	clients     *csync.Map[string, *Client]
-	unavailable *csync.Map[string, time.Time]
-	cfg         *config.ConfigStore
-	manager     *powernapconfig.Manager
-	callback    func(name string, client *Client)
-	now         func() time.Time
+	clients           *csync.Map[string, *Client]
+	unavailable       *csync.Map[string, time.Time]
+	cfg               *config.ConfigStore
+	manager           *powernapconfig.Manager
+	callback          func(name string, client *Client)
+	now               func() time.Time
+	idleMu            sync.Mutex
+	idleTimer         *time.Timer
+	idleTTL           time.Duration
+	idleStop          func()
+	resourceMu        sync.Mutex
+	resourceAdmission func(context.Context) (func(), error)
+	resourceRelease   func()
 }
 
 // NewManager creates a new LSP manager service.
@@ -60,14 +68,21 @@ func NewManager(cfg *config.ConfigStore) *Manager {
 		})
 	}
 
-	return &Manager{
+	result := &Manager{
 		clients:     csync.NewMap[string, *Client](),
 		unavailable: csync.NewMap[string, time.Time](),
 		cfg:         cfg,
 		manager:     manager,
 		callback:    func(string, *Client) {}, // default no-op callback
 		now:         time.Now,
+		idleTTL:     defaultIdleTTL,
 	}
+	result.idleStop = func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		result.StopAll(ctx)
+	}
+	return result
 }
 
 // Clients returns the map of LSP clients.
@@ -79,6 +94,14 @@ func (s *Manager) Clients() *csync.Map[string, *Client] {
 // client is successfully started. This allows the coordinator to add LSP tools.
 func (s *Manager) SetCallback(cb func(name string, client *Client)) {
 	s.callback = cb
+}
+
+// SetResourceAdmission installs the Runtime-owned project capability lease
+// used while this manager has resident language-server processes.
+func (s *Manager) SetResourceAdmission(acquire func(context.Context) (func(), error)) {
+	s.resourceMu.Lock()
+	s.resourceAdmission = acquire
+	s.resourceMu.Unlock()
 }
 
 // TrackConfigured will callback the user-configured LSPs, but will not create
@@ -102,6 +125,11 @@ func (s *Manager) Start(ctx context.Context, path string) {
 	if !fsext.HasPrefix(path, s.cfg.WorkingDir()) {
 		return
 	}
+	if err := s.ensureResourceLease(ctx); err != nil {
+		slog.Warn("LSP project capability admission failed", "error", err)
+		return
+	}
+	s.stopIdleTimer()
 
 	var wg sync.WaitGroup
 	for name, server := range s.manager.GetServers() {
@@ -110,6 +138,61 @@ func (s *Manager) Start(ctx context.Context, path string) {
 		})
 	}
 	wg.Wait()
+	if s.clients.Len() > 0 {
+		s.scheduleIdleStop()
+	} else {
+		s.releaseResourceLease()
+	}
+}
+
+func (s *Manager) ensureResourceLease(ctx context.Context) error {
+	s.resourceMu.Lock()
+	defer s.resourceMu.Unlock()
+	if s.resourceRelease != nil || s.resourceAdmission == nil {
+		return nil
+	}
+	release, err := s.resourceAdmission(ctx)
+	if err != nil {
+		return err
+	}
+	s.resourceRelease = release
+	return nil
+}
+
+func (s *Manager) releaseResourceLease() {
+	s.resourceMu.Lock()
+	release := s.resourceRelease
+	s.resourceRelease = nil
+	s.resourceMu.Unlock()
+	if release != nil {
+		release()
+	}
+}
+
+func (s *Manager) scheduleIdleStop() {
+	s.idleMu.Lock()
+	defer s.idleMu.Unlock()
+	if s.idleTimer != nil {
+		s.idleTimer.Stop()
+	}
+	ttl := s.idleTTL
+	if ttl <= 0 {
+		ttl = defaultIdleTTL
+	}
+	s.idleTimer = time.AfterFunc(ttl, func() {
+		if s.idleStop != nil {
+			s.idleStop()
+		}
+	})
+}
+
+func (s *Manager) stopIdleTimer() {
+	s.idleMu.Lock()
+	if s.idleTimer != nil {
+		s.idleTimer.Stop()
+		s.idleTimer = nil
+	}
+	s.idleMu.Unlock()
 }
 
 // skipAutoStartCommands contains commands that are too generic or ambiguous to
@@ -357,6 +440,7 @@ func handles(server *powernapconfig.ServerConfig, filePath, workDir string) bool
 // in the middle of writing something.
 // Generally it doesn't matter when shutting down Agent Builder, though.
 func (s *Manager) KillAll(context.Context) {
+	s.stopIdleTimer()
 	var wg sync.WaitGroup
 	for name, client := range s.clients.Seq2() {
 		wg.Go(func() {
@@ -368,10 +452,12 @@ func (s *Manager) KillAll(context.Context) {
 		})
 	}
 	wg.Wait()
+	s.releaseResourceLease()
 }
 
 // StopAll stops all running LSP clients and clears the client map.
 func (s *Manager) StopAll(ctx context.Context) {
+	s.stopIdleTimer()
 	var wg sync.WaitGroup
 	for name, client := range s.clients.Seq2() {
 		wg.Go(func() {
@@ -389,4 +475,5 @@ func (s *Manager) StopAll(ctx context.Context) {
 		})
 	}
 	wg.Wait()
+	s.releaseResourceLease()
 }

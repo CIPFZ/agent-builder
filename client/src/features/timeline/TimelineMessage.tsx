@@ -12,7 +12,6 @@ export function TimelineMessage({ item, messageApi, onContentLoad }: { item: Con
   const streaming = Boolean(item.streaming);
   const loadedContent = loaded && loaded.messageId === item.messageId && loaded.updatedAt === item.updatedAt ? loaded.content : undefined;
   const content = loadedContent ?? item.content ?? '';
-  const displayContent = streaming ? completePartialMarkdown(content) : content;
   const loadFullContent = async () => {
     if (!item.contentTruncated || !item.sessionId || !item.messageId || !onContentLoad || loadingContent) return;
     setLoadingContent(true);
@@ -30,7 +29,9 @@ export function TimelineMessage({ item, messageApi, onContentLoad }: { item: Con
       typing={false}
       content={
         <span data-testid="timeline-message" data-streaming={streaming ? 'true' : undefined}>
-          <MarkdownMessage content={displayContent} role={item.role} />
+          {streaming
+            ? <span className={styles.streamingText}>{content}</span>
+            : <MarkdownMessage content={content} role={item.role} />}
           {item.contentTruncated && loadedContent === undefined ? <Button loading={loadingContent} size="small" type="link" onClick={() => void loadFullContent()}>加载完整消息</Button> : null}
           {streaming ? <span className={styles.streamingCursor} aria-hidden="true">▌</span> : null}
         </span>
@@ -44,11 +45,6 @@ export function TimelineMessage({ item, messageApi, onContentLoad }: { item: Con
       }
     />
   );
-}
-
-function completePartialMarkdown(content: string) {
-  const fenceMatches = content.match(/```/g);
-  return fenceMatches && fenceMatches.length % 2 === 1 ? `${content}\n\`\`\`` : content;
 }
 
 function isCompleteMessage(item: ConversationTimelineItemViewModel) {

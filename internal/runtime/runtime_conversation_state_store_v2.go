@@ -33,6 +33,9 @@ func (s runtimeConversationEventStoreV2) seedSnapshot(ctx context.Context, snaps
 	if _, err = tx.ExecContext(ctx, `INSERT INTO conversation_projector_checkpoints_v2(session_id,last_raw_sequence,failure_reason,updated_at) VALUES(?,?,NULL,?) ON CONFLICT(session_id) DO UPDATE SET last_raw_sequence=excluded.last_raw_sequence,failure_reason=NULL,updated_at=excluded.updated_at`, snapshot.SessionID, cursor, time.Now().UnixMilli()); err != nil {
 		return err
 	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO conversation_projector_retention_v2(session_id,floor_raw_sequence,updated_at) VALUES(?,?,?) ON CONFLICT(session_id) DO UPDATE SET floor_raw_sequence=excluded.floor_raw_sequence,updated_at=excluded.updated_at`, snapshot.SessionID, cursor, time.Now().UnixMilli()); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -118,6 +121,9 @@ func (s runtimeConversationEventStoreV2) commitProjectedRaw(ctx context.Context,
 	}
 	var previous int64
 	if err = tx.QueryRowContext(ctx, `SELECT last_raw_sequence FROM conversation_projector_checkpoints_v2 WHERE session_id=?`, raw.SessionID).Scan(&previous); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO conversation_projector_retention_v2(session_id,floor_raw_sequence,updated_at) VALUES(?,?,?)`, raw.SessionID, previous, time.Now().UnixMilli()); err != nil {
 		return err
 	}
 	for ordinal, event := range events {
@@ -243,6 +249,9 @@ func (s runtimeConversationEventStoreV2) bootstrapRaw(ctx context.Context, snaps
 		}
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO conversation_projector_checkpoints_v2(session_id,last_raw_sequence,failure_reason,updated_at) VALUES(?,?,NULL,?)`, snapshot.SessionID, raw.Sequence, time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO conversation_projector_retention_v2(session_id,floor_raw_sequence,updated_at) VALUES(?,?,?)`, snapshot.SessionID, raw.Sequence, time.Now().UnixMilli()); err != nil {
 		return err
 	}
 	return tx.Commit()

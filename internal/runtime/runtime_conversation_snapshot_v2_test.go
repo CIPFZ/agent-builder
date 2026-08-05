@@ -85,6 +85,17 @@ func TestCanonicalMessageContentIsBoundedAndUTF8Safe(t *testing.T) {
 	}
 }
 
+func TestCanonicalToolResultPreviewIsBoundedAndDoesNotCarryFullOutput(t *testing.T) {
+	content := strings.Repeat("result-", 1000) + "FULL_RESULT_SENTINEL"
+	preview, length, truncated, errorPreview, errorLength, errorTruncated := canonicalToolResultPreviews(content, true)
+	if !truncated || !errorTruncated || length != len(content) || errorLength != len(content) {
+		t.Fatalf("result metadata length=%d errorLength=%d truncated=%v errorTruncated=%v", length, errorLength, truncated, errorTruncated)
+	}
+	if len(preview) > canonicalToolPreviewLimit || preview != errorPreview || strings.Contains(preview, "FULL_RESULT_SENTINEL") {
+		t.Fatalf("unbounded result preview: %q", preview)
+	}
+}
+
 func TestSessionConversationMessageContentV2EnforcesSessionOwnership(t *testing.T) {
 	h := newRuntimeScenarioHarness(t)
 	h.attachBackend()

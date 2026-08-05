@@ -32,13 +32,14 @@ import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerE
  *       behavior, it can never cause the "stuck mid-scroll" bug pinning
  *       tries to avoid
  *
- * PROGRAMMATIC SCROLL IMMUNITY: every scrollTop mutation performed by this
- * hook sets `programmaticScrollRef.current = true` first. The scroll
- * handler ignores distance-based pin/unpin logic while that flag is set
- * (it still refreshes jump-button visibility). The flag is cleared by the
- * browser's `scrollend` event where supported, and unconditionally by a
- * 150ms debounce timer as a fallback for engines that don't fire
- * `scrollend` (WebView2).
+ * PROGRAMMATIC SCROLL IMMUNITY: smooth scrolling sets
+ * `programmaticScrollRef.current = true` first. The scroll handler ignores
+ * distance-based pin/unpin logic while that flag is set. Instant pinned
+ * following does not need this guard: it lands at the bottom and the scroll
+ * handler can only re-pin, never unpin. Avoiding the guard there also avoids
+ * allocating a debounce timer for every streaming resize. The smooth-scroll
+ * flag is cleared by `scrollend` where supported, and unconditionally by a
+ * 150ms debounce timer as a WebView2 fallback.
  *
  * FOLLOW EXECUTION: while pinned, a ResizeObserver watches every direct
  * child of the scroll container (timeline column, todo bar, composer/
@@ -130,8 +131,8 @@ export function useStickToBottom() {
       if (!node) {
         return;
       }
-      beginProgrammaticScroll();
       if (behavior === 'smooth') {
+        beginProgrammaticScroll();
         node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' });
       } else {
         node.scrollTop = node.scrollHeight;

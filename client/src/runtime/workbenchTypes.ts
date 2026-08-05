@@ -106,6 +106,18 @@ export interface SessionViewModel {
   activeTurnId?: string;
 }
 
+export interface ActiveSessionStatusViewModel {
+  sessionId: string;
+  projectId?: string;
+  status: string;
+  phase?: string;
+  progressLabel?: string;
+  activeTurnId?: string;
+  updatedAt: number;
+  unread?: boolean;
+  revision: number;
+}
+
 export interface NewConversationDraftViewModel {
   active: boolean;
   scope: 'project' | 'standalone';
@@ -977,6 +989,12 @@ export interface ToolCallViewModel {
   status: string;
   kind?: string;
   inputSummary?: string;
+  inputRef?: string;
+  inputByteLength?: number;
+  inputTruncated?: boolean;
+  commandRef?: string;
+  commandByteLength?: number;
+  commandTruncated?: boolean;
   outputSummary?: string;
   error?: string;
   policyMode?: string;
@@ -1367,6 +1385,8 @@ export interface WorkbenchViewModel {
   currentProject: ProjectViewModel;
   projects: ProjectViewModel[];
   sessions: SessionViewModel[];
+  activeSessionStatuses?: ActiveSessionStatusViewModel[];
+  sessionPage?: { nextCursor?: string; hasMore: boolean; pageIndex?: number; pageStartCursors?: string[] };
   conversationTarget: ConversationTargetViewModel;
   sidebarActions: SidebarActionViewModel[];
   conversation: ConversationMessageViewModel[];
@@ -1397,18 +1417,46 @@ export interface RuntimeEventViewModel {
   createdAt?: string;
 }
 
+export interface IdleMemoryGuardRequestViewModel {
+  clientIdleMs: number;
+  hasUnsavedDraft?: boolean;
+  hasActiveOverlay?: boolean;
+  hasTerminalInteraction?: boolean;
+}
+
+export interface IdleMemoryGuardResponseViewModel {
+  eligible: boolean;
+  reason?: string;
+  minimumIdleMs: number;
+  memorySupported?: boolean;
+  processTreePrivateBytes?: number;
+  webViewPrivateBytes?: number;
+  highWater?: boolean;
+  sustained?: boolean;
+  sustainedSamples?: number;
+  requiredSamples?: number;
+  sampledAt?: number;
+  nextSampleAfterMs?: number;
+}
+
 export interface WorkbenchAdapter {
   loadInitialViewModel: (mode?: WorkbenchMode) => Promise<WorkbenchViewModel>;
   refresh: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
+  refreshRuntimeState?: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
+  refreshDiagnostics?: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
   // fetchContextUsage is a single-field fast path used by the composer's
   // refreshNonce wiring (WP5): when compactCount changes the shell forces an
   // immediate SessionContextUsage read instead of waiting for the general
   // 350ms-coalesced refresh cycle to catch up.
   fetchContextUsage?: (sessionID: string) => Promise<ContextUsageViewModel | undefined>;
   subscribeRuntimeEvents?: (onEvent: (event: RuntimeEventViewModel) => void) => Promise<() => void> | (() => void);
+  requestIdleMemoryGuard?: (request: IdleMemoryGuardRequestViewModel) => Promise<IdleMemoryGuardResponseViewModel>;
+  reloadWindow?: () => Promise<void>;
   fetchCanonicalConversationSnapshot?: (sessionID: string, request?: CanonicalConversationSnapshotRequest) => Promise<CanonicalConversationSnapshot>;
   fetchCanonicalMessageContent?: (sessionID: string, messageID: string) => Promise<string>;
   fetchObjectContent?: (refID: string) => Promise<string>;
+  loadMoreSessions?: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
+  loadPreviousSessions?: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
   searchConversation?: (sessionID: string, query: string) => Promise<import('./canonicalConversationTypes.ts').ConversationSearchResult[]>;
   subscribeCanonicalConversation?: (
     sessionID: string,

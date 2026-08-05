@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   BranchesOutlined,
   CheckOutlined,
@@ -18,6 +18,38 @@ import { boundedText } from '../../runtime/boundedText.ts';
 import styles from './ToolCallCard.module.css';
 
 type ToolKind = 'file_read' | 'file_write' | 'file_edit' | 'file_search' | 'shell' | 'generic';
+
+interface ToolDetailContentRequest { title: string; text: string; refID?: string }
+interface ToolDetailDrawerHost { open: (request: ToolDetailContentRequest) => void }
+
+const ToolDetailDrawerContext = createContext<ToolDetailDrawerHost | undefined>(undefined);
+
+export function ToolDetailDrawerProvider({ children, onObjectContentLoad }: { children: ReactNode; onObjectContentLoad?: (refID: string) => Promise<string> }) {
+  const [fullContent, setFullContent] = useState<{ title: string; text: string; loading: boolean }>();
+  const generationRef = useRef(0);
+  const close = useCallback(() => {
+    generationRef.current += 1;
+    setFullContent(undefined);
+  }, []);
+  const open = useCallback((request: ToolDetailContentRequest) => {
+    const generation = ++generationRef.current;
+    setFullContent({ title: request.title, text: request.text, loading: Boolean(request.refID && onObjectContentLoad) });
+    if (!request.refID || !onObjectContentLoad) return;
+    void onObjectContentLoad(request.refID).then(
+      (text) => { if (generationRef.current === generation) setFullContent({ title: request.title, text, loading: false }); },
+      (error) => { if (generationRef.current === generation) setFullContent({ title: `${request.title} read failed`, text: error instanceof Error ? error.message : String(error), loading: false }); },
+    );
+  }, [onObjectContentLoad]);
+  const host = useMemo(() => ({ open }), [open]);
+  return (
+    <ToolDetailDrawerContext.Provider value={host}>
+      {children}
+      <Drawer destroyOnHidden open={Boolean(fullContent)} placement="right" title={fullContent?.title} width="min(720px, 92vw)" onClose={close}>
+        {fullContent?.loading ? <Typography.Text type="secondary">Loading full content...</Typography.Text> : fullContent ? <pre className={styles.fullOutput}>{fullContent.text}</pre> : null}
+      </Drawer>
+    </ToolDetailDrawerContext.Provider>
+  );
+}
 
 export function ToolCallCard({
   onAgentTaskOpen,
@@ -67,6 +99,7 @@ function SingleToolCallCard({ onAgentTaskOpen, toolCall }: { onAgentTaskOpen?: (
     >
       {messageContextHolder}
       <Collapse
+        destroyOnHidden
         ghost
         size="small"
         defaultActiveKey={defaultActiveKey}
@@ -113,6 +146,7 @@ function ToolCallGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (task
       <section className={styles.process} data-testid="tool-call-card" data-tool-call-id={groupId} data-tool-kind={groupKind} data-tool-quiet="true" data-tool-status={status}>
         {messageContextHolder}
         <Collapse
+          destroyOnHidden
           ghost
           size="small"
           defaultActiveKey={[]}
@@ -138,6 +172,7 @@ function ToolCallGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (task
     >
       {messageContextHolder}
       <Collapse
+        destroyOnHidden
         ghost
         size="small"
         defaultActiveKey={defaultActiveKey}
@@ -233,7 +268,7 @@ function QuietToolRow({
         <span className={styles.quietRowMeta}>{toolDuration(toolCall)}</span>
         {hasDetails ? <DownOutlined className={styles.quietRowChevron} rotate={open ? 180 : 0} /> : null}
       </button>
-      {hasDetails ? (
+      {hasDetails && open ? (
         <div className={`${styles.quietRowBody} ${open ? styles.quietRowBodyOpen : ''}`}>
           <div className={styles.quietRowBodyInner}>
             <ToolDetails detail={detail} kind={kind} output={output} toolCall={toolCall} onAgentTaskOpen={onAgentTaskOpen} onObjectContentLoad={onObjectContentLoad} onCopy={async (text) => copyText(text, messageApi)} />
@@ -263,8 +298,7 @@ function ToolDetails({
   title?: string;
   toolCall: ToolCallViewModel;
 }) {
-  const [fullContent, setFullContent] = useState<{ title: string; text: string }>();
-  const [loadingObject, setLoadingObject] = useState(false);
+  const detailDrawer = useContext(ToolDetailDrawerContext);
   const shellLike = kind === 'shell';
   const stderr = toolStderr(toolCall);
   const failureReason = toolFailureReason(toolCall);
@@ -274,21 +308,9 @@ function ToolDetails({
   const command = toolCall.display?.command || toolCall.command;
   const agentTask = toolCall.agentTask;
   const outputRef = toolCall.outputRefs?.[0];
-  const openFullOutput = async (fallback: string) => {
-    if (!outputRef || !onObjectContentLoad) {
-      setFullContent({ title: '完整输出', text: fallback });
-      return;
-    }
-    setLoadingObject(true);
-    try {
-      const content = await onObjectContentLoad(outputRef);
-      setFullContent({ title: '完整输出', text: content });
-    } catch (error) {
-      setFullContent({ title: '完整输出读取失败', text: error instanceof Error ? error.message : String(error) });
-    } finally {
-      setLoadingObject(false);
-    }
-  };
+  const openContent = (request: ToolDetailContentRequest) => detailDrawer?.open(request);
+  const openObject = (refID: string, objectTitle: string, fallback: string) => openContent({ title: objectTitle, text: fallback, refID: onObjectContentLoad ? refID : undefined });
+  const openFullOutput = (fallback: string) => openContent({ title: '完整输出', text: fallback, refID: outputRef && onObjectContentLoad ? outputRef : undefined });
 
   return (
     <div className={styles.details} data-testid="tool-detail">
@@ -302,7 +324,7 @@ function ToolDetails({
           <Typography.Paragraph className={shellLike ? styles.commandLine : styles.detailText} copyable={false}>
             {boundedText(detail, 4, 1200).text}
           </Typography.Paragraph>
-          {boundedText(detail, 4, 1200).truncated ? <Button className={styles.viewFullButton} size="small" type="link" onClick={() => setFullContent({ title: title || '工具详情', text: detail })}>查看完整详情</Button> : null}
+          {boundedText(detail, 4, 1200).truncated ? <Button className={styles.viewFullButton} size="small" type="link" onClick={() => openContent({ title: title || '工具详情', text: detail })}>查看完整详情</Button> : null}
           {(workingDir || (!shellLike && targets.length > 0)) && (
             <div className={styles.detailRows}>
               {workingDir && (
@@ -319,12 +341,12 @@ function ToolDetails({
               )}
             </div>
           )}
-          {shellLike && command && command !== detail && <ToolTextPreview label="完整命令" text={command} onViewFull={setFullContent} />}
+          {shellLike && command && command !== detail && <ToolTextPreview label="完整命令" text={command} onViewFull={openContent} />}
           {output ? <ToolTextPreview label="完整输出" text={output} onViewFull={(content) => void openFullOutput(content.text)} /> : shellLike && toolCall.status === 'completed' && !outputRef ? <div className={styles.emptyOutput}>无输出</div> : null}
-          {outputRef && <Button className={styles.viewFullButton} loading={loadingObject} size="small" type="link" onClick={() => void openFullOutput(output)}>读取完整输出</Button>}
-          {failureReason && failureReason !== stderr && failureReason !== toolCall.error && <ToolTextPreview error label="完整失败信息" text={failureReason} onViewFull={setFullContent} />}
-          {stderr && <ToolTextPreview error label="完整错误输出" text={stderr} onViewFull={setFullContent} />}
-          {toolCall.error && <ToolTextPreview error label="完整错误" text={toolCall.error} onViewFull={setFullContent} />}
+          {outputRef && <Button className={styles.viewFullButton} size="small" type="link" onClick={() => openFullOutput(output)}>读取完整输出</Button>}
+          {failureReason && failureReason !== stderr && failureReason !== toolCall.error && <ToolTextPreview error label="完整失败信息" text={failureReason} onViewFull={openContent} />}
+          {stderr && <ToolTextPreview error label="完整错误输出" text={stderr} onViewFull={openContent} />}
+          {toolCall.error && <ToolTextPreview error label="完整错误" text={toolCall.error} onViewFull={openContent} />}
         </div>
       )}
 
@@ -335,11 +357,14 @@ function ToolDetails({
             <Button aria-label="复制工具输出" className={styles.copyButton} icon={<CopyOutlined />} size="small" type="text" onClick={() => void onCopy(output)} />
           </div>
           <ToolTextPreview label="完整输出" text={output} onViewFull={(content) => void openFullOutput(content.text)} />
-          {outputRef && <Button className={styles.viewFullButton} loading={loadingObject} size="small" type="link" onClick={() => void openFullOutput(output)}>读取完整输出</Button>}
+          {outputRef && <Button className={styles.viewFullButton} size="small" type="link" onClick={() => openFullOutput(output)}>读取完整输出</Button>}
         </div>
       )}
 
-      {!detail && !output && outputRef && <Button className={styles.viewFullButton} loading={loadingObject} size="small" type="link" onClick={() => void openFullOutput('')}>读取完整输出</Button>}
+      {!detail && !output && outputRef && <Button className={styles.viewFullButton} size="small" type="link" onClick={() => openFullOutput('')}>读取完整输出</Button>}
+
+      {toolCall.inputRef && <Button className={styles.viewFullButton} size="small" type="link" onClick={() => openObject(toolCall.inputRef!, 'Full tool input', toolCall.inputSummary || '')}>Read full input</Button>}
+      {toolCall.commandRef && toolCall.commandRef !== toolCall.inputRef && <Button className={styles.viewFullButton} size="small" type="link" onClick={() => openObject(toolCall.commandRef!, 'Full command', command || '')}>Read full command</Button>}
 
       {(toolCall.risk || toolCall.policyMode || toolCall.policyReason || toolCall.policyTargetSummary || toolExitCode(toolCall) !== undefined || toolRefCount(toolCall) > 0 || targets.length > 0) && (
         <div className={styles.meta}>
@@ -354,9 +379,6 @@ function ToolDetails({
           {toolCall.policyTargetSummary && <Tag>{toolCall.policyTargetSummary}</Tag>}
         </div>
       )}
-      <Drawer destroyOnHidden open={Boolean(fullContent)} placement="right" title={fullContent?.title} width="min(720px, 92vw)" onClose={() => setFullContent(undefined)}>
-        {fullContent ? <pre className={styles.fullOutput}>{fullContent.text}</pre> : null}
-      </Drawer>
     </div>
   );
 }
@@ -531,7 +553,7 @@ function toolExitCode(toolCall: ToolCallViewModel) {
 }
 
 function toolRefCount(toolCall: ToolCallViewModel) {
-  return toolOutputRefCount(toolCall) + toolArtifactCount(toolCall) + toolDiffCount(toolCall);
+  return toolOutputRefCount(toolCall) + toolArtifactCount(toolCall) + toolDiffCount(toolCall) + (toolCall.inputRef ? 1 : 0) + (toolCall.commandRef && toolCall.commandRef !== toolCall.inputRef ? 1 : 0);
 }
 
 function toolOutputRefCount(toolCall: ToolCallViewModel) {
@@ -568,6 +590,8 @@ function hasToolDetails(toolCall: ToolCallViewModel, detail?: string, output?: s
       toolCall.policyTargetSummary ||
       toolCall.display?.workingDir ||
       toolOutputRefCount(toolCall) ||
+      toolCall.inputRef ||
+      toolCall.commandRef ||
       toolTargets(toolCall).length ||
       toolArtifactCount(toolCall) ||
       toolDiffCount(toolCall),

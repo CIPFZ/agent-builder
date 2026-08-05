@@ -450,6 +450,7 @@ func (r *runtimeService) appendRuntimeEventLocked(event RuntimeEvent) RuntimeEve
 		event.Payload = map[string]any{}
 	}
 	event.Payload = redactRuntimePayload(event.Payload)
+	r.reduceActiveSessionStatusLocked(event)
 	// Ephemeral runtime events (streaming text deltas etc.) never touch the
 	// ring buffer or the persisted event store — they are pushed straight
 	// to subscribers as advisory increments. They also do not consume

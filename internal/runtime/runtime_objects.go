@@ -15,6 +15,7 @@ import (
 
 const (
 	runtimeObjectKindOutput                = "output"
+	runtimeObjectKindInput                 = "input"
 	runtimeObjectKindArtifact              = "artifact"
 	runtimeObjectKindDiff                  = "diff"
 	runtimeObjectKindCompactOriginalOutput = "compact_original_output"

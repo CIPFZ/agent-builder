@@ -3,6 +3,7 @@ import '@xterm/xterm/css/xterm.css';
 import type { TerminalEventViewModel, TerminalViewModel } from '../../runtime/workbenchTypes.ts';
 import {
   attachTerminalRuntime,
+  disposeTerminalRuntime,
   flushTerminalInput,
   getTerminalRuntime,
   startTerminalSubscription,
@@ -80,6 +81,15 @@ export function TerminalPane({ terminal, title, onInput, onResize, onSubscribe, 
       return;
     }
     terminalRuntimeByID(terminalID)?.xterm.focus();
+  }, [terminalID]);
+
+  useEffect(() => {
+    if (!terminalID) return undefined;
+    // A backend terminal may continue running across tab and Session switches,
+    // but its renderer, input timer, and detailed Wails subscription belong
+    // only to the currently mounted pane. Replay reconstructs the renderer
+    // when the terminal becomes visible again.
+    return () => disposeTerminalRuntime(terminalID);
   }, [terminalID]);
 
   return (

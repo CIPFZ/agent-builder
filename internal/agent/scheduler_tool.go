@@ -12,6 +12,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/CIPFZ/agent-builder/internal/agent/tools"
 	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/shell"
 )
 
 type schedulerTool struct {
@@ -126,8 +127,39 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 	record.SandboxError = decision.SandboxError
 	record.PolicyHeadless = decision.Headless
 	record.PolicyHeadlessReason = decision.HeadlessReason
+	if record.TurnID != "" {
+		ctx = permission.WithTurnID(ctx, record.TurnID)
+	}
+	if decision.Decision == string(permission.PolicyAllow) && call.ID != "" {
+		ctx = permission.WithHookApproval(ctx, call.ID)
+	}
+	if decision.SandboxDecisionID != "" {
+		ctx = tools.WithSandboxMetadata(ctx, tools.SandboxContextMetadata{
+			DecisionID: decision.SandboxDecisionID,
+			Mode:       decision.SandboxMode,
+			Status:     decision.SandboxStatus,
+			Executor:   decision.SandboxExecutor,
+			Reason:     decision.SandboxReason,
+			Error:      decision.SandboxError,
+		})
+	}
+	resourceClass := toolResourceClass(record.Source, record.Name)
+	if resourceClass != "" {
+		if queueRecorder, ok := s.recorder.(SchedulerQueueRecorder); ok && record.ID != "" {
+			if err := queueRecorder.ToolCallQueued(ctx, record); err != nil {
+				_ = s.recorder.ToolCallFailed(ctx, SchedulerToolCallResult{ToolCallID: call.ID, SessionID: record.SessionID, TurnID: record.TurnID, MessageID: record.MessageID, Name: record.Name, Source: record.Source, Error: err.Error(), IsError: true})
+				return fantasy.NewTextErrorResponse(err.Error()), nil
+			}
+		}
+	}
+	releaseResource, admissionErr := acquireToolResource(ctx, record.Source, record.Name, int64(len(call.Input)))
+	if admissionErr != nil {
+		_ = s.recorder.ToolCallCancelled(ctx, SchedulerToolCallResult{ToolCallID: call.ID, SessionID: record.SessionID, TurnID: record.TurnID, MessageID: record.MessageID, Name: record.Name, Source: record.Source, Error: admissionErr.Error(), IsError: true, Cancelled: true})
+		return fantasy.ToolResponse{}, admissionErr
+	}
 	if record.ID != "" {
 		if err := s.recorder.ToolCallStarted(ctx, record); err != nil {
+			releaseResource()
 			_ = s.recorder.ToolCallFailed(ctx, SchedulerToolCallResult{
 				ToolCallID:           call.ID,
 				SessionID:            record.SessionID,
@@ -160,25 +192,11 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 			return fantasy.NewTextErrorResponse(err.Error()), nil
 		}
 	}
-
-	if record.TurnID != "" {
-		ctx = permission.WithTurnID(ctx, record.TurnID)
-	}
-	if decision.Decision == string(permission.PolicyAllow) && call.ID != "" {
-		ctx = permission.WithHookApproval(ctx, call.ID)
-	}
-	if decision.SandboxDecisionID != "" {
-		ctx = tools.WithSandboxMetadata(ctx, tools.SandboxContextMetadata{
-			DecisionID: decision.SandboxDecisionID,
-			Mode:       decision.SandboxMode,
-			Status:     decision.SandboxStatus,
-			Executor:   decision.SandboxExecutor,
-			Reason:     decision.SandboxReason,
-			Error:      decision.SandboxError,
-		})
-	}
 	resp, err := s.inner.Run(ctx, call)
 	metadata := schedulerResponseMetadata(resp.Metadata)
+	if resourceClass != ToolResourceShell || metadata.JobID == "" || metadata.JobStatus != "running" || !retainShellResourceLease(metadata.JobID, releaseResource) {
+		releaseResource()
+	}
 	result := SchedulerToolCallResult{
 		ToolCallID:              call.ID,
 		SessionID:               record.SessionID,
@@ -243,6 +261,18 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 		return resp, recordErr
 	}
 	return resp, err
+}
+
+func retainShellResourceLease(jobID string, release func()) bool {
+	backgroundShell, ok := shell.GetBackgroundShellManager().Get(jobID)
+	if !ok {
+		return false
+	}
+	go func() {
+		backgroundShell.Wait()
+		release()
+	}()
+	return true
 }
 
 type mcpToolIdentity interface {

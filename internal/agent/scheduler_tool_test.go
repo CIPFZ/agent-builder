@@ -3,12 +3,95 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/shell"
 	"github.com/stretchr/testify/require"
 )
+
+type queuedSchedulerRecorder struct {
+	decision  SchedulerToolPolicyDecision
+	mu        sync.Mutex
+	events    []string
+	queued    chan SchedulerToolCall
+	started   chan SchedulerToolCall
+	cancelled chan SchedulerToolCallResult
+}
+
+func newQueuedSchedulerRecorder() *queuedSchedulerRecorder {
+	return &queuedSchedulerRecorder{
+		decision:  SchedulerToolPolicyDecision{Decision: string(permission.PolicyAllow), Risk: string(permission.RiskExecute), Mode: string(permission.PolicyModeAutoRead)},
+		queued:    make(chan SchedulerToolCall, 1),
+		started:   make(chan SchedulerToolCall, 1),
+		cancelled: make(chan SchedulerToolCallResult, 1),
+	}
+}
+
+func (r *queuedSchedulerRecorder) addEvent(event string) {
+	r.mu.Lock()
+	r.events = append(r.events, event)
+	r.mu.Unlock()
+}
+
+func (r *queuedSchedulerRecorder) EvaluateToolCall(context.Context, SchedulerToolCall) (SchedulerToolPolicyDecision, error) {
+	return r.decision, nil
+}
+func (r *queuedSchedulerRecorder) ToolCallQueued(_ context.Context, call SchedulerToolCall) error {
+	r.addEvent("queued")
+	r.queued <- call
+	return nil
+}
+func (r *queuedSchedulerRecorder) ToolCallStarted(_ context.Context, call SchedulerToolCall) error {
+	r.addEvent("started")
+	r.started <- call
+	return nil
+}
+func (r *queuedSchedulerRecorder) ToolCallOutput(context.Context, SchedulerToolCallResult) error {
+	return nil
+}
+func (r *queuedSchedulerRecorder) ToolCallCompleted(context.Context, SchedulerToolCallResult) error {
+	r.addEvent("completed")
+	return nil
+}
+func (r *queuedSchedulerRecorder) ToolCallFailed(context.Context, SchedulerToolCallResult) error {
+	return nil
+}
+func (r *queuedSchedulerRecorder) ToolCallCancelled(_ context.Context, result SchedulerToolCallResult) error {
+	r.addEvent("cancelled")
+	r.cancelled <- result
+	return nil
+}
+
+type testToolResourceGovernor struct {
+	sem map[string]chan struct{}
+}
+
+func newTestToolResourceGovernor(limits map[string]int) *testToolResourceGovernor {
+	governor := &testToolResourceGovernor{sem: make(map[string]chan struct{}, len(limits))}
+	for class, limit := range limits {
+		governor.sem[class] = make(chan struct{}, limit)
+	}
+	return governor
+}
+
+func (g *testToolResourceGovernor) AcquireTool(ctx context.Context, class string, _ int64) (func(), error) {
+	sem := g.sem[class]
+	if sem == nil {
+		return func() {}, nil
+	}
+	select {
+	case sem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	var once sync.Once
+	return func() { once.Do(func() { <-sem }) }, nil
+}
 
 type recordingSchedulerRecorder struct {
 	decision    agentPolicyDecision
@@ -258,4 +341,118 @@ func TestSchedulerToolReturnsFinalRecorderError(t *testing.T) {
 	_, err := tool.Run(t.Context(), fantasy.ToolCall{ID: "tool-1", Name: "view", Input: "{}"})
 	require.EqualError(t, err, "complete failed")
 	require.Equal(t, "ok", recorder.completed.ModelVisibleContent)
+}
+
+func TestSchedulerToolRecordsQueuedBeforeResourceAdmission(t *testing.T) {
+	governor := newTestToolResourceGovernor(map[string]int{ToolResourceShell: 1})
+	occupied, err := governor.AcquireTool(context.Background(), ToolResourceShell, 0)
+	require.NoError(t, err)
+	recorder := newQueuedSchedulerRecorder()
+	inner := &fakeTool{name: "bash", resp: fantasy.NewTextResponse("ok")}
+	tool := newSchedulerTool(inner, recorder)
+	done := make(chan error, 1)
+	go func() {
+		_, runErr := tool.Run(WithToolResourceGovernor(context.Background(), governor), fantasy.ToolCall{ID: "tool-queued", Name: "bash", Input: `{"command":"go test ./..."}`})
+		done <- runErr
+	}()
+
+	select {
+	case call := <-recorder.queued:
+		require.Equal(t, "tool-queued", call.ID)
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool call was not recorded as queued")
+	}
+	select {
+	case <-recorder.started:
+		t.Fatal("tool call started before resource admission")
+	case <-time.After(50 * time.Millisecond):
+	}
+	occupied()
+	select {
+	case <-recorder.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool call did not start after resource release")
+	}
+	require.NoError(t, <-done)
+	require.True(t, inner.called)
+	recorder.mu.Lock()
+	require.Equal(t, []string{"queued", "started", "completed"}, recorder.events)
+	recorder.mu.Unlock()
+}
+
+func TestSchedulerToolCancelledDuringAdmissionNeverRunsInnerTool(t *testing.T) {
+	governor := newTestToolResourceGovernor(map[string]int{ToolResourceShell: 1})
+	occupied, err := governor.AcquireTool(context.Background(), ToolResourceShell, 0)
+	require.NoError(t, err)
+	defer occupied()
+	recorder := newQueuedSchedulerRecorder()
+	inner := &fakeTool{name: "bash", resp: fantasy.NewTextResponse("unexpected")}
+	tool := newSchedulerTool(inner, recorder)
+	ctx, cancel := context.WithCancel(WithToolResourceGovernor(context.Background(), governor))
+	done := make(chan error, 1)
+	go func() {
+		_, runErr := tool.Run(ctx, fantasy.ToolCall{ID: "tool-cancelled", Name: "bash", Input: `{"command":"sleep 60"}`})
+		done <- runErr
+	}()
+
+	select {
+	case <-recorder.queued:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool call was not recorded as queued")
+	}
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+	select {
+	case result := <-recorder.cancelled:
+		require.True(t, result.Cancelled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelled admission was not recorded")
+	}
+	require.False(t, inner.called)
+	select {
+	case <-recorder.started:
+		t.Fatal("cancelled tool call was recorded as started")
+	default:
+	}
+}
+
+func TestSchedulerToolLightweightReadDoesNotEnterResourceQueue(t *testing.T) {
+	governor := newTestToolResourceGovernor(map[string]int{ToolResourceHeavy: 1})
+	occupied, err := governor.AcquireTool(context.Background(), ToolResourceHeavy, 0)
+	require.NoError(t, err)
+	defer occupied()
+	recorder := newQueuedSchedulerRecorder()
+	recorder.decision.Risk = string(permission.RiskRead)
+	inner := &fakeTool{name: "view", resp: fantasy.NewTextResponse("ok")}
+	tool := newSchedulerTool(inner, recorder)
+
+	resp, err := tool.Run(WithToolResourceGovernor(context.Background(), governor), fantasy.ToolCall{ID: "tool-read", Name: "view", Input: `{"file_path":"README.md"}`})
+	require.NoError(t, err)
+	require.Equal(t, "ok", resp.Content)
+	require.True(t, inner.called)
+	select {
+	case <-recorder.queued:
+		t.Fatal("lightweight read tool entered the heavy resource queue")
+	default:
+	}
+}
+
+func TestSchedulerToolRetainsShellLeaseForBackgroundProcess(t *testing.T) {
+	manager := shell.GetBackgroundShellManager()
+	backgroundShell, err := manager.Start(context.Background(), t.TempDir(), nil, "sleep 10", "resource lease test")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = manager.Kill(backgroundShell.ID) })
+
+	governor := newTestToolResourceGovernor(map[string]int{ToolResourceShell: 1})
+	recorder := newQueuedSchedulerRecorder()
+	response := fantasy.NewTextResponse("background shell started")
+	response.Metadata = fmt.Sprintf(`{"shell_id":%q,"status":"running","background":true}`, backgroundShell.ID)
+	inner := &fakeTool{name: "bash", resp: response}
+	tool := newSchedulerTool(inner, recorder)
+
+	_, err = tool.Run(WithToolResourceGovernor(context.Background(), governor), fantasy.ToolCall{ID: "tool-background", Name: "bash", Input: `{"command":"sleep 10","run_in_background":true}`})
+	require.NoError(t, err)
+	require.Len(t, governor.sem[ToolResourceShell], 1, "background process must retain its shell lease")
+	require.NoError(t, manager.Kill(backgroundShell.ID))
+	require.Eventually(t, func() bool { return len(governor.sem[ToolResourceShell]) == 0 }, 5*time.Second, time.Millisecond)
 }

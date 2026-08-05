@@ -18,6 +18,11 @@ import (
 )
 
 const (
+	runtimeCapabilityLoadRecordMaxEntries = 256
+	runtimeCapabilityLoadRecordTextBytes  = 2 * 1024
+)
+
+const (
 	capabilityStateUnavailable = "unavailable"
 	capabilityStateDisabled    = "disabled"
 	capabilityStateUnloaded    = "unloaded"
@@ -243,11 +248,38 @@ func capabilityPolicySummary(capability RuntimeCapability) string {
 }
 
 func (r *runtimeService) setCapabilityLoadRecord(id string, record runtimeCapabilityLoadRecord) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+	record.Diagnostics = preview(record.Diagnostics, runtimeCapabilityLoadRecordTextBytes)
+	record.Error = preview(record.Error, runtimeCapabilityLoadRecordTextBytes)
+	record.Reason = preview(record.Reason, runtimeCapabilityLoadRecordTextBytes)
+	if record.UpdatedAt <= 0 {
+		record.UpdatedAt = time.Now().UnixMilli()
+	}
 	r.mu.Lock()
 	if r.capabilityLoads == nil {
 		r.capabilityLoads = make(map[string]runtimeCapabilityLoadRecord)
 	}
 	r.capabilityLoads[id] = record
+	for len(r.capabilityLoads) > runtimeCapabilityLoadRecordMaxEntries {
+		oldestID := ""
+		var oldestUpdatedAt int64
+		for candidateID, candidate := range r.capabilityLoads {
+			if candidateID == id {
+				continue
+			}
+			if oldestID == "" || candidate.UpdatedAt < oldestUpdatedAt || (candidate.UpdatedAt == oldestUpdatedAt && candidateID < oldestID) {
+				oldestID = candidateID
+				oldestUpdatedAt = candidate.UpdatedAt
+			}
+		}
+		if oldestID == "" {
+			break
+		}
+		delete(r.capabilityLoads, oldestID)
+	}
 	r.mu.Unlock()
 }
 

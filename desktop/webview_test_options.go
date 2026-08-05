@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -17,6 +18,21 @@ const (
 	webviewTestUserDataEnv     = "AGENT_BUILDER_WEBVIEW_TEST_USER_DATA_DIR"
 	webviewTestOpenDevtoolsEnv = "AGENT_BUILDER_WEBVIEW_TEST_OPEN_DEVTOOLS"
 )
+
+func init() {
+	desktopMemoryGuardTreeHighWaterBytes = positiveInt64Env("AGENT_BUILDER_WEBVIEW_TEST_MEMORY_GUARD_TREE_BYTES", desktopMemoryGuardTreeHighWaterBytes)
+	desktopMemoryGuardWebViewHighWaterBytes = positiveInt64Env("AGENT_BUILDER_WEBVIEW_TEST_MEMORY_GUARD_WEBVIEW_BYTES", desktopMemoryGuardWebViewHighWaterBytes)
+	desktopMemoryGuardRequiredSamples = int(positiveInt64Env("AGENT_BUILDER_WEBVIEW_TEST_MEMORY_GUARD_REQUIRED_SAMPLES", int64(desktopMemoryGuardRequiredSamples)))
+	desktopMemoryGuardSampleInterval = time.Duration(positiveInt64Env("AGENT_BUILDER_WEBVIEW_TEST_MEMORY_GUARD_INTERVAL_MS", desktopMemoryGuardSampleInterval.Milliseconds())) * time.Millisecond
+}
+
+func positiveInt64Env(name string, fallback int64) int64 {
+	value, err := strconv.ParseInt(strings.TrimSpace(os.Getenv(name)), 10, 64)
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
 
 func desktopWebviewTestOptions() (application.WindowsOptions, application.WebviewWindowOptions, error) {
 	port := strings.TrimSpace(os.Getenv(webviewTestPortEnv))

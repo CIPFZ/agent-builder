@@ -76,6 +76,17 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 }
 
 func NewWithSchedulerRecorder(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr *skills.Manager, schedulerRecorder agent.SchedulerRecorder) (*App, error) {
+	return newApp(ctx, conn, store, skillsMgr, schedulerRecorder, false)
+}
+
+// NewRuntimeWithSchedulerRecorder creates the client-first Runtime variant.
+// MCP connections stay cold until an admitted Turn or explicit capability
+// request needs them; process-heavy workers also pass Browser admission.
+func NewRuntimeWithSchedulerRecorder(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr *skills.Manager, schedulerRecorder agent.SchedulerRecorder) (*App, error) {
+	return newApp(ctx, conn, store, skillsMgr, schedulerRecorder, true)
+}
+
+func newApp(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr *skills.Manager, schedulerRecorder agent.SchedulerRecorder, deferMCPStartup bool) (*App, error) {
 	q := db.New(conn)
 	sessions := session.NewService(q, conn)
 	messages := message.NewService(q)
@@ -110,7 +121,11 @@ func NewWithSchedulerRecorder(ctx context.Context, conn *sql.DB, store *config.C
 	// Check for updates in the background.
 	go app.checkForUpdates(ctx)
 
-	go mcp.Initialize(ctx, app.Permissions, store)
+	mcpStartupCtx := ctx
+	if deferMCPStartup {
+		mcpStartupCtx = mcp.WithDeferredStartup(ctx)
+	}
+	go mcp.Initialize(mcpStartupCtx, app.Permissions, store)
 
 	// Release the shared database connection on shutdown. The pool
 	// closes the underlying *sql.DB when the last reference is released.

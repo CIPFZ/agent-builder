@@ -22,8 +22,14 @@ export interface CanonicalConversationStore {
   recovery?: CanonicalStoreRecovery;
 }
 
+export interface CanonicalConversationSource {
+  getSnapshot: () => CanonicalConversationStore | undefined;
+  subscribe: (listener: () => void) => () => void;
+}
+
 export interface CanonicalStreamingMessage { messageId: string; turnId?: string; text?: string; textLength?: number; reasoning?: string; reasoningLength?: number; updatedAt: number }
 const MAX_LIVE_MESSAGE_BYTES = 64 * 1024;
+const utf8Encoder = new TextEncoder();
 
 export function createCanonicalConversationStore(sessionId = ''): CanonicalConversationStore { return { schemaVersion: CANONICAL_CONVERSATION_SCHEMA_VERSION, sessionId, cursor: '0', scope: 'full', turnsById: {}, messagesById: {}, assistantStepsById: {}, toolCallsById: {}, toolResultsById: {}, permissionsById: {}, todoPlansById: {}, agentTasksById: {}, noticesById: {}, streamingByMessageId: {}, entityKeysByTurnId: {}, tombstoneRevisionByKey: {} } }
 
@@ -128,7 +134,7 @@ function reconcileStreamingMessages(store: CanonicalConversationStore) {
   }
 }
 
-function utf8Length(value: string) { return new TextEncoder().encode(value).length; }
+function utf8Length(value: string) { return utf8Encoder.encode(value).length; }
 
 function preserveNewerThanSnapshot(next: CanonicalConversationStore, previous: CanonicalConversationStore, cursor: string) { for (const kind of entityKinds) { for (const entity of Object.values(entityMap(previous, kind))) if (compareDecimal(entity.revision, cursor) > 0) setEntity(next, kind, entity); } for (const [key, revision] of Object.entries(previous.tombstoneRevisionByKey)) if (compareDecimal(revision, cursor) > 0) next.tombstoneRevisionByKey[key] = revision; }
 function upsertEntity(store: CanonicalConversationStore, kind: CanonicalEntityType, entity: CanonicalEntity): CanonicalConversationStore { const current = entityFromStore(store, kind, entity.id); const tombstone = store.tombstoneRevisionByKey[entityKey(kind, entity.id)]; if (!current && tombstone === undefined) { setEntity(store, kind, entity); return store; } const known = maxRevision(current?.revision, tombstone); const relation = compareDecimal(entity.revision, known); if (relation < 0) return store; if (relation === 0) { if (current && equivalentEntity(current, entity)) return store; return { ...store, recovery: { reason: 'revision_conflict', entityKey: entityKey(kind, entity.id) } }; } setEntity(store, kind, entity); delete store.tombstoneRevisionByKey[entityKey(kind, entity.id)]; return store; }

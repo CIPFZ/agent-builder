@@ -3,9 +3,11 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -157,7 +159,9 @@ func TestCanonicalConversationStreamForwardsEphemeralTextDeltaWithoutPersistingI
 		t.Fatal("canonical stream did not start")
 	}
 
-	h.service.publishRuntimeEvent(newOutputTextDeltaEvent(time.Now(), session.ID, "message-live", "turn-live", "reasoning", "thinking", len("thinking")))
+	h.service.publishRuntimeEvent(newOutputTextDeltaEvent(time.Now(), session.ID, "message-live", "turn-live", "reasoning", "thi", len("thi")))
+	h.service.publishRuntimeEvent(newOutputTextDeltaEvent(time.Now(), session.ID, "message-live", "turn-live", "reasoning", "nk", len("think")))
+	h.service.publishRuntimeEvent(newOutputTextDeltaEvent(time.Now(), session.ID, "message-live", "turn-live", "reasoning", "ing", len("thinking")))
 	select {
 	case batch := <-stream:
 		if len(batch.Deltas) != 1 {
@@ -170,7 +174,7 @@ func TestCanonicalConversationStreamForwardsEphemeralTextDeltaWithoutPersistingI
 		if batch.Cursor != base.Cursor || batch.AfterCursor != base.Cursor {
 			t.Fatalf("ephemeral delta advanced durable cursor: %#v", batch)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("ephemeral delta was not forwarded")
 	}
 
@@ -312,6 +316,165 @@ func TestCanonicalConversationBatchesKeepRawSequenceAtomicAndAdvanceEmptyWaterma
 			t.Fatalf("group split sequences: %#v", group)
 		}
 	}
+}
+
+func TestCanonicalConversationCatchupAppliesDefaultRawSequenceLimit(t *testing.T) {
+	h := newRuntimeScenarioHarness(t)
+	store := newRuntimeConversationEventStoreV2(h.service.eventStore.db)
+	const sessionID = "bounded-raw-session"
+	if err := store.initializeCheckpoint(h.ctx, sessionID, 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	for sequence := int64(1); sequence <= runtimeConversationV2MaxRawEventLimit+2; sequence++ {
+		if err := store.commitBatch(h.ctx, sessionID, sequence, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, err := h.service.SessionConversationEventsV2(h.ctx, sessionID, RuntimeCanonicalConversationEventsRequestV2{After: "0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.SnapshotRequired || first.Cursor != strconv.Itoa(runtimeConversationV2DefaultRawEventLimit) || len(first.Events) != 0 {
+		t.Fatalf("default bounded catch-up=%#v", first)
+	}
+	second, err := h.service.SessionConversationEventsV2(h.ctx, sessionID, RuntimeCanonicalConversationEventsRequestV2{After: first.Cursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.SnapshotRequired || second.Cursor != strconv.Itoa(runtimeConversationV2MaxRawEventLimit) {
+		t.Fatalf("remaining catch-up=%#v", second)
+	}
+	clamped, err := h.service.SessionConversationEventsV2(h.ctx, sessionID, RuntimeCanonicalConversationEventsRequestV2{After: "0", LimitRawEvents: runtimeConversationV2MaxRawEventLimit + 1_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clamped.SnapshotRequired || clamped.Cursor != strconv.Itoa(runtimeConversationV2MaxRawEventLimit) {
+		t.Fatalf("clamped catch-up=%#v", clamped)
+	}
+}
+
+func TestCanonicalConversationCatchupDoesNotSplitEntityHeavyRawSequence(t *testing.T) {
+	h := newRuntimeScenarioHarness(t)
+	store := newRuntimeConversationEventStoreV2(h.service.eventStore.db)
+	const sessionID = "bounded-entity-session"
+	if err := store.initializeCheckpoint(h.ctx, sessionID, 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.commitBatch(h.ctx, sessionID, 1, canonicalMessageEventsForBatch(sessionID, 1, 200, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.commitBatch(h.ctx, sessionID, 2, canonicalMessageEventsForBatch(sessionID, 2, 100, 0)); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := h.service.SessionConversationEventsV2(h.ctx, sessionID, RuntimeCanonicalConversationEventsRequestV2{After: "0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.SnapshotRequired || first.Cursor != "1" || len(first.Events) != 200 {
+		t.Fatalf("first atomic entity batch=%#v", first)
+	}
+	encoded, err := json.Marshal(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) >= runtimeConversationV2MaxEncodedBatchBytes {
+		t.Fatalf("encoded batch bytes=%d", len(encoded))
+	}
+	second, err := h.service.SessionConversationEventsV2(h.ctx, sessionID, RuntimeCanonicalConversationEventsRequestV2{After: first.Cursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.SnapshotRequired || second.Cursor != "2" || len(second.Events) != 100 {
+		t.Fatalf("second atomic entity batch=%#v", second)
+	}
+}
+
+func TestCanonicalConversationCatchupRequiresSnapshotForOversizedRawSequence(t *testing.T) {
+	tests := []struct {
+		name    string
+		count   int
+		content int
+	}{
+		{name: "entity count", count: runtimeConversationV2MaxEntityCount + 1},
+		{name: "encoded bytes", count: 1, content: runtimeConversationV2MaxEncodedBatchBytes},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			h := newRuntimeScenarioHarness(t)
+			store := newRuntimeConversationEventStoreV2(h.service.eventStore.db)
+			sessionID := "oversized-" + strings.ReplaceAll(test.name, " ", "-")
+			if err := store.initializeCheckpoint(h.ctx, sessionID, 0, ""); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.commitBatch(h.ctx, sessionID, 1, canonicalMessageEventsForBatch(sessionID, 1, test.count, test.content)); err != nil {
+				t.Fatal(err)
+			}
+			resp, err := h.service.SessionConversationEventsV2(h.ctx, sessionID, RuntimeCanonicalConversationEventsRequestV2{After: "0"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !resp.SnapshotRequired || resp.Reason != "batch_too_large" || resp.Cursor != "0" || len(resp.Events) != 0 {
+				t.Fatalf("oversized raw sequence response=%#v", resp)
+			}
+		})
+	}
+}
+
+func TestCanonicalConversationCatchupReportsRetentionForStaleCursor(t *testing.T) {
+	h := newRuntimeScenarioHarness(t)
+	store := newRuntimeConversationEventStoreV2(h.service.eventStore.db)
+	const sessionID = "retained-session"
+	if err := store.initializeCheckpoint(h.ctx, sessionID, 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	for sequence := int64(1); sequence <= 3; sequence++ {
+		if err := store.commitBatch(h.ctx, sessionID, sequence, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := h.service.eventStore.db.ExecContext(h.ctx, `DELETE FROM conversation_projector_batches_v2 WHERE session_id=? AND raw_sequence=1`, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.advanceRetentionFloor(h.ctx, sessionID, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := h.service.SessionConversationEventsV2(h.ctx, sessionID, RuntimeCanonicalConversationEventsRequestV2{After: "0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.SnapshotRequired || resp.Reason != "retention" || resp.Cursor != "0" {
+		t.Fatalf("stale cursor response=%#v", resp)
+	}
+}
+
+func canonicalMessageEventsForBatch(sessionID string, sequence int64, count, contentBytes int) []RuntimeConversationEntityEventV2 {
+	events := make([]RuntimeConversationEntityEventV2, 0, count)
+	content := strings.Repeat("x", contentBytes)
+	revision := strconv.FormatInt(sequence, 10)
+	for index := 0; index < count; index++ {
+		id := fmt.Sprintf("message-%d-%d", sequence, index)
+		message := RuntimeCanonicalMessage{
+			RuntimeConversationEntityMeta: RuntimeConversationEntityMeta{ID: id, SessionID: sessionID, TurnID: "turn-1", ActivitySequence: revision, Revision: revision, CreatedAt: 1, UpdatedAt: 1},
+			Role:                          "assistant", Status: "completed", Content: content,
+		}
+		events = append(events, RuntimeConversationEntityEventV2{
+			SchemaVersion: RuntimeConversationSchemaVersion,
+			ID:            fmt.Sprintf("event-%d-%d", sequence, index),
+			SessionID:     sessionID,
+			TurnID:        "turn-1",
+			Sequence:      revision,
+			CreatedAt:     1,
+			EntityType:    RuntimeConversationEntityMessage,
+			EntityID:      id,
+			Operation:     RuntimeConversationOperationUpsert,
+			Revision:      revision,
+			Message:       &message,
+		})
+	}
+	return events
 }
 
 func TestCanonicalMessageDeleteProducesRecoverableTombstones(t *testing.T) {
@@ -756,6 +919,35 @@ func TestSubscribeCanonicalConversationEventsV2DeliversAtomicWatermark(t *testin
 	}
 }
 
+func TestSubscribeCanonicalConversationEventsV2DrainsBoundedCatchupBeforeLive(t *testing.T) {
+	h := newRuntimeScenarioHarness(t)
+	store := newRuntimeConversationEventStoreV2(h.service.eventStore.db)
+	const sessionID = "bounded-subscription-session"
+	if err := store.initializeCheckpoint(h.ctx, sessionID, 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	for sequence := int64(1); sequence <= runtimeConversationV2DefaultRawEventLimit+2; sequence++ {
+		if err := store.commitBatch(h.ctx, sessionID, sequence, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(h.ctx)
+	defer cancel()
+	batches, stop := h.service.SubscribeSessionConversationEventsV2(ctx, sessionID, "0")
+	defer stop()
+	for index, want := range []string{strconv.Itoa(runtimeConversationV2DefaultRawEventLimit), strconv.Itoa(runtimeConversationV2DefaultRawEventLimit + 2)} {
+		select {
+		case batch := <-batches:
+			if batch.SnapshotRequired || batch.Cursor != want {
+				t.Fatalf("catch-up batch %d=%#v", index, batch)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("catch-up batch %d timed out", index)
+		}
+	}
+}
+
 func TestSubscribeCanonicalConversationEventsV2OverflowIsObservable(t *testing.T) {
 	out := make(chan RuntimeCanonicalConversationEventBatchV2, 1)
 	out <- RuntimeCanonicalConversationEventBatchV2{Cursor: "old"}
@@ -779,6 +971,48 @@ func TestSubscribeCanonicalConversationEventsV2DropsOnlyLiveDeltaOnBackpressure(
 	kept := <-out
 	if len(kept.Events) != 1 || kept.Events[0].EntityID != "turn-1" || kept.SnapshotRequired {
 		t.Fatalf("live delta displaced durable batch: %#v", kept)
+	}
+}
+
+func TestSendCanonicalConversationBatchV2ReplacesOversizedDurablePayload(t *testing.T) {
+	out := make(chan RuntimeCanonicalConversationEventBatchV2, 1)
+	batch := RuntimeCanonicalConversationEventBatchV2{
+		SchemaVersion: RuntimeConversationSchemaVersion,
+		SessionID:     "session-1",
+		AfterCursor:   "0",
+		Cursor:        "1",
+		Events:        canonicalMessageEventsForBatch("session-1", 1, 1, runtimeConversationV2MaxEncodedBatchBytes),
+	}
+	if keep := sendCanonicalConversationBatchV2(context.Background(), out, batch, "session-1", "0"); keep {
+		t.Fatal("oversized durable payload kept stream active")
+	}
+	reset := <-out
+	if !reset.SnapshotRequired || reset.Reason != "batch_too_large" || reset.Cursor != "0" || len(reset.Events) != 0 {
+		t.Fatalf("oversized durable reset=%#v", reset)
+	}
+	encoded, err := json.Marshal(reset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) >= runtimeConversationV2MaxEncodedBatchBytes {
+		t.Fatalf("reset bytes=%d", len(encoded))
+	}
+}
+
+func TestSendCanonicalConversationBatchV2DropsOversizedAdvisoryDelta(t *testing.T) {
+	out := make(chan RuntimeCanonicalConversationEventBatchV2, 1)
+	batch := RuntimeCanonicalConversationEventBatchV2{
+		SchemaVersion: RuntimeConversationSchemaVersion,
+		SessionID:     "session-1",
+		Cursor:        "1",
+		Events:        []RuntimeConversationEntityEventV2{},
+		Deltas:        []RuntimeConversationTextDeltaV2{{MessageID: "message-1", PartType: "text", Delta: strings.Repeat("x", runtimeConversationV2MaxEncodedBatchBytes), ContentLength: runtimeConversationV2MaxEncodedBatchBytes}},
+	}
+	if keep := sendCanonicalConversationBatchV2(context.Background(), out, batch, "session-1", "1"); !keep {
+		t.Fatal("oversized advisory delta stopped durable stream")
+	}
+	if len(out) != 0 {
+		t.Fatalf("oversized advisory delta was queued: %#v", <-out)
 	}
 }
 

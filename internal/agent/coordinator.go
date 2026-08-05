@@ -145,6 +145,10 @@ type SchedulerRecorder interface {
 	ToolCallCancelled(context.Context, SchedulerToolCallResult) error
 }
 
+type SchedulerQueueRecorder interface {
+	ToolCallQueued(context.Context, SchedulerToolCall) error
+}
+
 type ToolResultPersistenceRequest struct {
 	SessionID  string
 	TurnID     string

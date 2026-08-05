@@ -122,11 +122,11 @@ func cancelUnfinishedRuntimeToolCalls(ctx context.Context, calls *scheduler.Sche
 func listUnfinishedRuntimeToolCalls(ctx context.Context, db *sql.DB) ([]scheduler.ToolCall, error) {
 	rows, err := db.QueryContext(ctx, `
 SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
-    job_id, command, risk, policy_reason, policy_mode, policy_profile, policy_headless,
+    job_id, command, command_ref, command_byte_length, risk, policy_reason, policy_mode, policy_profile, policy_headless,
     policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value, policy_target_summary,
     shell_risk, shell_reason, sandbox_decision_id, sandbox_mode, sandbox_status,
     sandbox_executor, sandbox_reason, sandbox_error, exit_code, job_status, job_started_at, job_finished_at,
-    input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+    input_summary, input_ref, input_byte_length, output_summary, model_content, structured_output, stdout, stderr, is_error,
     output_refs_json, artifact_refs_json, diff_refs_json,
     compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error

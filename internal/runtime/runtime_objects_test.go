@@ -141,6 +141,77 @@ func TestRuntimeRecorderLargeStdoutCreatesRefAndPreservesModelResult(t *testing.
 	}
 }
 
+func TestCanonicalLargeToolInputUsesBoundedPreviewsAndReadableRefs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	service := newTestRuntimeServiceWithRefs(t)
+	recorder := &runtimeSchedulerRecorder{service: service}
+	const inputSentinel = "FULL_WRITE_BODY_MUST_NOT_ENTER_CANONICAL"
+	const commandSentinel = "FULL_COMMAND_TAIL_MUST_NOT_ENTER_CANONICAL"
+	rawInputBytes, err := json.Marshal(map[string]string{
+		"file_path": "large.txt",
+		"content":   strings.Repeat("body-", 4000) + inputSentinel,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawInput := string(rawInputBytes)
+	rawCommand := "printf " + strings.Repeat("x", 4000) + commandSentinel
+	if err := recorder.ToolCallStarted(ctx, agent.SchedulerToolCall{
+		ID: "tool-large-input", SessionID: "session-1", TurnID: "turn-1", Name: "write", Source: string(scheduler.ToolSourceBuiltin), InputSummary: rawInput, Command: rawCommand,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := service.toolCalls.GetCall(ctx, "tool-large-input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.InputSummary) > canonicalToolPreviewLimit || len(stored.Command) > canonicalToolPreviewLimit || stored.InputRef == "" || stored.CommandRef == "" {
+		t.Fatalf("stored tool call is not bounded/ref-backed: %#v", stored)
+	}
+	if stored.InputByteLength != len(rawInput) || stored.CommandByteLength != len(rawCommand) {
+		t.Fatalf("stored lengths input=%d command=%d", stored.InputByteLength, stored.CommandByteLength)
+	}
+	snapshot, err := service.buildSessionConversationSnapshotV2(ctx, "session-1", RuntimeCanonicalConversationSnapshotRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %#v", snapshot.ToolCalls)
+	}
+	canonical := snapshot.ToolCalls[0]
+	if !canonical.InputTruncated || !canonical.CommandTruncated || canonical.InputRef != stored.InputRef || canonical.CommandRef != stored.CommandRef {
+		t.Fatalf("canonical tool call = %#v", canonical)
+	}
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), inputSentinel) || strings.Contains(string(encoded), commandSentinel) || len(canonical.InputPreview) > canonicalToolPreviewLimit || len(canonical.CommandPreview) > canonicalToolPreviewLimit {
+		t.Fatalf("full tool input leaked into canonical snapshot: %s", encoded)
+	}
+	baseline := RuntimeCanonicalConversationSnapshot{SchemaVersion: RuntimeConversationSchemaVersion, SessionID: "session-1", Cursor: "0", Scope: RuntimeConversationScopeFull, Turns: []RuntimeCanonicalTurn{}, Messages: []RuntimeCanonicalMessage{}, AssistantSteps: []RuntimeCanonicalAssistantStep{}, ToolCalls: []RuntimeCanonicalToolCall{}, ToolResults: []RuntimeCanonicalToolResult{}, Permissions: []RuntimeCanonicalPermission{}, TodoPlans: []RuntimeCanonicalTodoPlan{}, AgentTasks: []RuntimeCanonicalAgentTask{}, Notices: []RuntimeCanonicalNotice{}}
+	events, err := canonicalDiffEntityEvents(RuntimeEvent{ID: "raw-1", Sequence: 1, SessionID: "session-1"}, baseline, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventJSON, err := json.Marshal(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(eventJSON), inputSentinel) || strings.Contains(string(eventJSON), commandSentinel) {
+		t.Fatalf("full tool input leaked into canonical entity event: %s", eventJSON)
+	}
+	inputContent, err := service.ReadObjectContent(ctx, canonical.InputRef)
+	if err != nil || inputContent.Content != rawInput {
+		t.Fatalf("input object content length=%d err=%v", len(inputContent.Content), err)
+	}
+	commandContent, err := service.ReadObjectContent(ctx, canonical.CommandRef)
+	if err != nil || commandContent.Content != rawCommand {
+		t.Fatalf("command object content length=%d err=%v", len(commandContent.Content), err)
+	}
+}
+
 func TestToolResultGuardUsesProjectObjectWithoutWorkingDirectoryCopy(t *testing.T) {
 	t.Parallel()
 	ctx := context.WithValue(context.Background(), agenttools.TurnIDContextKey, "turn-1")

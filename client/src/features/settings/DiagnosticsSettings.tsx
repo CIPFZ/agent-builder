@@ -156,7 +156,7 @@ export function DiagnosticsSettings({ sessions, onLoad, onRunCheck, onSupportInf
         })}
       </div>
 
-      <Drawer title={selected?.title} width={560} open={Boolean(selected)} onClose={() => setSelected(undefined)}>
+      <Drawer destroyOnHidden title={selected?.title} width={560} open={Boolean(selected)} onClose={() => setSelected(undefined)}>
         {selected ? <Space direction="vertical" size="large" className={styles.drawerContent}>
           <Alert type={selected.resolved ? 'success' : 'error'} showIcon message={selected.summary} />
           <div className={styles.guidanceGrid}>

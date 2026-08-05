@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/CIPFZ/agent-builder/internal/agent"
 	agenttools "github.com/CIPFZ/agent-builder/internal/agent/tools"
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
 	"github.com/CIPFZ/agent-builder/internal/message"
@@ -64,6 +66,13 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 	if err = r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeChatResponse{}, err
 	}
+	// A queued Turn must always be reconstructable without retaining its prompt
+	// in a goroutine. Some embedded/test runtimes inject the authoritative Turn
+	// DB directly, so derive the colocated input store when lifecycle bootstrap
+	// has not installed it yet.
+	if r.userInputs.db == nil && r.turns.db != nil {
+		r.userInputs = newRuntimeUserInputStore(r.turns.db)
+	}
 
 	r.mu.Lock()
 	wsID := r.workspace.ID
@@ -75,10 +84,6 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 	sessionID := requestSessionID
 	if sessionID == "" && draftScope == "" && draftProjectID == "" {
 		sessionID = r.sessionID
-	}
-	runCtx := r.runtimeCtx
-	if runCtx == nil {
-		runCtx = context.Background()
 	}
 	r.mu.Unlock()
 	if sessionID == "" {
@@ -192,7 +197,7 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 		Model:         status.Model,
 		PromptPreview: preview(prompt, auditPreviewLimit),
 		StartedAt:     start.UnixMilli(),
-		Status:        "running",
+		Status:        turnStatusQueued,
 		UsageBefore:   usageBefore,
 	}
 	r.sessionTurns[sessionID] = requestID
@@ -213,6 +218,9 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 	if _, err := r.turns.Upsert(ctx, startedTurn); err != nil {
 		return RuntimeChatResponse{}, err
 	}
+	r.mu.Lock()
+	r.upsertActiveSessionStatusLocked(activeSessionStatusFromTurn(startedTurn))
+	r.mu.Unlock()
 	if r.userInputs.db != nil {
 		stored, err := r.userInputs.Upsert(ctx, normalized, items, requestID)
 		if err != nil {
@@ -232,33 +240,99 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 				r.storeRuntimeEvent(newTurnFinishedRuntimeEvent(time.Now(), failed.ID, failed.SessionID, "failed", 0, failed.Provider, failed.Model, RuntimeUsage{}, failed.Error))
 				return RuntimeChatResponse{}, err
 			}
-			r.recordRunTurnTransition(ctx, runtimeRunTransitionSourceTurnStarted, startedTurn, "", runtimeRunStatusActive, "turn started")
 		}
 	}
 
+	slog.Info("Desktop chat queued", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "prompt_len", len(prompt))
+	if !r.turnDispatcher.enqueue(requestID) {
+		return RuntimeChatResponse{}, errors.New("turn is already queued for model admission")
+	}
+	if queuedStatus, statusErr := r.Status(ctx); statusErr == nil {
+		status = queuedStatus
+	}
+
+	return RuntimeChatResponse{
+		RequestID:       requestID,
+		TurnID:          requestID,
+		Status:          status,
+		NormalizedInput: &normalized,
+	}, nil
+}
+
+func (r *runtimeService) runQueuedModelTurn(turnID string) {
+	ctx := context.Background()
+	turn, err := r.turns.Get(ctx, turnID)
+	if err != nil || turn.Status != turnStatusQueued {
+		return
+	}
+	normalized, err := r.userInputs.GetByTurn(ctx, turnID)
+	if err != nil {
+		r.failQueuedModelTurn(ctx, turn, err)
+		return
+	}
+	prompt := strings.TrimSpace(normalized.Prompt)
+	if prompt == "" && len(normalized.Attachments) > 0 {
+		prompt = "[attachments]"
+	}
+	if prompt == "" {
+		r.failQueuedModelTurn(ctx, turn, errors.New("queued turn prompt is empty"))
+		return
+	}
+
+	r.mu.Lock()
+	state := r.requests[turnID]
+	if state.Cancelled || state.Finished {
+		r.mu.Unlock()
+		return
+	}
+	workbenchService := r.runtime
+	workspace := r.workspace
+	runCtx := r.runtimeCtx
+	state.Status = turnStatusRunning
+	r.requests[turnID] = state
+	r.mu.Unlock()
+	if workbenchService == nil || workspace == nil {
+		r.failQueuedModelTurn(ctx, turn, errors.New("runtime workspace is unavailable for queued turn"))
+		return
+	}
+	if runCtx == nil {
+		runCtx = context.Background()
+	}
+	runCtx = agent.WithModelResourceGovernor(runCtx, r.resourceGovernor)
+	runCtx = agent.WithToolResourceGovernor(runCtx, r.resourceGovernor)
+
+	turn.Status = turnStatusRunning
+	if _, err := r.turns.Upsert(ctx, turn); err != nil {
+		r.failQueuedModelTurn(ctx, turn, err)
+		return
+	}
+	r.mu.Lock()
+	r.upsertActiveSessionStatusLocked(activeSessionStatusFromTurn(turn))
+	r.mu.Unlock()
+	r.recordRunTurnTransition(ctx, runtimeRunTransitionSourceTurnStarted, turn, "", runtimeRunStatusActive, "turn admitted for execution")
+	r.ensureTurnMCPServers(runCtx)
 	skills, mcpServers, mcpTools := r.runtimeAuditInventory(ctx)
 	skillSummary := runtimeTurnSkillSummary(skills, string(r.currentPolicyMode()))
-	r.recordTurnSkillActivation(sessionID, requestID, skillSummary)
+	r.recordTurnSkillActivation(turn.SessionID, turn.ID, skillSummary)
 	contextResp, contextErr := r.ContextSources(ctx)
 	if contextErr != nil {
 		slog.Debug("Runtime context source inventory unavailable", "error", contextErr)
 	}
-	contextSummary := r.recordTurnContextSources(sessionID, requestID, contextResp.Sources)
-	budget := r.computeRuntimeBudget(ctx, sessionID, requestID, status.Model, len(prompt), &contextSummary)
-	r.publishContextUsageUpdated(ctx, sessionID, requestID, status.Model, len(prompt), &contextSummary)
-
-	slog.Info("Desktop chat queued", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "prompt_len", len(prompt))
+	contextSummary := r.recordTurnContextSources(turn.SessionID, turn.ID, contextResp.Sources)
+	budget := r.computeRuntimeBudget(ctx, turn.SessionID, turn.ID, turn.Model, len(prompt), &contextSummary)
+	r.publishContextUsageUpdated(ctx, turn.SessionID, turn.ID, turn.Model, len(prompt), &contextSummary)
+	start := time.UnixMilli(turn.StartedAt)
 	r.writeAudit(auditEntry{
-		RequestID:      requestID,
+		RequestID:      turn.ID,
 		Event:          "started",
-		Timestamp:      start.Format(time.RFC3339Nano),
-		WorkspaceID:    wsID,
-		SessionID:      sessionID,
-		Provider:       status.Provider,
-		Model:          status.Model,
+		Timestamp:      time.Now().Format(time.RFC3339Nano),
+		WorkspaceID:    workspace.ID,
+		SessionID:      turn.SessionID,
+		Provider:       turn.Provider,
+		Model:          turn.Model,
 		PromptLength:   len(prompt),
 		PromptPreview:  preview(prompt, auditPreviewLimit),
-		UsageBefore:    &usageBefore,
+		UsageBefore:    &turn.UsageBefore,
 		Skills:         skills,
 		SkillSummary:   &skillSummary,
 		ContextSummary: &contextSummary,
@@ -269,49 +343,83 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 	r.storeRuntimeEvent(runtimeapi.Event{
 		ID:        newRuntimeEventID(),
 		Type:      runtimeapi.EventTurnStarted,
-		CreatedAt: start.UTC().Format(time.RFC3339Nano),
-		SessionID: sessionID,
-		TurnID:    requestID,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID: turn.SessionID,
+		TurnID:    turn.ID,
 		Payload: map[string]any{
-			"provider":       status.Provider,
-			"model":          status.Model,
+			"provider":       turn.Provider,
+			"model":          turn.Model,
 			"prompt_length":  len(prompt),
 			"prompt_preview": preview(prompt, 160),
 			"input_id":       normalized.ID,
 			"input_mode":     normalized.Mode,
-			"usage_before":   usageBefore,
+			"usage_before":   turn.UsageBefore,
 		},
 	})
-	if _, err := r.turns.Upsert(ctx, RuntimeTurn{
-		ID:            requestID,
-		SessionID:     sessionID,
-		Status:        turnStatusRunning,
-		Provider:      status.Provider,
-		Model:         status.Model,
-		PromptPreview: preview(prompt, auditPreviewLimit),
-		UsageBefore:   usageBefore,
-		StartedAt:     start.UnixMilli(),
-	}); err != nil {
-		return RuntimeChatResponse{}, err
-	}
 
-	userMessageMetadata := runtimeUserMessageMetadata(normalized)
 	// Session ownership and cwd are persisted independently from the desktop's
-	// currently selected project. Resolve the execution cwd from the Session so
-	// switching the project picker cannot make an existing/new Turn run against
-	// the process workspace (typically the agent-builder checkout).
+	// current project selection, so dispatch reconstructs them after admission.
 	sessionWorkdir := ""
-	if sess, sessionErr := r.runtime.GetSession(ctx, wsID, sessionID); sessionErr == nil {
+	if sess, sessionErr := workbenchService.GetSession(ctx, workspace.ID, turn.SessionID); sessionErr == nil {
 		sessionWorkdir = strings.TrimSpace(sess.Workdir)
 	}
-	go r.runChat(runCtx, requestID, wsID, sessionID, sessionWorkdir, prompt, userMessageMetadata, start, usageBefore, status.Provider, status.Model)
+	r.runChat(runCtx, turn.ID, workspace.ID, turn.SessionID, sessionWorkdir, prompt, runtimeUserMessageMetadata(normalized), start, turn.UsageBefore, turn.Provider, turn.Model)
+}
 
-	return RuntimeChatResponse{
-		RequestID:       requestID,
-		TurnID:          requestID,
-		Status:          status,
-		NormalizedInput: &normalized,
-	}, nil
+func (r *runtimeService) failQueuedModelTurn(ctx context.Context, turn RuntimeTurn, cause error) {
+	turn.Status = turnStatusFailed
+	turn.Error = cause.Error()
+	turn.FinishedAt = time.Now().UnixMilli()
+	_, _ = r.turns.Upsert(ctx, turn)
+	r.mu.Lock()
+	state := r.requests[turn.ID]
+	state.Status = turnStatusFailed
+	state.Error = cause.Error()
+	state.Finished = true
+	state.FinishedAt = turn.FinishedAt
+	r.requests[turn.ID] = state
+	r.mu.Unlock()
+	r.storeRuntimeEvent(newTurnFinishedRuntimeEvent(time.Now(), turn.ID, turn.SessionID, turnStatusFailed, 0, turn.Provider, turn.Model, RuntimeUsage{}, turn.Error))
+}
+
+func (r *runtimeService) recoverQueuedModelTurns(ctx context.Context) ([]RuntimeTurn, error) {
+	queued, err := r.turns.List(ctx, turnStatusQueued)
+	if err != nil {
+		return nil, err
+	}
+	slices.SortStableFunc(queued, func(left, right RuntimeTurn) int {
+		if left.StartedAt < right.StartedAt {
+			return -1
+		}
+		if left.StartedAt > right.StartedAt {
+			return 1
+		}
+		return strings.Compare(left.ID, right.ID)
+	})
+	recovered := make([]RuntimeTurn, 0, len(queued))
+	for _, turn := range queued {
+		if _, err := r.userInputs.GetByTurn(ctx, turn.ID); err != nil {
+			r.failQueuedModelTurn(ctx, turn, fmt.Errorf("queued turn input recovery failed: %w", err))
+			continue
+		}
+		r.mu.Lock()
+		r.requests[turn.ID] = runtimeRequestState{
+			SessionID:     turn.SessionID,
+			Provider:      turn.Provider,
+			Model:         turn.Model,
+			PromptPreview: turn.PromptPreview,
+			StartedAt:     turn.StartedAt,
+			Status:        turnStatusQueued,
+			UsageBefore:   turn.UsageBefore,
+		}
+		r.sessionTurns[turn.SessionID] = turn.ID
+		r.upsertActiveSessionStatusLocked(activeSessionStatusFromTurn(turn))
+		r.mu.Unlock()
+		if r.turnDispatcher.enqueue(turn.ID) {
+			recovered = append(recovered, turn)
+		}
+	}
+	return recovered, nil
 }
 
 func (r *runtimeService) Turn(ctx context.Context, turnID string) (RuntimeTurnResponse, error) {
@@ -456,8 +564,11 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 	}
 	runStatusBefore := r.runtimeRunStatusForSession(ctx, turn.SessionID)
 
-	if err := r.runtime.CancelSession(wsID, state.SessionID); err != nil {
-		return RuntimeStatus{}, fmt.Errorf("failed to cancel session: %w", err)
+	queued := r.turnDispatcher.cancel(turnID)
+	if !queued {
+		if err := r.runtime.CancelSession(wsID, state.SessionID); err != nil {
+			return RuntimeStatus{}, fmt.Errorf("failed to cancel session: %w", err)
+		}
 	}
 	now := time.Now()
 	turn.Status = turnStatusCancelling
@@ -978,7 +1089,11 @@ func (r *runtimeService) runtimeRequestsLocked() RuntimeRequests {
 		if isFinalRuntimeRequestState(state) {
 			continue
 		}
-		out.Running++
+		if state.Status == turnStatusQueued {
+			out.Queued++
+		} else {
+			out.Running++
+		}
 		if out.ActiveStartedAt == 0 || state.StartedAt < out.ActiveStartedAt {
 			out.ActiveRequestID = requestID
 			out.ActiveStartedAt = state.StartedAt

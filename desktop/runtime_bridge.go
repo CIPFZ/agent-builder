@@ -9,11 +9,14 @@ import (
 	"time"
 
 	runtime "github.com/CIPFZ/agent-builder/internal/runtime"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type (
 	RuntimeStatus                                    = runtime.RuntimeStatus
+	RuntimeIdleMemoryGuardRequest                    = runtime.RuntimeIdleMemoryGuardRequest
+	RuntimeIdleMemoryGuardResponse                   = runtime.RuntimeIdleMemoryGuardResponse
 	RuntimeProject                                   = runtime.RuntimeProject
 	RuntimeProjectsResponse                          = runtime.RuntimeProjectsResponse
 	RuntimeSidebarProjectionResponse                 = runtime.RuntimeSidebarProjectionResponse
@@ -149,6 +152,7 @@ type (
 	RuntimeMessagePart                               = runtime.RuntimeMessagePart
 	RuntimeSession                                   = runtime.RuntimeSession
 	RuntimeSessionsResponse                          = runtime.RuntimeSessionsResponse
+	RuntimeSessionPageRequest                        = runtime.RuntimeSessionPageRequest
 	RuntimeSessionResponse                           = runtime.RuntimeSessionResponse
 	RuntimeSessionCreateRequest                      = runtime.RuntimeSessionCreateRequest
 	RuntimeSessionUpdateRequest                      = runtime.RuntimeSessionUpdateRequest
@@ -272,6 +276,11 @@ type (
 // boundary.
 type RuntimeBridge struct {
 	service                       runtime.RuntimeService
+	idleMemoryGuardMu             sync.Mutex
+	idleMemoryGuardBreaches       int
+	idleMemoryGuardLastSample     time.Time
+	idleMemoryGuardMeasure        func() (desktopProcessMemory, error)
+	idleMemoryGuardNow            func() time.Time
 	terminalMu                    sync.Mutex
 	terminalStreams               map[string]*runtimeBridgeTerminalStream
 	conversationV2Mu              sync.Mutex
@@ -294,6 +303,8 @@ type runtimeBridgeOutputStream struct {
 func NewRuntimeBridge() *RuntimeBridge {
 	return &RuntimeBridge{
 		service:                       runtime.NewRuntimeService(),
+		idleMemoryGuardMeasure:        measureDesktopProcessTreeMemory,
+		idleMemoryGuardNow:            time.Now,
 		terminalStreams:               make(map[string]*runtimeBridgeTerminalStream),
 		conversationV2Streams:         make(map[string]*runtimeBridgeOutputStream),
 		conversationV2StreamBySession: make(map[string]string),
@@ -303,6 +314,63 @@ func NewRuntimeBridge() *RuntimeBridge {
 
 func (r *RuntimeBridge) Status(ctx context.Context) (RuntimeStatus, error) {
 	return r.service.Status(ctx)
+}
+
+func (r *RuntimeBridge) IdleMemoryGuard(ctx context.Context, req RuntimeIdleMemoryGuardRequest) (RuntimeIdleMemoryGuardResponse, error) {
+	response, err := r.service.IdleMemoryGuard(ctx, req)
+	if err != nil {
+		return response, err
+	}
+	if !response.Eligible {
+		r.resetIdleMemoryGuardSamples()
+		return response, nil
+	}
+	measure := r.idleMemoryGuardMeasure
+	if measure == nil {
+		measure = measureDesktopProcessTreeMemory
+	}
+	sample, err := measure()
+	if err != nil {
+		return response, nil
+	}
+	response.MemorySupported = true
+	response.ProcessTreePrivateBytes = sample.ProcessTreePrivateBytes
+	response.WebViewPrivateBytes = sample.WebViewPrivateBytes
+	response.RequiredSamples = desktopMemoryGuardRequiredSamples
+	response.NextSampleAfterMS = desktopMemoryGuardSampleInterval.Milliseconds()
+	response.HighWater = sample.ProcessTreePrivateBytes >= desktopMemoryGuardTreeHighWaterBytes || sample.WebViewPrivateBytes >= desktopMemoryGuardWebViewHighWaterBytes
+
+	now := time.Now()
+	if r.idleMemoryGuardNow != nil {
+		now = r.idleMemoryGuardNow()
+	}
+	response.SampledAt = now.UnixMilli()
+	r.idleMemoryGuardMu.Lock()
+	if !response.HighWater {
+		r.idleMemoryGuardBreaches = 0
+		r.idleMemoryGuardLastSample = time.Time{}
+	} else if r.idleMemoryGuardLastSample.IsZero() || now.Sub(r.idleMemoryGuardLastSample) >= desktopMemoryGuardSampleInterval {
+		r.idleMemoryGuardBreaches++
+		r.idleMemoryGuardLastSample = now
+	}
+	response.SustainedSamples = r.idleMemoryGuardBreaches
+	response.Sustained = r.idleMemoryGuardBreaches >= desktopMemoryGuardRequiredSamples
+	r.idleMemoryGuardMu.Unlock()
+	return response, nil
+}
+
+var (
+	desktopMemoryGuardTreeHighWaterBytes    int64 = 900 << 20
+	desktopMemoryGuardWebViewHighWaterBytes int64 = 750 << 20
+	desktopMemoryGuardRequiredSamples             = 3
+	desktopMemoryGuardSampleInterval              = 10 * time.Second
+)
+
+func (r *RuntimeBridge) resetIdleMemoryGuardSamples() {
+	r.idleMemoryGuardMu.Lock()
+	r.idleMemoryGuardBreaches = 0
+	r.idleMemoryGuardLastSample = time.Time{}
+	r.idleMemoryGuardMu.Unlock()
 }
 
 func (r *RuntimeBridge) RecoveryStatus(ctx context.Context) (RuntimeRecoveryStatus, error) {
@@ -846,6 +914,10 @@ func (r *RuntimeBridge) Sessions(ctx context.Context) (RuntimeSessionsResponse, 
 	return r.service.Sessions(ctx)
 }
 
+func (r *RuntimeBridge) SessionPage(ctx context.Context, req RuntimeSessionPageRequest) (RuntimeSessionsResponse, error) {
+	return r.service.SessionPage(ctx, req)
+}
+
 func (r *RuntimeBridge) Session(ctx context.Context, sessionID string) (RuntimeSessionResponse, error) {
 	return r.service.Session(ctx, sessionID)
 }
@@ -1078,11 +1150,21 @@ func (r *RuntimeBridge) StartRuntimeEventStream(ctx context.Context, req Runtime
 				if !ok {
 					return
 				}
+				if !runtimeEventVisibleInWorkspaceStream(event) {
+					continue
+				}
 				app.Event.Emit(eventName, RuntimeEventStreamMessage{StreamID: streamID, Events: []RuntimeEvent{event}})
 			}
 		}
 	}()
 	return RuntimeEventStreamResponse{StreamID: streamID, EventName: eventName}, nil
+}
+
+func runtimeEventVisibleInWorkspaceStream(event RuntimeEvent) bool {
+	// Focused canonical streams own live message text. Forwarding the same
+	// ephemeral token through the Workspace invalidation stream duplicates
+	// serialization and renderer allocation without contributing status.
+	return event.Type != runtimeapi.EventOutputTextDelta
 }
 
 func (r *RuntimeBridge) StopRuntimeEventStream(ctx context.Context, req RuntimeEventStreamStopRequest) (bool, error) {

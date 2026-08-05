@@ -111,7 +111,7 @@ func (a *sessionAgent) GenerateCompactSummary(ctx context.Context, req CompactSu
 		summaryTurnID = "compact_" + strings.TrimSpace(req.TurnID)
 	}
 
-	agent := fantasy.NewAgent(model.Model,
+	agent := fantasy.NewAgent(governLanguageModel(ctx, model.Model),
 		fantasy.WithSystemPrompt(system),
 		fantasy.WithMaxOutputTokens(maxOutput),
 		fantasy.WithUserAgent(userAgent),

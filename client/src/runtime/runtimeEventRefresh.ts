@@ -1,4 +1,73 @@
-import type { RuntimeEventViewModel } from './workbenchTypes.ts';
+import type { RuntimeEventViewModel, WorkbenchViewModel } from './workbenchTypes.ts';
+
+const turnStartedEvents = new Set(['turn.started']);
+const turnFinishedEvents = new Set(['turn.completed', 'turn.failed', 'turn.cancelled', 'turn.interrupted']);
+
+export function applyRuntimeSessionStatusEvent(current: WorkbenchViewModel, event: RuntimeEventViewModel): WorkbenchViewModel {
+  const sessionID = event.sessionId || '';
+  const turnID = event.turnId || '';
+  const eventType = event.type || '';
+  const starts = turnStartedEvents.has(eventType);
+  const finishes = turnFinishedEvents.has(eventType);
+  if (!sessionID || (!starts && !finishes)) return current;
+
+  let changed = false;
+  const previousStatuses = current.activeSessionStatuses ?? [];
+  const previousStatus = previousStatuses.find((status) => status.sessionId === sessionID);
+  let activeSessionStatuses = previousStatuses;
+  if (starts) {
+    const nextStatus = {
+      sessionId: sessionID,
+      status: 'running',
+      phase: 'model',
+      progressLabel: 'Generating response',
+      activeTurnId: turnID || previousStatus?.activeTurnId,
+      updatedAt: Date.parse(event.createdAt || '') || Date.now(),
+      revision: Math.max(1, (previousStatus?.revision ?? 0) + 1),
+    };
+    activeSessionStatuses = [nextStatus, ...previousStatuses.filter((status) => status.sessionId !== sessionID)].slice(0, 500);
+    changed = true;
+  } else if (finishes && !(previousStatus?.activeTurnId && turnID && previousStatus.activeTurnId !== turnID)) {
+    if (eventType === 'turn.failed' || eventType === 'turn.interrupted') {
+      const nextStatus = {
+        ...previousStatus,
+        sessionId: sessionID,
+        status: 'attention',
+        phase: 'attention',
+        progressLabel: 'Needs attention',
+        activeTurnId: turnID || previousStatus?.activeTurnId,
+        updatedAt: Date.parse(event.createdAt || '') || Date.now(),
+        unread: true,
+        revision: Math.max(1, (previousStatus?.revision ?? 0) + 1),
+      };
+      activeSessionStatuses = [nextStatus, ...previousStatuses.filter((status) => status.sessionId !== sessionID)].slice(0, 500);
+    } else {
+      activeSessionStatuses = previousStatuses.filter((status) => status.sessionId !== sessionID);
+    }
+    changed = activeSessionStatuses !== previousStatuses;
+  }
+  const sessions = current.sessions.map((session) => {
+    if (session.id !== sessionID) return session;
+    if (finishes && session.activeTurnId && turnID && session.activeTurnId !== turnID) return session;
+    const busy = starts;
+    const activeTurnId = starts ? turnID || session.activeTurnId : undefined;
+    if (session.busy === busy && session.activeTurnId === activeTurnId) return session;
+    changed = true;
+    return { ...session, busy, activeTurnId };
+  });
+
+  const ownsComposer = current.conversationTarget.kind === 'session' && current.conversationTarget.sessionId === sessionID;
+  let composer = current.composer;
+  if (ownsComposer && !(finishes && composer.activeTurnId && turnID && composer.activeTurnId !== turnID)) {
+    const busy = starts;
+    const activeTurnId = starts ? turnID || composer.activeTurnId : undefined;
+    if (composer.busy !== busy || composer.activeTurnId !== activeTurnId) {
+      composer = { ...composer, busy, activeTurnId };
+      changed = true;
+    }
+  }
+  return changed ? { ...current, sessions, composer, activeSessionStatuses } : current;
+}
 
 const immediateRefreshEvents = new Set([
   'session.selection.cleared',

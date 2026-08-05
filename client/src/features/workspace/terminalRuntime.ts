@@ -163,6 +163,10 @@ export function startTerminalSubscription(
     }),
   )
     .then((dispose) => {
+      if (runtime.disposed) {
+        dispose();
+        return;
+      }
       runtime.unsubscribe = dispose;
     })
     .catch((error) => {

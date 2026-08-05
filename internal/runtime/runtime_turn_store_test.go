@@ -65,6 +65,37 @@ func TestRuntimeTurnStoreUpsertListAndInterrupt(t *testing.T) {
 	}
 }
 
+func TestRuntimeTurnStoreRestartKeepsQueuedTurnsRunnable(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Release(dataDir) })
+	store := newRuntimeTurnStore(conn)
+	if _, err := store.Upsert(context.Background(), RuntimeTurn{ID: "queued", SessionID: "session", Status: turnStatusQueued, StartedAt: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Upsert(context.Background(), RuntimeTurn{ID: "running", SessionID: "session", Status: turnStatusRunning, StartedAt: 1001}); err != nil {
+		t.Fatal(err)
+	}
+	interrupted, err := store.InterruptUnfinished(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(interrupted) != 1 || interrupted[0].ID != "running" {
+		t.Fatalf("interrupted turns = %#v", interrupted)
+	}
+	queued, err := store.Get(context.Background(), "queued")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued.Status != turnStatusQueued || queued.FinishedAt != 0 {
+		t.Fatalf("queued turn after restart recovery = %#v", queued)
+	}
+}
+
 func TestRuntimeServiceTurnReadsDurableStore(t *testing.T) {
 	t.Parallel()
 

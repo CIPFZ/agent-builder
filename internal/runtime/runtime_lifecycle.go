@@ -142,7 +142,10 @@ func (r *runtimeService) restart() {
 	defer r.startMu.Unlock()
 
 	r.clearContextUsageDebounceTimers()
+	r.turnDispatcher.clear()
 	r.closeRuntimeTerminals("closed", "runtime restarted")
+	r.releaseAllCapabilityResources()
+	r.cancelAllMCPIdleTimers()
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -164,6 +167,8 @@ func (r *runtimeService) restart() {
 	r.eventStats = runtimeEventStats{}
 	r.requests = make(map[string]runtimeRequestState)
 	r.sessionTurns = make(map[string]string)
+	r.activeSessionStatuses = make(map[string]RuntimeActiveSessionStatus)
+	r.activeSessionRevision = 0
 	r.toolEvents = make(map[string]runtimeToolEventState)
 	r.toolCalls = nil
 	r.objects = runtimeObjectStore{}
@@ -181,6 +186,13 @@ func (r *runtimeService) restart() {
 	r.permissions = make(map[string]pendingRuntimePermission)
 	r.policy = defaultRuntimePolicy()
 	r.capabilityLoads = make(map[string]runtimeCapabilityLoadRecord)
+	r.capabilityResources = make(map[string]func())
+	r.mcpIdleTimers = make(map[string]*time.Timer)
+	r.mcpIdleTTL = defaultRuntimeMCPIdleTTL
+	r.mcpServerProjects = make(map[string]string)
+	r.projectMCPServers = make(map[string]map[string]struct{})
+	r.mcpServerConfigs = make(map[string]*config.ConfigStore)
+	r.projectCapabilityUsed = make(map[string]int64)
 	r.terminalsByID = make(map[string]*runtimeTerminalState)
 	r.terminalIDsBySession = make(map[string]map[string]struct{})
 	r.recovery = runtimeRecoveryRecord{}
@@ -327,6 +339,15 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 	r.workspace = &ws
 	r.runtimeConfigured = workspaceConfigured
 	r.runtimeConfigKnown = true
+	wsRuntime.LSPManager.SetResourceAdmission(func(admitCtx context.Context) (func(), error) {
+		projectID := r.currentCapabilityProjectID(ws.ID, wsRuntime.Cfg)
+		if _, err := r.acquireProjectCapabilityResource(admitCtx, projectID); err != nil {
+			return nil, err
+		}
+		consumer := "@lsp:" + projectID
+		r.registerMCPServerProject(consumer, projectID)
+		return func() { r.unregisterMCPServerProject(consumer) }, nil
+	})
 	if err := r.finalizeInterruptedTitleGeneration(ctx, ws.ID); err != nil {
 		return fmt.Errorf("failed to recover session titles: %w", err)
 	}
@@ -548,11 +569,21 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 		r.recordRunTaskTransition(ctx, runtimeRunTransitionSourceStartupRecovery, task, "", runtimeRunStatusInterrupted, "runtime startup recovery interrupted unfinished task")
 	}
 
-	last, listErr := r.runtime.ListSessions(ctx, ws.ID)
-	if listErr == nil && len(last) > 0 {
-		r.sessionID = last[0].ID
-	} else if listErr != nil {
-		return fmt.Errorf("failed to restore Agent Builder sessions: %w", listErr)
+	var lastSessionID string
+	listErr := conn.QueryRowContext(ctx, `
+SELECT id FROM sessions
+WHERE parent_session_id IS NULL AND deleted_at IS NULL
+ORDER BY updated_at DESC, id DESC
+LIMIT 1`).Scan(&lastSessionID)
+	if listErr == nil {
+		r.sessionID = lastSessionID
+	} else if !errors.Is(listErr, sql.ErrNoRows) {
+		return fmt.Errorf("failed to restore Agent Builder session: %w", listErr)
+	}
+	if workspaceConfigured {
+		if _, err := r.recoverQueuedModelTurns(ctx); err != nil {
+			return fmt.Errorf("failed to recover queued model turns: %w", err)
+		}
 	}
 	return nil
 }

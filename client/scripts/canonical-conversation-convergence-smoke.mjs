@@ -8,6 +8,7 @@ import { selectCanonicalStructuredActivity } from '../src/runtime/canonicalStruc
 import { todoDisplayModel } from '../src/features/todos/todoDisplayPolicy.ts';
 
 const wait = () => new Promise((resolve) => setTimeout(resolve, 0));
+const waitMs = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const snapshot = (sessionId, cursor, toolStatus = 'running') => ({ schemaVersion: 2, sessionId, cursor, scope: 'full', turns: [{ id: 'turn-1', sessionId, activitySequence: '1', revision: '1', createdAt: 1, updatedAt: 1, status: 'running' }], messages: [], assistantSteps: [], toolCalls: [{ id: 'tool-1', sessionId, turnId: 'turn-1', activitySequence: '2', revision: cursor, createdAt: 1, updatedAt: 1, name: 'shell', source: 'builtin', status: toolStatus }], toolResults: [], permissions: [], todoPlans: [], agentTasks: [], notices: [] });
 const upsertBatch = (sessionId, afterCursor, cursor, status = 'completed') => ({ schemaVersion: 2, sessionId, afterCursor, cursor, events: [{ schemaVersion: 2, id: `event-${cursor}`, sessionId, turnId: 'turn-1', sequence: cursor, createdAt: 1, entityType: 'toolCall', entityId: 'tool-1', operation: 'upsert', revision: cursor, toolCall: { ...snapshot(sessionId, cursor, status).toolCalls[0], status } }] });
 
@@ -16,6 +17,7 @@ const coordinator = createCanonicalConversationCoordinator({
   fetchSnapshot: async (sessionId, request) => { fetches.push(sessionId); fetchRequests.push(request); return snapshot(sessionId, sessionId === 'A' ? '90071992547409930' : '5'); },
   subscribe: (sessionId, after, nextHandlers) => { subscriptions.push({ sessionId, after }); handlers.set(sessionId, nextHandlers); return () => undefined; },
   onStore: (store) => stores.push(store),
+  liveCommitIntervalMs: 0,
 });
 coordinator.activate('A'); await wait(); await wait();
 assert.deepEqual(fetches, ['A'], 'first activation hydrates exactly once');
@@ -25,17 +27,34 @@ handlers.get('A').onBatch(upsertBatch('A', '90071992547409930', '900719925474099
 assert.equal(stores.at(-1).toolCallsById['tool-1'].status, 'completed');
 handlers.get('A').onBatch({ schemaVersion: 2, sessionId: 'A', afterCursor: '90071992547409931', cursor: '90071992547409931', events: [], deltas: [{ messageId: 'live-A', turnId: 'turn-1', partType: 'text', delta: 'live', contentLength: 4, createdAt: 2 }] });
 assert.equal(coordinator.cached('A').streamingByMessageId['live-A'].text, 'live', 'active Session retains its live overlay');
+
+let coalescedHandler; const coalescedStores = [];
+const coalescedCoordinator = createCanonicalConversationCoordinator({
+  fetchSnapshot: async () => ({ ...snapshot('COALESCED', '1'), messages: [], toolCalls: [] }),
+  subscribe: (_sessionId, _after, nextHandlers) => { coalescedHandler = nextHandlers; return () => undefined; },
+  onStore: (store) => coalescedStores.push(store),
+  liveCommitIntervalMs: 10,
+});
+coalescedCoordinator.activate('COALESCED'); await wait(); await wait();
+const storesBeforeDeltas = coalescedStores.length;
+coalescedHandler.onBatch({ schemaVersion: 2, sessionId: 'COALESCED', afterCursor: '1', cursor: '1', events: [], deltas: [{ messageId: 'live-coalesced', turnId: 'turn-1', partType: 'text', delta: 'a', contentLength: 1, createdAt: 2 }] });
+coalescedHandler.onBatch({ schemaVersion: 2, sessionId: 'COALESCED', afterCursor: '1', cursor: '1', events: [], deltas: [{ messageId: 'live-coalesced', turnId: 'turn-1', partType: 'text', delta: 'b', contentLength: 2, createdAt: 3 }] });
+assert.equal(coalescedStores.length, storesBeforeDeltas, 'pure text deltas wait for the bounded live commit window');
+await waitMs(20);
+assert.equal(coalescedStores.length, storesBeforeDeltas + 1, 'multiple text deltas produce one focused UI store commit');
+assert.equal(coalescedCoordinator.cached('COALESCED').streamingByMessageId['live-coalesced'].text, 'ab', 'coalesced text preserves exact content order');
+coalescedCoordinator.stop();
 const oldAHandler = handlers.get('A');
 coordinator.activate('B'); await wait(); await wait();
-assert.deepEqual(coordinator.cached('A').streamingByMessageId, {}, 'leaving a Session releases its ephemeral token buffers');
+assert.equal(coordinator.cached('A'), undefined, 'leaving a Session releases its complete normalized store and live buffers');
 oldAHandler.onBatch(upsertBatch('A', '90071992547409931', '90071992547409932', 'failed'));
 assert.equal(stores.at(-1).sessionId, 'B', 'late batch from old generation is ignored');
 coordinator.activate('A'); await wait();
-assert.deepEqual(fetches, ['A', 'B'], 'switching back uses cache rather than snapshot');
-assert.equal(subscriptions.at(-1).after, '90071992547409931', 'switch-back catches up from cached cursor');
+assert.deepEqual(fetches, ['A', 'B', 'A'], 'switching back reconstructs the focused Session from a bounded snapshot');
+assert.equal(subscriptions.at(-1).after, '90071992547409930', 'switch-back subscribes from the bounded authoritative snapshot cursor');
 handlers.get('A').onBatch({ schemaVersion: 2, sessionId: 'A', afterCursor: '90071992547409931', cursor: '90071992547409931', events: [], snapshotRequired: true });
 await wait(); await wait();
-assert.deepEqual(fetches, ['A', 'B', 'A'], 'explicit recovery performs one snapshot');
+assert.deepEqual(fetches, ['A', 'B', 'A', 'A'], 'explicit recovery performs one snapshot');
 
 let retryFetches = 0;
 const retryCoordinator = createCanonicalConversationCoordinator({ fetchSnapshot: async () => { retryFetches += 1; if (retryFetches === 1) throw new Error('transient'); return snapshot('R', '1'); }, subscribe: () => () => undefined, onStore: () => undefined, retryDelayMs: () => 0 });
@@ -78,7 +97,8 @@ assert.equal(await pageCoordinator.loadEarlier('P'), false, 'pagination stops wh
 const lruCoordinator = createCanonicalConversationCoordinator({ fetchSnapshot: async (sessionId) => snapshot(sessionId, '1'), subscribe: () => () => undefined, onStore: () => undefined });
 for (const sessionId of ['L1', 'L2', 'L3']) { lruCoordinator.activate(sessionId); await wait(); await wait(); }
 assert.equal(lruCoordinator.cached('L1'), undefined, 'canonical Session cache evicts the least recently used window');
-assert.ok(lruCoordinator.cached('L2') && lruCoordinator.cached('L3'), 'canonical Session cache retains only two recent windows');
+assert.equal(lruCoordinator.cached('L2'), undefined, 'canonical Session cache releases the previous focused window');
+assert.ok(lruCoordinator.cached('L3'), 'canonical Session cache retains only the focused window');
 
 let cachedAFetches = 0; let cachedASubscriptions = 0;
 const cachedReconnectCoordinator = createCanonicalConversationCoordinator({
@@ -90,7 +110,7 @@ const cachedReconnectCoordinator = createCanonicalConversationCoordinator({
 cachedReconnectCoordinator.activate('CA'); await wait(); await wait();
 cachedReconnectCoordinator.activate('CB'); await wait(); await wait();
 cachedReconnectCoordinator.activate('CA'); await wait(); await wait(); await wait();
-assert.equal(cachedAFetches, 2, 'cached Session reconnect failure performs snapshot recovery');
+assert.equal(cachedAFetches, 3, 'focused Session reconnect failure performs snapshot recovery after switch-back hydration');
 cachedReconnectCoordinator.stop();
 
 const groupedSnapshot = snapshot('G', '10');
@@ -185,6 +205,7 @@ const dockSource = await readFile(new URL('../src/features/conversationDock/Conv
 const timelineSource = await readFile(new URL('../src/features/timeline/Timeline.tsx', import.meta.url), 'utf8');
 const permissionSource = await readFile(new URL('../src/features/permissions/PermissionGate.tsx', import.meta.url), 'utf8');
 const workspaceSource = await readFile(new URL('../src/features/workspace/Workspace.tsx', import.meta.url), 'utf8');
+const stickToBottomSource = await readFile(new URL('../src/features/workspace/useStickToBottom.ts', import.meta.url), 'utf8');
 const coordinatorSource = await readFile(new URL('../src/runtime/canonicalConversationCoordinator.ts', import.meta.url), 'utf8');
 const toolCardSource = await readFile(new URL('../src/features/tools/ToolCallCard.tsx', import.meta.url), 'utf8');
 const processNoticeSource = await readFile(new URL('../src/features/timeline/ProcessNoticeItems.tsx', import.meta.url), 'utf8');
@@ -193,6 +214,8 @@ const traceStyles = await readFile(new URL('../src/features/timeline/TraceRow.mo
 const toolStyles = await readFile(new URL('../src/features/tools/ToolCallCard.module.css', import.meta.url), 'utf8');
 assert.equal(shellSource.includes('withFresherOutputStore'), false, 'lagging snapshot heuristic is removed');
 assert.ok(shellSource.includes('createCanonicalConversationCoordinator'), 'canonical coordinator is the conversation writer');
+assert.match(shellSource, /canonicalConversationSource\.publish\(store\);[\s\S]*?if \(previousStore && isLiveOnlyCanonicalStoreUpdate\(previousStore, store\)\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?setViewModel\(/, 'live-only canonical updates publish to the focused source and return before root view-model state');
+assert.equal(shellSource.includes('useSyncExternalStore'), false, 'the workbench shell does not subscribe React root state to live token updates');
 assert.match(shellSource, /const commitConversationAction[\s\S]*?preserveCanonicalConversation\(nextViewModel, current\)/, 'conversation action hydration cannot overwrite a newer canonical stream store');
 assert.match(shellSource, /const decidePermission[\s\S]*?commitConversationAction\(nextViewModel\)/, 'permission decisions use the canonical-safe action commit');
 assert.equal(adapterSource.includes('bridge.SessionOutput?.(activeSessionID, { snapshot: true'), false, 'workbench refresh cannot fetch legacy conversation snapshot');
@@ -200,11 +223,18 @@ assert.match(adapterSource, /if \(!bridge && runtimeBridgePromise === pending\) 
 assert.doesNotMatch(adapterSource, /async submitUserInput[\s\S]*?catch \(error\)[\s\S]*?conversationTarget: target/, 'submit errors propagate to the Shell optimistic error boundary');
 assert.match(timelineSource, /shouldRenderProcess\(block\)/, 'canonical Turn lifecycle rendering is not gated on the first process entity');
 assert.match(timelineSource, /isFailedProcessStatus\(block\.status\)/, 'a failed canonical Turn remains visible even when it has no process entities');
+assert.doesNotMatch(timelineSource, /\}, \[block\.revisionKey, mounted\]\);/, 'streaming tokens do not recreate the Turn ResizeObserver');
+assert.match(timelineSource, /if \(keepMounted\) return;[\s\S]*?new ResizeObserver\(measure\)/, 'active streaming Turns skip virtualization measurement until they settle');
 assert.match(workspaceSource, /<PermissionGate key=\{activePendingPermission\.id\}/, 'each permission request gets isolated local form state');
+assert.ok(workspaceSource.indexOf('useSyncExternalStore(') > workspaceSource.indexOf('function LiveConversationTimeline('), 'only the focused timeline subtree subscribes to the live canonical source');
+assert.equal(workspaceSource.match(/useSyncExternalStore\(/g)?.length, 1, 'workspace has exactly one live canonical subscription');
+assert.match(stickToBottomSource, /if \(behavior === 'smooth'\) \{\s*beginProgrammaticScroll\(\);[\s\S]*?\} else \{\s*node\.scrollTop = node\.scrollHeight;/, 'instant streaming follow avoids smooth-scroll debounce timer churn');
 assert.match(permissionSource, /decisionInFlight\.current/, 'permission decisions have a synchronous duplicate-submit guard');
 assert.match(coordinatorSource, /connect\(sessionId, gen, cached\)\.catch/, 'cached Session stream reconnect failures enter snapshot recovery');
 assert.match(adapterSource, /ReadObjectContent\(refID\)/, 'Runtime Object content is read through the Wails binding');
-assert.match(toolCardSource, /onObjectContentLoad\(outputRef\)/, 'tool details load full output from its canonical Object ref');
+assert.match(toolCardSource, /onObjectContentLoad\(request\.refID\)/, 'the singleton tool detail host loads content from the requested canonical Object ref');
+assert.match(toolCardSource, /openFullOutput[\s\S]*?refID:\s*outputRef/, 'tool details pass the output Object ref to the singleton detail host');
+assert.match(toolCardSource, /generationRef\.current === generation/, 'late Object reads cannot repopulate a closed or replaced detail drawer');
 assert.match(processNoticeSource, /item\.status === 'running'[\s\S]*?<LoadingOutlined spin \/>/, 'canonical running compact notices render as an in-flight spinner');
 assert.doesNotMatch(dockSource, /action\.key === 'jump-to-bottom'/, 'dock layout does not special-case a business action key');
 assert.match(dockSource, /<ConversationActions actions=\{activeActions\}/, 'all visible dock actions share the centered action rail');

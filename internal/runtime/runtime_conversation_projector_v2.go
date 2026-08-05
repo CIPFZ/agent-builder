@@ -137,6 +137,8 @@ func (r *runtimeService) removePendingCanonicalThrough(sessionID string, sequenc
 func canonicalDiffEntityEvents(raw RuntimeEvent, previous, current RuntimeCanonicalConversationSnapshot) ([]RuntimeConversationEntityEventV2, error) {
 	before := map[string]canonicalSnapshotStateRow{}
 	after := map[string]canonicalSnapshotStateRow{}
+	beforeSemantic := canonicalComparableState(previous)
+	afterSemantic := canonicalComparableState(current)
 	for _, row := range canonicalSnapshotStateRows(previous) {
 		before[row.kind+":"+row.meta.ID] = row
 	}
@@ -145,8 +147,8 @@ func canonicalDiffEntityEvents(raw RuntimeEvent, previous, current RuntimeCanoni
 	}
 	out := []RuntimeConversationEntityEventV2{}
 	for key, row := range after {
-		old, exists := before[key]
-		if exists && old.raw == row.raw {
+		_, exists := before[key]
+		if exists && beforeSemantic[key] == afterSemantic[key] {
 			continue
 		}
 		row = canonicalStateRowAtSequence(row, raw.Sequence)
@@ -426,7 +428,7 @@ func canonicalEntityEventsForRaw(raw RuntimeEvent, s RuntimeCanonicalConversatio
 			e.TombstoneReason = "message_deleted"
 			out = append(out, e)
 		}
-	case runtimeapi.EventToolCallStarted, runtimeapi.EventToolCallOutput, runtimeapi.EventToolCallCompleted, runtimeapi.EventToolCallFailed, runtimeapi.EventToolCallCancelled:
+	case runtimeapi.EventToolCallQueued, runtimeapi.EventToolCallStarted, runtimeapi.EventToolCallOutput, runtimeapi.EventToolCallCompleted, runtimeapi.EventToolCallFailed, runtimeapi.EventToolCallCancelled:
 		addCall(raw.ToolCallID)
 	case runtimeapi.EventPermissionRequested, runtimeapi.EventPermissionDecided:
 		addPermission(stringFromMap(raw.Payload, "permission_id"))

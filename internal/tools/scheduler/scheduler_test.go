@@ -62,6 +62,39 @@ func TestMemoryStoreLifecycle(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreQueuedCallTransitionsToRunning(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := New(NewMemoryStore())
+	queued, err := s.QueueCall(ctx, ToolCallRequest{
+		ID:        "call-queued",
+		SessionID: "session-1",
+		TurnID:    "turn-1",
+		Name:      "bash",
+		Source:    ToolSourceShell,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued.Status != ToolCallPending {
+		t.Fatalf("queued call status = %s, want pending", queued.Status)
+	}
+	running, err := s.CreateCall(ctx, ToolCallRequest{
+		ID:        queued.ID,
+		SessionID: queued.SessionID,
+		TurnID:    queued.TurnID,
+		Name:      queued.Name,
+		Source:    queued.Source,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if running.Status != ToolCallRunning {
+		t.Fatalf("admitted call status = %s, want running", running.Status)
+	}
+}
+
 func TestCompleteCallRunningOutputDoesNotFinishCall(t *testing.T) {
 	t.Parallel()
 

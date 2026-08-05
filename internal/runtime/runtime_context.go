@@ -72,6 +72,9 @@ func (r *runtimeService) runtimeMCPContextSources() []RuntimeContextSource {
 		reason := "server_unloaded"
 		enabled := true
 		switch server.State {
+		case mcp.StateUnloaded:
+			state = capabilityStateUnloaded
+			reason = "server_unloaded"
 		case mcp.StateConnected:
 			state = capabilityStateLoaded
 			reason = "server_connected"

@@ -25,6 +25,11 @@ export function HookExecutionDetailDrawer({
   const execution = loadedExecution?.id === executionId ? loadedExecution : fallback;
   const loading = Boolean(executionId && loadingExecutionId === executionId);
   const error = loadError && loadError.executionId === executionId ? loadError.message : '';
+  const releaseDetail = () => {
+    setLoadedExecution(undefined);
+    setLoadingExecutionId(undefined);
+    setLoadError(undefined);
+  };
 
   useEffect(() => {
     if (!open || !executionId || !onLoad) {
@@ -62,7 +67,7 @@ export function HookExecutionDetailDrawer({
   }, [executionId, onLoad, open]);
 
   return (
-    <Drawer open={open} title="Hook execution" width={520} onClose={onClose}>
+    <Drawer destroyOnHidden open={open} title="Hook execution" width={520} afterOpenChange={(visible) => { if (!visible) releaseDetail(); }} onClose={onClose}>
       {loading && !execution ? <Spin /> : null}
       {error ? <Alert type="warning" showIcon message={error} /> : null}
       {execution ? <HookExecutionDetail execution={execution} /> : !loading ? <Text type="secondary">No execution selected.</Text> : null}

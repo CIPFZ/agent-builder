@@ -114,6 +114,10 @@ const VirtualizedTurnBlock = memo(function VirtualizedTurnBlock({
   useLayoutEffect(() => {
     const node = containerRef.current;
     if (!node || !mounted) return;
+    // Active Turns are always mounted, so retaining a virtualization height
+    // while every token changes layout only creates redundant observer/state
+    // work. Start measuring once the Turn settles and can leave the viewport.
+    if (keepMounted) return;
     const measure = () => {
       const height = node.getBoundingClientRect().height;
       if (height > 0) setMeasuredHeight((current) => current === height ? current : height);
@@ -123,7 +127,7 @@ const VirtualizedTurnBlock = memo(function VirtualizedTurnBlock({
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [block.revisionKey, mounted]);
+  }, [keepMounted, mounted]);
 
   useEffect(() => {
     const node = containerRef.current;
